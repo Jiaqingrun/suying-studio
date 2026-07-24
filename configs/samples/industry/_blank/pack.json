@@ -1,0 +1,11 @@
+{
+  "id": "_blank",
+  "name": "空白行业包",
+  "locale": "zh-CN",
+  "hooks": ["今日推荐", "现货速达", "品质之选", "欢迎咨询", "马上行动"],
+  "content_themes": ["default"],
+  "theme_rules": [],
+  "pack_to_content": { "default": "default" },
+  "content_to_pack": { "default": ["default"] },
+  "template_bindings": {}
+}

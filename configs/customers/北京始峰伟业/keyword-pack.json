@@ -1,0 +1,1094 @@
+{
+  "meta": {
+    "source": "北京始峰伟业-宣传更新-客户信息采集表(2).docx",
+    "compiled_at": "2026-07-23",
+    "notes": [
+      "已屏蔽：厂家直销、代理/核心代理对外口径、12小时内送达、24小时内售后对接、更牢固、进出口实绩对外宣称、开票主卖点、始峰集团关联背书、春风服务长城品质、零抱怨服务旧词",
+      "品牌一律降级为「在售品牌」，待授权书补齐后再升级为代理",
+      "手机号仅存 contacts，不进入公开 keyword_pool",
+      "2026-07-23：词条池压缩为每条≤6字，去掉分割符/长句；标题模板改为换行双行无｜"
+    ],
+    "version": 2,
+    "customer_key": "beijing-shifeng-weiye",
+    "customer_name": "北京始峰伟业（始峰五金）",
+    "converted_for": "montage-studio",
+    "source_file": "/Users/qr/Desktop/北京始峰伟业-公司信息与关键词池.md"
+  },
+  "company_info": {
+    "legal_name": "北京始峰伟业贸易有限公司",
+    "brand_names": [
+      "始峰伟业",
+      "始峰五金"
+    ],
+    "display_name_preferred": "北京始峰伟业（始峰五金）",
+    "founded_date": "2001-10-26",
+    "brand_origin_year": null,
+    "registered_capital": "1000万人民币",
+    "disclose_registered_capital": true,
+    "legal_representative": "徐玲飞",
+    "show_legal_representative_in_promo": true,
+    "credit_code": "91110105600378875U",
+    "company_type": "有限责任公司（自然人投资或控股）",
+    "addresses": {
+      "registered": "北京市通州区张家湾镇北大化村116号9幢二层2023",
+      "operating": "通州区张家湾镇云杉路6号始峰五金",
+      "showroom": "通州区张家湾镇云杉路6号始峰五金",
+      "warehouse": "通州区张家湾镇云杉路6号始峰五金"
+    },
+    "contacts": {
+      "contact_name": "徐玲飞",
+      "mobile": "18911195331",
+      "public_hotline": null,
+      "social_accounts": [
+        "始峰五金批发",
+        "始峰伟业"
+      ]
+    },
+    "headcount": {
+      "total_approx": 30,
+      "sales": 10,
+      "warehouse_logistics": 15,
+      "after_sales": 5,
+      "as_of": "2026-07-21"
+    },
+    "scale_claimed_by_client": {
+      "warehouse_area_sqm": 2000,
+      "sku_count": 10000,
+      "delivery_vehicles": 3,
+      "annual_customers_approx": 100,
+      "as_of": "2026-07-21",
+      "client_allows_public_use": true,
+      "verification_status": "客户自述，建议抽查核验"
+    },
+    "group_relationship": {
+      "related_to_shifeng_group": false,
+      "client_statement": "毫无关系",
+      "rule": "禁止借用始峰集团网点/认证/规模背书"
+    },
+    "positioning_one_liner": "北京一站式建筑五金材料批发商",
+    "positioning_boundary": "侧重工地常用五金机具与耗材，不宜暗示覆盖全部建材",
+    "avoid_being_seen_as": "什么都不专业",
+    "target_order_types_12m": [
+      "工程进场",
+      "土建",
+      "二次结构",
+      "市政",
+      "配电箱",
+      "电线电缆",
+      "电力设备配套",
+      "钢筋机械",
+      "塔机料斗",
+      "焊条",
+      "扎丝",
+      "铁床上下铺"
+    ],
+    "target_customers": [
+      "总包单位",
+      "分包/劳务队",
+      "五金零售商/二级批发",
+      "市政/水利/轨交相关"
+    ],
+    "priority_channels": [
+      "微信视频号/抖音",
+      "官网",
+      "门店物料"
+    ],
+    "evidence_available": [
+      "门店/仓库实拍",
+      "送货装车视频"
+    ],
+    "evidence_missing": [
+      "品牌授权书",
+      "ISO/体系证书",
+      "运输相关许可",
+      "客户推荐信/合同脱敏页",
+      "售后工单截图",
+      "Logo/VI源文件"
+    ]
+  },
+  "compliance": {
+    "blocked_terms": [
+      "厂家直销",
+      "核心代理",
+      "授权总代（无证书时）",
+      "12小时内送达",
+      "工作时间内12小时内送达",
+      "24小时内售后人员对接联系",
+      "更牢固",
+      "进出口实绩",
+      "开票（主卖点口径，与客户选择冲突）",
+      "零抱怨服务",
+      "春风服务、长城品质",
+      "始峰集团北京公司",
+      "集团配送中心背书",
+      "第一",
+      "最好",
+      "根治",
+      "100%",
+      "绝对"
+    ],
+    "notes": [
+      "已屏蔽：厂家直销、代理/核心代理对外口径、12小时内送达、24小时内售后对接、更牢固、进出口实绩对外宣称、开票主卖点、始峰集团关联背书、春风服务长城品质、零抱怨服务旧词",
+      "品牌一律降级为「在售品牌」，待授权书补齐后再升级为代理",
+      "手机号仅存 contacts，不进入公开 keyword_pool"
+    ]
+  },
+  "keyword_pool": {
+    "themes": {
+      "default": {
+        "label": "综合品牌",
+        "keywords": [
+          {
+            "text": "始峰五金",
+            "weight": 3
+          },
+          {
+            "text": "始峰伟业",
+            "weight": 2
+          },
+          {
+            "text": "北京始峰伟业",
+            "weight": 2
+          },
+          {
+            "text": "建筑五金",
+            "weight": 3
+          },
+          {
+            "text": "工地五金",
+            "weight": 3
+          },
+          {
+            "text": "五金批发",
+            "weight": 3
+          },
+          {
+            "text": "仓配一体",
+            "weight": 3
+          },
+          {
+            "text": "本地仓配",
+            "weight": 3
+          },
+          {
+            "text": "一站配齐",
+            "weight": 2
+          },
+          {
+            "text": "工地采购",
+            "weight": 2
+          },
+          {
+            "text": "老牌五金",
+            "weight": 2
+          },
+          {
+            "text": "通州五金",
+            "weight": 2
+          },
+          {
+            "text": "仓库现货",
+            "weight": 2
+          },
+          {
+            "text": "本地配送",
+            "weight": 2
+          },
+          {
+            "text": "精打细算",
+            "weight": 1
+          },
+          {
+            "text": "倾心服务",
+            "weight": 1
+          },
+          {
+            "text": "快速响应",
+            "weight": 1
+          },
+          {
+            "text": "高效服务",
+            "weight": 1
+          }
+        ]
+      },
+      "建筑与施工机械": {
+        "label": "建筑与施工机械",
+        "keywords": [
+          {
+            "text": "施工机械",
+            "weight": 3
+          },
+          {
+            "text": "钢筋切断机",
+            "weight": 3
+          },
+          {
+            "text": "钢筋弯曲机",
+            "weight": 3
+          },
+          {
+            "text": "钢筋调直机",
+            "weight": 3
+          },
+          {
+            "text": "钢筋锯床",
+            "weight": 2
+          },
+          {
+            "text": "弯箍机",
+            "weight": 2
+          },
+          {
+            "text": "小型机械",
+            "weight": 2
+          },
+          {
+            "text": "钢筋机械",
+            "weight": 3
+          },
+          {
+            "text": "切断机",
+            "weight": 2
+          },
+          {
+            "text": "弯曲机",
+            "weight": 2
+          },
+          {
+            "text": "调直机",
+            "weight": 2
+          }
+        ]
+      },
+      "电动工具与五金工具": {
+        "label": "电动工具与五金工具",
+        "keywords": [
+          {
+            "text": "电动工具",
+            "weight": 3
+          },
+          {
+            "text": "五金工具",
+            "weight": 3
+          },
+          {
+            "text": "角磨机",
+            "weight": 2
+          },
+          {
+            "text": "电钻电锤",
+            "weight": 2
+          },
+          {
+            "text": "切割机",
+            "weight": 2
+          },
+          {
+            "text": "冲击钻",
+            "weight": 2
+          },
+          {
+            "text": "工具耗材",
+            "weight": 2
+          },
+          {
+            "text": "工地工具",
+            "weight": 2
+          }
+        ]
+      },
+      "焊接与耗材": {
+        "label": "焊接与耗材",
+        "keywords": [
+          {
+            "text": "焊接耗材",
+            "weight": 3
+          },
+          {
+            "text": "焊条焊丝",
+            "weight": 3
+          },
+          {
+            "text": "电焊条",
+            "weight": 2
+          },
+          {
+            "text": "二氧化碳",
+            "weight": 1
+          },
+          {
+            "text": "焊机配件",
+            "weight": 2
+          },
+          {
+            "text": "工地焊接",
+            "weight": 2
+          }
+        ]
+      },
+      "电工电料与照明设备": {
+        "label": "电工电料与照明设备",
+        "keywords": [
+          {
+            "text": "电工电料",
+            "weight": 3
+          },
+          {
+            "text": "配电箱",
+            "weight": 3
+          },
+          {
+            "text": "电线电缆",
+            "weight": 3
+          },
+          {
+            "text": "照明设备",
+            "weight": 2
+          },
+          {
+            "text": "线缆批发",
+            "weight": 2
+          },
+          {
+            "text": "工地用电",
+            "weight": 2
+          },
+          {
+            "text": "电力配套",
+            "weight": 2
+          }
+        ]
+      },
+      "劳防用品": {
+        "label": "劳防用品",
+        "keywords": [
+          {
+            "text": "劳防用品",
+            "weight": 3
+          },
+          {
+            "text": "安全帽",
+            "weight": 2
+          },
+          {
+            "text": "劳保手套",
+            "weight": 2
+          },
+          {
+            "text": "反光背心",
+            "weight": 2
+          },
+          {
+            "text": "工地劳保",
+            "weight": 2
+          },
+          {
+            "text": "防护用品",
+            "weight": 2
+          }
+        ]
+      },
+      "吊料容器": {
+        "label": "吊料容器",
+        "keywords": [
+          {
+            "text": "塔机料斗",
+            "weight": 3
+          },
+          {
+            "text": "吊料斗",
+            "weight": 2
+          },
+          {
+            "text": "料斗容器",
+            "weight": 2
+          },
+          {
+            "text": "工地料斗",
+            "weight": 2
+          },
+          {
+            "text": "吊运料斗",
+            "weight": 2
+          }
+        ]
+      },
+      "五金耗材": {
+        "label": "五金耗材",
+        "keywords": [
+          {
+            "text": "五金耗材",
+            "weight": 3
+          },
+          {
+            "text": "镀锌铁丝",
+            "weight": 2
+          },
+          {
+            "text": "扎丝",
+            "weight": 2
+          },
+          {
+            "text": "铁钉螺丝",
+            "weight": 2
+          },
+          {
+            "text": "工地耗材",
+            "weight": 3
+          },
+          {
+            "text": "紧固件",
+            "weight": 2
+          },
+          {
+            "text": "铁丝扎丝",
+            "weight": 2
+          }
+        ]
+      },
+      "磨具磨料": {
+        "label": "磨具磨料",
+        "keywords": [
+          {
+            "text": "磨具磨料",
+            "weight": 3
+          },
+          {
+            "text": "切割片",
+            "weight": 2
+          },
+          {
+            "text": "砂轮片",
+            "weight": 2
+          },
+          {
+            "text": "打磨片",
+            "weight": 2
+          },
+          {
+            "text": "角磨片",
+            "weight": 2
+          }
+        ]
+      },
+      "电动工程三轮车": {
+        "label": "电动工程三轮车",
+        "keywords": [
+          {
+            "text": "工程三轮车",
+            "weight": 3
+          },
+          {
+            "text": "电动三轮车",
+            "weight": 3
+          },
+          {
+            "text": "工地三轮车",
+            "weight": 2
+          },
+          {
+            "text": "货运三轮",
+            "weight": 2
+          }
+        ]
+      },
+      "其他工程配套": {
+        "label": "其他工程配套",
+        "keywords": [
+          {
+            "text": "工程配套",
+            "weight": 3
+          },
+          {
+            "text": "铁床上下铺",
+            "weight": 2
+          },
+          {
+            "text": "工地铁床",
+            "weight": 2
+          },
+          {
+            "text": "沙袋雨衣",
+            "weight": 2
+          },
+          {
+            "text": "抢修物资",
+            "weight": 2
+          },
+          {
+            "text": "水泵配件",
+            "weight": 2
+          }
+        ]
+      },
+      "scenario": {
+        "label": "场景采购",
+        "keywords": [
+          {
+            "text": "工程进场",
+            "weight": 3
+          },
+          {
+            "text": "土建备料",
+            "weight": 2
+          },
+          {
+            "text": "二次结构",
+            "weight": 2
+          },
+          {
+            "text": "市政配套",
+            "weight": 2
+          },
+          {
+            "text": "开盘备料",
+            "weight": 2
+          },
+          {
+            "text": "维修抢修",
+            "weight": 2
+          },
+          {
+            "text": "门店补货",
+            "weight": 2
+          },
+          {
+            "text": "劳务队采购",
+            "weight": 2
+          },
+          {
+            "text": "总包采购",
+            "weight": 2
+          }
+        ]
+      },
+      "service": {
+        "label": "服务与配送",
+        "keywords": [
+          {
+            "text": "仓配一体",
+            "weight": 3
+          },
+          {
+            "text": "本地配送",
+            "weight": 3
+          },
+          {
+            "text": "仓库现货",
+            "weight": 3
+          },
+          {
+            "text": "装车就走",
+            "weight": 3
+          },
+          {
+            "text": "随到随提",
+            "weight": 2
+          },
+          {
+            "text": "少跑冤枉路",
+            "weight": 2
+          },
+          {
+            "text": "送货上门",
+            "weight": 2
+          },
+          {
+            "text": "工地急件",
+            "weight": 2
+          },
+          {
+            "text": "当天可提",
+            "weight": 2
+          },
+          {
+            "text": "本地仓发",
+            "weight": 2
+          },
+          {
+            "text": "配货上门",
+            "weight": 2
+          }
+        ]
+      },
+      "brands": {
+        "label": "在售品类口碑",
+        "keywords": [
+          {
+            "text": "在售品牌",
+            "weight": 2
+          },
+          {
+            "text": "品类齐全",
+            "weight": 2
+          },
+          {
+            "text": "现货充足",
+            "weight": 2
+          },
+          {
+            "text": "性价比高",
+            "weight": 1
+          },
+          {
+            "text": "工地常用",
+            "weight": 2
+          }
+        ]
+      },
+      "配送": {
+        "label": "配送",
+        "keywords": [
+          {
+            "text": "本地配送",
+            "weight": 3
+          },
+          {
+            "text": "仓配一体",
+            "weight": 3
+          },
+          {
+            "text": "装车配送",
+            "weight": 2
+          },
+          {
+            "text": "工地送货",
+            "weight": 3
+          },
+          {
+            "text": "通州配送",
+            "weight": 2
+          },
+          {
+            "text": "近距离送",
+            "weight": 2
+          }
+        ]
+      },
+      "五金": {
+        "label": "五金",
+        "keywords": [
+          {
+            "text": "始峰五金",
+            "weight": 3
+          },
+          {
+            "text": "建筑五金",
+            "weight": 3
+          },
+          {
+            "text": "工地五金",
+            "weight": 3
+          },
+          {
+            "text": "五金批发",
+            "weight": 3
+          },
+          {
+            "text": "五金耗材",
+            "weight": 2
+          }
+        ]
+      }
+    },
+    "flat_keywords": [
+      "始峰五金",
+      "始峰伟业",
+      "北京始峰伟业",
+      "建筑五金",
+      "工地五金",
+      "五金批发",
+      "仓配一体",
+      "本地仓配",
+      "一站配齐",
+      "工地采购",
+      "仓库现货",
+      "本地配送",
+      "钢筋机械",
+      "配电箱",
+      "电线电缆",
+      "劳防用品",
+      "塔机料斗",
+      "五金耗材",
+      "磨具磨料",
+      "工程三轮车",
+      "焊条焊丝",
+      "镀锌铁丝",
+      "通州五金",
+      "装车就走"
+    ],
+    "core_phrases": [
+      "始峰五金",
+      "始峰伟业",
+      "北京始峰伟业",
+      "建筑五金",
+      "工地五金",
+      "五金批发",
+      "仓配一体",
+      "本地仓配",
+      "一站配齐",
+      "仓库现货",
+      "本地配送",
+      "老牌五金"
+    ],
+    "hashtags": [
+      "#始峰五金",
+      "#建筑五金",
+      "#工地采购",
+      "#仓配一体",
+      "#北京五金批发",
+      "#本地配送"
+    ],
+    "homepage_focus_categories": [
+      "五金耗材",
+      "电动工具",
+      "电动工程三轮车",
+      "吊料容器"
+    ],
+    "product_categories": [
+      {
+        "name": "建筑与施工机械",
+        "status": "在售",
+        "promote": true,
+        "items": [
+          "钢筋切断机",
+          "钢筋弯曲机",
+          "钢筋调直机",
+          "钢筋锯床",
+          "五机头钢筋弯箍机",
+          "小型施工机械",
+          "中型钢筋机械"
+        ]
+      },
+      {
+        "name": "电动工具与五金工具",
+        "status": "在售",
+        "promote": true,
+        "items": [
+          "电锤",
+          "电镐",
+          "角磨机",
+          "云石机",
+          "型材切割机",
+          "水钻",
+          "冷切锯",
+          "滚司机",
+          "冷切机",
+          "五金工具"
+        ]
+      },
+      {
+        "name": "焊接与耗材",
+        "status": "在售",
+        "promote": true,
+        "items": [
+          "电焊机",
+          "二保焊机",
+          "等离子切割机",
+          "焊条",
+          "焊丝",
+          "焊接辅材"
+        ]
+      },
+      {
+        "name": "电工电料与照明设备",
+        "status": "在售",
+        "promote": true,
+        "items": [
+          "电线电缆",
+          "配电箱",
+          "LED投光灯",
+          "电料辅材",
+          "电工胶带"
+        ]
+      },
+      {
+        "name": "劳防用品",
+        "status": "在售",
+        "promote": true,
+        "items": [
+          "安全带",
+          "安全绳",
+          "密目网",
+          "白网",
+          "防尘网",
+          "电焊手套",
+          "线手套",
+          "工业手套",
+          "胶手套"
+        ]
+      },
+      {
+        "name": "吊料容器",
+        "status": "在售",
+        "promote": true,
+        "items": [
+          "塔机料斗"
+        ],
+        "objective_features": [
+          "钢筋包底",
+          "钢板加厚加粗"
+        ]
+      },
+      {
+        "name": "五金耗材",
+        "status": "在售",
+        "promote": true,
+        "items": [
+          "镀锌铁丝",
+          "铁钉",
+          "元钉",
+          "绑丝",
+          "火烧丝",
+          "断丝",
+          "扎丝",
+          "水泥垫块",
+          "水泥支撑"
+        ]
+      },
+      {
+        "name": "磨具磨料",
+        "status": "在售",
+        "promote": true,
+        "items": [
+          "树脂砂轮切割片",
+          "树脂砂轮磨光片",
+          "树脂百页轮",
+          "合金锯片",
+          "砂纸",
+          "砂布",
+          "碗状合金磨轮",
+          "瓷砖切割片",
+          "云石片"
+        ]
+      },
+      {
+        "name": "电动工程三轮车",
+        "status": "在售",
+        "promote": true,
+        "items": [
+          "手推电动三轮车",
+          "平板拉砖车",
+          "液压自动升降三轮车",
+          "工地电动三轮车"
+        ],
+        "usage_boundary": "按工地场内运输工具表述，不按公路营运车辆宣传"
+      },
+      {
+        "name": "其他工程配套",
+        "status": "在售",
+        "promote": true,
+        "items": [
+          "铁床上下铺",
+          "水泵",
+          "沙袋",
+          "雨衣"
+        ]
+      }
+    ],
+    "brands_on_sale": [
+      {
+        "brand": "北盾",
+        "products": [
+          "钢筋切断机",
+          "弯曲机",
+          "弯箍机"
+        ],
+        "relation": "在售品牌",
+        "client_note": "主推"
+      },
+      {
+        "brand": "杭州大力瑶泉",
+        "products": [
+          "调直机",
+          "五机头钢筋弯箍机"
+        ],
+        "relation": "在售品牌"
+      },
+      {
+        "brand": "工友",
+        "products": [
+          "锯床"
+        ],
+        "relation": "在售品牌"
+      },
+      {
+        "brand": "工心",
+        "products": [
+          "切断机"
+        ],
+        "relation": "在售品牌"
+      },
+      {
+        "brand": "金兴达",
+        "products": [
+          "弯曲机",
+          "切断机"
+        ],
+        "relation": "在售品牌"
+      },
+      {
+        "brand": "东成",
+        "products": [
+          "电动工具",
+          "焊机"
+        ],
+        "relation": "在售品牌"
+      },
+      {
+        "brand": "大艺",
+        "products": [
+          "电动工具"
+        ],
+        "relation": "在售品牌"
+      },
+      {
+        "brand": "铁成",
+        "products": [
+          "冷切锯",
+          "滚司机",
+          "冷切机"
+        ],
+        "relation": "在售品牌"
+      },
+      {
+        "brand": "大桥",
+        "products": [
+          "焊条",
+          "焊丝"
+        ],
+        "relation": "在售品牌"
+      },
+      {
+        "brand": "瑞凌",
+        "products": [
+          "焊机"
+        ],
+        "relation": "在售品牌"
+      },
+      {
+        "brand": "汉森",
+        "products": [
+          "焊机"
+        ],
+        "relation": "在售品牌"
+      },
+      {
+        "brand": "舒友",
+        "products": [
+          "电工胶带"
+        ],
+        "relation": "在售品牌"
+      },
+      {
+        "brand": "亚明",
+        "products": [
+          "LED投光灯"
+        ],
+        "relation": "在售品牌"
+      },
+      {
+        "brand": "达三江",
+        "products": [
+          "配电箱"
+        ],
+        "relation": "在售品牌"
+      },
+      {
+        "brand": "熊猫",
+        "products": [
+          "砂布",
+          "砂纸"
+        ],
+        "relation": "在售品牌"
+      },
+      {
+        "brand": "美洲豹",
+        "products": [
+          "切割片",
+          "磨光片"
+        ],
+        "relation": "在售品牌"
+      },
+      {
+        "brand": "爱尔",
+        "products": [
+          "切割片",
+          "磨光片"
+        ],
+        "relation": "在售品牌"
+      },
+      {
+        "brand": "兆通",
+        "products": [
+          "合金锯片"
+        ],
+        "relation": "在售品牌"
+      },
+      {
+        "brand": "豫康",
+        "products": [
+          "电动工程三轮车"
+        ],
+        "relation": "在售品牌"
+      }
+    ],
+    "hooks": [
+      "工地缺料",
+      "仓库现货",
+      "仓配一体",
+      "装车就走",
+      "一站配齐",
+      "本地直发",
+      "现货直发",
+      "少等半天",
+      "工地急件",
+      "说走就走",
+      "随到随提",
+      "配货上门",
+      "少跑几趟",
+      "本地仓发",
+      "开盘备料",
+      "进场配套",
+      "门店补货",
+      "抢修采购",
+      "同等品质",
+      "更近更快"
+    ]
+  },
+  "libraries": [
+    {
+      "id": "xulingfei-album",
+      "name": "徐玲飞业务片库",
+      "path": "/Users/qr/QR-Volume/极空间团队文件同步/速影客户/北京始峰伟业/01-片库/徐玲飞",
+      "notes": "客户业务片库之一；同级还有车凯盛等"
+    },
+    {
+      "id": "chekaisheng-album",
+      "name": "车凯盛业务片库",
+      "path": "/Users/qr/QR-Volume/极空间团队文件同步/速影客户/北京始峰伟业/01-片库/车凯盛",
+      "notes": "与徐玲飞同属 01-片库"
+    }
+  ],
+  "internal_only": {
+    "client_raw_claims_pending_rewrite": {
+      "delivery_claim": "北京地区，工作时间内12小时内送达",
+      "after_sales_claim": "24小时内售后人员对接联系",
+      "after_sales_range_note": "同城2~48h可沟通；异地6~72h可沟通",
+      "auxiliary_selling_points_raw": [
+        "经营年限/老牌信任",
+        "薄利多销",
+        "厂家直销"
+      ],
+      "main_selling_points_checked": [
+        "仓配一体",
+        "工地一站配齐",
+        "可上门的机械售后",
+        "工程友好交易：开票、合同、备货"
+      ],
+      "invoice_promo_choice": "否（与开票卖点冲突，已从对外池移除开票）",
+      "import_export_claim": "有（待举证，未进对外池）"
+    }
+  }
+}

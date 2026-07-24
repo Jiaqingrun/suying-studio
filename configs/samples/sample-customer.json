@@ -1,0 +1,29 @@
+{
+  "meta": { "version": 1, "source": "sample" },
+  "company_info": {
+    "display_name_preferred": "示例客户",
+    "positioning_one_liner": "本地一站式建筑五金材料批发商"
+  },
+  "compliance": {
+    "blocked_terms": ["第一", "最好", "根治", "厂家直销"]
+  },
+  "keyword_pool": {
+    "flat_keywords": ["工地五金一站采购", "仓配一体", "本地仓配送", "电动工具", "建筑五金"],
+    "themes": {
+      "default": {
+        "keywords": [
+          { "text": "工地五金一站采购", "weight": 3 },
+          { "text": "仓配一体", "weight": 2 },
+          { "text": "本地仓配送", "weight": 2 }
+        ]
+      },
+      "tools": {
+        "keywords": [
+          { "text": "电动工具现货", "weight": 2 },
+          { "text": "五金工具组合出货", "weight": 1 }
+        ]
+      }
+    },
+    "hashtags": ["#建筑五金", "#工地采购", "#仓配一体"]
+  }
+}

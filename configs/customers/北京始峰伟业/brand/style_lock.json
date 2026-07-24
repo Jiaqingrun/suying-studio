@@ -1,0 +1,110 @@
+{
+  "customer": "北京始峰伟业",
+  "brand_display": "始峰五金",
+  "owner_display": "徐玲飞 · 主理人",
+  "tagline": "北京一站式建筑五金材料批发商",
+  "canvas": {
+    "width": 1080,
+    "height": 1920,
+    "orientation": "vertical"
+  },
+  "layout": {
+    "title_band": "top",
+    "title_y_ratio": 0.06,
+    "avatar_anchor": "left_above_copy",
+    "avatar_size_px": 193,
+    "avatar_margin_px": 36,
+    "avatar_bottom_offset_px": 120,
+    "safe_areas": {
+      "top": 0.06,
+      "bottom": 0.12,
+      "side": 36
+    },
+    "avatar_xy": [
+      135,
+      1143
+    ],
+    "avatar_center": [
+      231.5,
+      1239.5
+    ]
+  },
+  "title": {
+    "font_family": "STHeiti Medium / PingFang Bold",
+    "font_size_px": 96,
+    "color": "#E10600",
+    "align": "center",
+    "max_chars": 6,
+    "max_lines": 2,
+    "line_spacing_px": 14,
+    "stroke": {
+      "enabled": true,
+      "width_px": 6,
+      "color": "#FFE600"
+    },
+    "bar": {
+      "enabled": false,
+      "opacity": 0.0
+    },
+    "template": "{hook}\\n{keyword}",
+    "forbidden": [
+      "divider ｜ · ，",
+      "keyword >6 chars"
+    ],
+    "bold": true,
+    "wrap": "prefer_pipe_then_balanced",
+    "layout": "dual_chip",
+    "line1": {
+      "text": "#FFFFFF",
+      "stroke": "#000000",
+      "note": "白字黑描边，无整行方框"
+    },
+    "line2": {
+      "text": "#FFE600",
+      "stroke": "#000000",
+      "italic": true,
+      "note": "黄字黑描边略斜，无整行方框"
+    }
+  },
+  "avatar_badge": {
+    "file": "avatar.png",
+    "shape": "circle",
+    "ring_color": "#C45C2A",
+    "label": "始峰五金",
+    "label_font_size_px": 26,
+    "label_color": "#FFFFFF",
+    "label_alpha": 0.86
+  },
+  "intro_card": {
+    "file": "intro_card.jpg",
+    "duration_sec": [
+      0.8,
+      1.2
+    ],
+    "brand_font_size_px": 72,
+    "brand_color": "#FFFFFF",
+    "owner_font_size_px": 40,
+    "owner_color": "#E8A878",
+    "tagline_font_size_px": 34,
+    "tagline_color": "#E6E2DC",
+    "accent_bar_color": "#C45C2A"
+  },
+  "palette": {
+    "accent": "#C45C2A",
+    "accent_soft": "#E8A878",
+    "title_bar": "#111827",
+    "title_text": "#FFFFFF",
+    "schematic_bg": "#232428"
+  },
+  "bgm": {
+    "prefer": [
+      "pop",
+      "dance",
+      "energy",
+      "happy",
+      "sunny",
+      "summer",
+      "upbeat"
+    ]
+  }
+}

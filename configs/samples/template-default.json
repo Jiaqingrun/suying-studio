@@ -1,0 +1,17 @@
+{
+  "name": "default-vertical",
+  "target_duration": 30,
+  "output_width": 1080,
+  "output_height": 1920,
+  "title_template": "{keyword} · {brand}",
+  "title_font_size": 48,
+  "cooldown_days": 7,
+  "min_assets_per_category": 3,
+  "slots": [
+    { "name": "hook", "min_duration": 2, "max_duration": 4 },
+    { "name": "body1", "min_duration": 3, "max_duration": 6 },
+    { "name": "body2", "min_duration": 3, "max_duration": 6 },
+    { "name": "body3", "min_duration": 3, "max_duration": 6 },
+    { "name": "cta", "min_duration": 2, "max_duration": 4 }
+  ]
+}

@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "montage-studio-engine"
+version = "0.1.0"
+description = "Local montage production engine for Montage Studio"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.32.0",
+  "pydantic>=2.9.0",
+  "pydantic-settings>=2.6.0",
+  "watchdog>=6.0.0",
+  "sqlalchemy>=2.0.36",
+  "python-multipart>=0.0.12",
+  "httpx>=0.27.0",
+]
+
+[project.scripts]
+montage-engine = "engine.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["engine*"]

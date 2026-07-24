@@ -1,0 +1,15 @@
+{
+  "industry_pack": "building-supply",
+  "locale": "zh-CN",
+  "note": "样板客户 profile 示例；运行时以 DB customers.profile_json 为准",
+  "brand": {
+    "display_name": "",
+    "primary_color": "#E10600",
+    "logo_enabled": true,
+    "logo_path": "",
+    "logo_position": "bottom_right",
+    "logo_max_width": 160,
+    "logo_margin": 36,
+    "title_layout": "dual_chip"
+  }
+}
