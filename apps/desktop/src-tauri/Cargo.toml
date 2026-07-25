@@ -1,8 +1,8 @@
 [package]
 name = "appsdesktop"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+version = "0.2.0"
+description = "速影 — 本地 AI 混剪桌面端"
+authors = ["QR"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

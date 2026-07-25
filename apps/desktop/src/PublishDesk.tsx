@@ -37,6 +37,7 @@ type Props = {
   onNotify: (text: string, kind?: "ok" | "err" | "info" | "warn") => void;
   onRefresh: () => Promise<void>;
   onGoReach?: () => void;
+  mediaEpoch?: number;
 };
 
 async function copyText(text: string): Promise<boolean> {
@@ -58,7 +59,7 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-export function PublishDesk({ outputs, onNotify, onRefresh, onGoReach }: Props) {
+export function PublishDesk({ outputs, onNotify, onRefresh, onGoReach, mediaEpoch = 0 }: Props) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [card, setCard] = useState<PublishCard | null>(null);
   const [busy, setBusy] = useState(false);
@@ -91,18 +92,22 @@ export function PublishDesk({ outputs, onNotify, onRefresh, onGoReach }: Props) 
   useEffect(() => {
     if (!selectedId) return;
     let cancelled = false;
+    const reqId = selectedId;
     setBusy(true);
+    setCard(null);
     api
       .outputPublishCard(selectedId)
       .then((r) => {
-        if (cancelled) return;
+        if (cancelled || reqId !== selectedId) return;
         setCard(r as PublishCard);
         const keys = Object.keys((r.platforms as Record<string, unknown>) || {});
         if (keys.length && !keys.includes(plat)) setPlat(keys[0]);
       })
-      .catch((e) => onNotify(String(e), "err"))
+      .catch((e) => {
+        if (!cancelled && reqId === selectedId) onNotify(String(e), "err");
+      })
       .finally(() => {
-        if (!cancelled) setBusy(false);
+        if (!cancelled && reqId === selectedId) setBusy(false);
       });
     return () => {
       cancelled = true;
@@ -183,12 +188,12 @@ export function PublishDesk({ outputs, onNotify, onRefresh, onGoReach }: Props) 
               <div className="publish-preview">
                 {card.media_ok ? (
                   <video
-                    key={`pub-${card.id}`}
+                    key={`pub-${mediaEpoch}-${card.id}`}
                     className="publish-video"
                     controls
                     playsInline
                     preload="metadata"
-                    src={previewVideoSrc(card.id, path)}
+                    src={previewVideoSrc(card.id, path, `${mediaEpoch}-${card.id}`)}
                     draggable
                     onDragStart={onDragStart}
                   />

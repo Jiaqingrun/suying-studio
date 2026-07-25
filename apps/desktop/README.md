@@ -1,7 +1,26 @@
-# Tauri + React + Typescript
+# 速影桌面端
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+Tauri 2 + React 桌面壳，产品名 **速影**（`com.qr.suying`）。
 
-## Recommended IDE Setup
+## 开发
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+```bash
+cd apps/desktop
+npm install
+npm run tauri dev
+```
+
+## 打包（macOS 交付）
+
+```bash
+cd apps/desktop
+npm run package:mac
+```
+
+产出：
+
+- 桌面 `速影.app`（日常打开）
+- 桌面 `速影-<版本>-macos-<架构>/` 交付夹（App + DMG + 安装说明 + SHA256）
+- 桌面 `速影-<版本>-macos-<架构>.zip`（方便私发）
+
+引擎仍由本机 `montage-studio` 提供（见安装说明 / `SUYING_ROOT`）。

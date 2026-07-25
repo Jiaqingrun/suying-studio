@@ -15,9 +15,28 @@ fn repo_root() -> PathBuf {
         return PathBuf::from(p);
     }
     let home = dirs_next::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    let candidate = home.join("QR/dev/montage-studio");
-    if candidate.join("engine/main.py").exists() {
-        return candidate;
+    // Customer/runtime first, then developer checkout.
+    let candidates = [
+        home.join("Suying/montage-studio"),
+        home.join("Suying/runtime"),
+        home.join("QR/dev/montage-studio"),
+    ];
+    for candidate in &candidates {
+        if candidate.join("engine/main.py").exists() {
+            return candidate.clone();
+        }
+    }
+    // Near the .app: sibling montage-studio/ or Contents/Resources layout.
+    if let Ok(exe) = std::env::current_exe() {
+        for ancestor in exe.ancestors().take(8) {
+            let sib = ancestor.join("montage-studio");
+            if sib.join("engine/main.py").exists() {
+                return sib;
+            }
+            if ancestor.join("engine/main.py").exists() {
+                return ancestor.to_path_buf();
+            }
+        }
     }
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     for ancestor in cwd.ancestors().take(6) {
@@ -28,7 +47,7 @@ fn repo_root() -> PathBuf {
             return ancestor.join("..").canonicalize().unwrap_or(ancestor.to_path_buf());
         }
     }
-    candidate
+    home.join("Suying/montage-studio")
 }
 
 fn data_dir() -> PathBuf {

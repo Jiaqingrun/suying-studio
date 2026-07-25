@@ -21,6 +21,7 @@ type Props = {
   notify: (text: string, kind?: "ok" | "err" | "info" | "warn") => void;
   keyConfigured: boolean;
   onGoOps: () => void;
+  onConfirmReset?: () => Promise<boolean>;
 };
 
 const NOISE_STATUS = new Set(["RUNNING", "FINISHED", "running", "finished", "COMPLETED", "completed"]);
@@ -55,7 +56,7 @@ function ToolCards({ tools }: { tools: ToolCard[] }) {
   );
 }
 
-export function AssistantChat({ notify, keyConfigured, onGoOps }: Props) {
+export function AssistantChat({ notify, keyConfigured, onGoOps, onConfirmReset }: Props) {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -350,7 +351,10 @@ export function AssistantChat({ notify, keyConfigured, onGoOps }: Props) {
   }
 
   async function onReset() {
-    if (!window.confirm("开启新对话？当前会话上下文将清空。")) return;
+    const ok = onConfirmReset
+      ? await onConfirmReset()
+      : false;
+    if (!ok) return;
     abortRef.current?.abort();
     streamingRef.current = false;
     setBusy(true);

@@ -108,12 +108,46 @@ export function ReachCoverSection({
   const slotsDetail =
     (tpl?.slots_detail as Record<string, SlotRow[]> | undefined) || {};
 
+  let emptySlots = 0;
+  let totalSlots = 0;
+  if (editId) {
+    for (const platInfo of platforms) {
+      const plat = platInfo.id;
+      const specs = slotSpecs[plat] || [];
+      const detail = slotsDetail[plat] || [];
+      const n = expectedSlotCount(plat, platInfo, slotCounts, specs, detail.length);
+      const slots = buildSlots(detail, specs, n);
+      totalSlots += n;
+      emptySlots += slots.filter((s) => !s.filled).length;
+    }
+  }
+  const coverPhase = !templates.length
+    ? "empty"
+    : !editId
+      ? "pick"
+      : emptySlots > 0
+        ? "filling"
+        : !selectedId
+          ? "ready_unset"
+          : selectedId !== editId
+            ? "edit_other"
+            : "publish_ready";
+  const coverPhaseHint: Record<string, string> = {
+    empty: "状态：尚无封面套 — 先新建",
+    pick: "状态：请选择要编辑的封面套",
+    filling: `状态：补槽中（还差 ${emptySlots}/${totalSlots}）`,
+    ready_unset: "状态：槽位已齐 — 点「设为当前发布封面」",
+    edit_other: "状态：正在编辑另一套；当前发布仍用已选用模板",
+    publish_ready: "状态：当前编辑套 = 发布用 · 槽位已齐",
+  };
+
   return (
     <div className="reach-cover">
       <div className="reach-cover-head">
         <h3>封面设置</h3>
         <p className="hint">本机多套缓存；发布取「当前选用」。各平台槽位规格互不相同。</p>
         <p className="reach-cover-summary path">{summary}</p>
+        <p className={`cover-phase cover-phase--${coverPhase}`}>{coverPhaseHint[coverPhase]}</p>
       </div>
 
       <div className="reach-cover-toolbar">

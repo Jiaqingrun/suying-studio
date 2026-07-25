@@ -41,6 +41,7 @@ export function BrandLogoPanel({ customerName, state, busy, onChange }: Props) {
         <p className="hint">
           成片叠在画面四角之一；文件取自客户目录 <code>05-品牌/logo.png</code>
           {customerName ? `（当前：${customerName}）` : ""}。缺文件则自动跳过。
+          <strong> 更改即时保存。</strong>
         </p>
       </div>
 

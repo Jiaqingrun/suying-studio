@@ -1,0 +1,48 @@
+/* Bright Control Deck — design tokens (readable accent on light UI) */
+:root {
+  --bg-0: #f4f6f8;
+  --bg-1: #e8eef4;
+  --bg-2: #dde5ee;
+  --bg-3: #d0dae6;
+  --surface-0: #f4f6f8;
+  --surface-1: #ffffff;
+  --surface-2: rgba(255, 255, 255, 0.94);
+  --line: rgba(15, 23, 42, 0.1);
+  --line-strong: rgba(15, 23, 42, 0.18);
+  --text: #0f172a;
+  --text-dim: #334155;
+  --text-mute: #64748b;
+  /* Deeper teal: solid fills + white label; readable as text on white */
+  --accent: #0f766e;
+  --accent-strong: #0d9488;
+  --accent-ink: #ffffff;
+  --accent-dim: rgba(15, 118, 110, 0.12);
+  --accent-line: rgba(15, 118, 110, 0.42);
+  --warn: #d97706;
+  --warn-dim: rgba(217, 119, 6, 0.12);
+  --danger: #e11d48;
+  --danger-dim: rgba(225, 29, 72, 0.12);
+  --ok: #059669;
+  --ok-dim: rgba(5, 150, 105, 0.12);
+  --brand-red: #e10600;
+  --brand-yellow: #ffe600;
+  --font-sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Avenir Next", "Segoe UI", sans-serif;
+  --font-mono: "SF Mono", "Menlo", "Consolas", "Cascadia Mono", ui-monospace, monospace;
+  --radius: 10px;
+  --header-h: 56px;
+  --rail-w: 248px;
+  --amber: #d97706;
+}
+
+@theme {
+  --color-deck-bg: #f4f6f8;
+  --color-deck-panel: #e8eef4;
+  --color-deck-ink: #0f172a;
+  --color-deck-muted: #334155;
+  --color-deck-accent: #0f766e;
+  --color-deck-danger: #e11d48;
+  --color-deck-warn: #d97706;
+  --color-deck-ok: #059669;
+  --font-sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
+  --font-mono: "SF Mono", "Menlo", ui-monospace, monospace;
+}

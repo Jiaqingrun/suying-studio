@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, Customer, Health, ReportSummary, ServicesStatus } from "./api";
 import { getEngineStatus, isTauri, startEngine, stopEngine, type EngineStatus } from "./engineControl";
@@ -18,52 +18,39 @@ import { AssistantChat } from "./AssistantChat";
 import { bindOutputFileDrag } from "./mediaDrag";
 import { previewCoverSrc, previewVideoSrc } from "./mediaPreview";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { CommandPalette, type CmdItem } from "./shell/CommandPalette";
+import { NextActionPill } from "./shell/NextAction";
+import { OverviewPipeline } from "./shell/OverviewPipeline";
+import { AppDialog } from "./shell/AppDialog";
+import { StageMotion } from "./shell/StageMotion";
+import { LangCombobox } from "./shell/LangCombobox";
+import { briefResult, dryRunSummary } from "./shell/briefResult";
+import { TAB_BLURB, TABS, type FlashKind, type Tab } from "./types";
+import {
+  LayoutDashboard,
+  Clapperboard,
+  FolderOpen,
+  ScanSearch,
+  Package,
+  Send,
+  Radio,
+  Settings2,
+  Bot,
+  type LucideIcon,
+} from "lucide-react";
 import "./App.css";
 
-type Tab = "overview" | "produce" | "assets" | "review" | "pack" | "publish" | "reach" | "ops" | "assistant";
-type FlashKind = "ok" | "err" | "info" | "warn";
-
-const TABS: Array<[Tab, string, string]> = [
-  ["overview", "总览", "01"],
-  ["produce", "生产", "02"],
-  ["assets", "素材", "03"],
-  ["review", "审片", "04"],
-  ["pack", "物料", "05"],
-  ["publish", "发布", "06"],
-  ["reach", "触达", "07"],
-  ["ops", "运维", "08"],
-  ["assistant", "助手", "09"],
-];
-
-async function pickDir(): Promise<string | null> {
-  if (!isTauri()) {
-    return window.prompt("请输入文件夹路径") || null;
-  }
-  const selected = await open({ directory: true, multiple: false });
-  return typeof selected === "string" ? selected : null;
-}
-
-async function pickFile(): Promise<string | null> {
-  if (!isTauri()) {
-    return window.prompt("请输入词池文件路径 (.json/.md)") || null;
-  }
-  const selected = await open({
-    multiple: false,
-    filters: [{ name: "词池", extensions: ["json", "md", "txt"] }],
-  });
-  return typeof selected === "string" ? selected : null;
-}
-
-async function pickImageFile(): Promise<string | null> {
-  if (!isTauri()) {
-    return window.prompt("请输入封面图片路径 (.jpg/.png/.webp)") || null;
-  }
-  const selected = await open({
-    multiple: false,
-    filters: [{ name: "封面图", extensions: ["jpg", "jpeg", "png", "webp"] }],
-  });
-  return typeof selected === "string" ? selected : null;
-}
+const TAB_ICONS: Record<Tab, LucideIcon> = {
+  overview: LayoutDashboard,
+  produce: Clapperboard,
+  assets: FolderOpen,
+  review: ScanSearch,
+  pack: Package,
+  publish: Send,
+  reach: Radio,
+  ops: Settings2,
+  assistant: Bot,
+};
 
 function App() {
   const [tab, setTab] = useState<Tab>("overview");
@@ -71,7 +58,12 @@ function App() {
   const [services, setServices] = useState<ServicesStatus | null>(null);
   const [engine, setEngine] = useState<EngineStatus | null>(null);
   const [error, setError] = useState("");
-  const [flash, setFlash] = useState<{ kind: FlashKind; text: string } | null>(null);
+  const [flash, setFlash] = useState<{
+    kind: FlashKind;
+    text: string;
+    actionLabel?: string;
+    actionTab?: Tab;
+  } | null>(null);
   const flashTimerRef = useRef(0);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [reviewBusyId, setReviewBusyId] = useState<number | null>(null);
@@ -81,7 +73,15 @@ function App() {
   const [outputs, setOutputs] = useState<Array<Record<string, unknown>>>([]);
   const [report, setReport] = useState<ReportSummary | null>(null);
   const [opsReport, setOpsReport] = useState<Awaited<ReturnType<typeof api.reportOps>> | null>(null);
-  const [reviewFilter, setReviewFilter] = useState<"all" | "missing_voice" | "missing_sub" | "tts_bad">("all");
+  const [reviewFilter, setReviewFilter] = useState<"all" | "missing_voice" | "missing_sub" | "tts_bad">(() => {
+    try {
+      const v = localStorage.getItem("suying.reviewFilter.v1");
+      if (v === "all" || v === "missing_voice" || v === "missing_sub" || v === "tts_bad") return v;
+    } catch {
+      /* ignore */
+    }
+    return "all";
+  });
   const [batchBusy, setBatchBusy] = useState(false);
   const [calendar, setCalendar] = useState<Array<Record<string, unknown>>>([]);
   const [todayPlan, setTodayPlan] = useState<Record<string, unknown> | null>(null);
@@ -147,7 +147,9 @@ function App() {
   const [quotaSplit, setQuotaSplit] = useState(false);
   const [quotaBusy, setQuotaBusy] = useState(false);
   const [reachPackDir, setReachPackDir] = useState("");
-  const [reachBusy, setReachBusy] = useState(false);
+  const [chromeBusy, setChromeBusy] = useState(false);
+  const [coverBusy, setCoverBusy] = useState(false);
+  const [queueBusy, setQueueBusy] = useState(false);
   const [reachMsg, setReachMsg] = useState("");
   const [chromeProfiles, setChromeProfiles] = useState<
     Array<{ name: string; path: string; platform?: string | null; label?: string | null }>
@@ -191,17 +193,196 @@ function App() {
   const [newCustName, setNewCustName] = useState("");
   /** Session-only dismiss so 5s health poll won't reopen the first-run wizard. */
   const wizardDismissedRef = useRef(false);
+  /** When true, refreshHealth must not overwrite local editable form fields. */
+  const formSyncPausedRef = useRef(false);
+  /** 5s health poll — heavy customer/keyword sync only every ~30s. */
+  const healthTickRef = useRef(0);
+  const exprBaselineRef = useRef({ voice: "zh", sub: "zh", burn: "external", dual: "en" });
+  const pathsBaselineRef = useRef({ lib: "", libs: "", out: "", kw: "", cache: "", render: "", data: "" });
+  const scheduleBaselineRef = useRef({ autoDaily: false, autoHour: 9 });
 
-  const notify = useCallback((text: string, kind: FlashKind = "info") => {
-    setFlash({ text, kind });
-    if (kind === "err") setError(text);
-    else setError("");
-    window.clearTimeout(flashTimerRef.current);
-    flashTimerRef.current = window.setTimeout(
-      () => setFlash((cur) => (cur?.text === text ? null : cur)),
-      kind === "err" ? 10000 : 4200,
+  const [cmdOpen, setCmdOpen] = useState(false);
+  const [density, setDensity] = useState<"command" | "compact">(() => {
+    try {
+      return localStorage.getItem("suying.density.v1") === "compact" ? "compact" : "command";
+    } catch {
+      return "command";
+    }
+  });
+  const [cinemaMode, setCinemaMode] = useState(false);
+  const [reviewFocusId, setReviewFocusId] = useState<number | null>(null);
+  const [dialog, setDialog] = useState<
+    | {
+        mode: "confirm";
+        title: string;
+        body: string;
+        confirmLabel?: string;
+        cancelLabel?: string;
+        danger?: boolean;
+        resolve: (v: boolean) => void;
+      }
+    | {
+        mode: "prompt";
+        title: string;
+        body: string;
+        placeholder?: string;
+        defaultValue?: string;
+        confirmLabel?: string;
+        cancelLabel?: string;
+        resolve: (v: string | null) => void;
+      }
+    | null
+  >(null);
+
+  const askConfirm = useCallback(
+    (opts: {
+      title: string;
+      body: string;
+      confirmLabel?: string;
+      cancelLabel?: string;
+      danger?: boolean;
+    }) =>
+      new Promise<boolean>((resolve) => {
+        setDialog({ mode: "confirm", ...opts, resolve });
+      }),
+    [],
+  );
+
+  const askPrompt = useCallback(
+    (opts: {
+      title: string;
+      body: string;
+      placeholder?: string;
+      defaultValue?: string;
+      confirmLabel?: string;
+    }) =>
+      new Promise<string | null>((resolve) => {
+        setDialog({ mode: "prompt", ...opts, resolve });
+      }),
+    [],
+  );
+
+  const pickDir = useCallback(async (): Promise<string | null> => {
+    if (!isTauri()) {
+      return askPrompt({
+        title: "文件夹路径",
+        body: "请输入文件夹绝对路径",
+        placeholder: "/Users/…",
+        confirmLabel: "使用此路径",
+      });
+    }
+    const selected = await open({ directory: true, multiple: false });
+    return typeof selected === "string" ? selected : null;
+  }, [askPrompt]);
+
+  const pickFile = useCallback(async (): Promise<string | null> => {
+    if (!isTauri()) {
+      return askPrompt({
+        title: "词池文件",
+        body: "请输入词池文件路径 (.json/.md)",
+        placeholder: "/path/to/keyword-pack.json",
+        confirmLabel: "使用此路径",
+      });
+    }
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: "词池", extensions: ["json", "md", "txt"] }],
+    });
+    return typeof selected === "string" ? selected : null;
+  }, [askPrompt]);
+
+  const pickImageFile = useCallback(async (): Promise<string | null> => {
+    if (!isTauri()) {
+      return askPrompt({
+        title: "封面图片",
+        body: "请输入封面图片路径 (.jpg/.png/.webp)",
+        placeholder: "/path/to/cover.jpg",
+        confirmLabel: "使用此路径",
+      });
+    }
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: "封面图", extensions: ["jpg", "jpeg", "png", "webp"] }],
+    });
+    return typeof selected === "string" ? selected : null;
+  }, [askPrompt]);
+
+  const exprDirty = useMemo(() => {
+    const b = exprBaselineRef.current;
+    return (
+      voiceLang !== b.voice ||
+      subtitleLang !== b.sub ||
+      subtitleBurn !== b.burn ||
+      dualSecondaryLang !== b.dual
     );
-  }, []);
+  }, [voiceLang, subtitleLang, subtitleBurn, dualSecondaryLang]);
+
+  const pathsDirty = useMemo(() => {
+    const b = pathsBaselineRef.current;
+    return (
+      libraryRoot !== b.lib ||
+      libraryRootsText !== b.libs ||
+      outputRoot !== b.out ||
+      keywordPackPath !== b.kw ||
+      cacheRoot !== b.cache ||
+      renderRoot !== b.render ||
+      dataRoot !== b.data
+    );
+  }, [libraryRoot, libraryRootsText, outputRoot, keywordPackPath, cacheRoot, renderRoot, dataRoot]);
+
+  const scheduleDirty = useMemo(() => {
+    const b = scheduleBaselineRef.current;
+    return autoDaily !== b.autoDaily || autoHour !== b.autoHour;
+  }, [autoDaily, autoHour]);
+
+  useEffect(() => {
+    formSyncPausedRef.current = exprDirty || pathsDirty || scheduleDirty;
+  }, [exprDirty, pathsDirty, scheduleDirty]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("suying.density.v1", density);
+    } catch {
+      /* ignore */
+    }
+  }, [density]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("suying.reviewFilter.v1", reviewFilter);
+    } catch {
+      /* ignore */
+    }
+  }, [reviewFilter]);
+
+  useEffect(() => {
+    const el = document.querySelector(".workspace");
+    if (el instanceof HTMLElement) el.scrollTop = 0;
+  }, [tab]);
+
+  const notify = useCallback(
+    (
+      text: string,
+      kind: FlashKind = "info",
+      opts?: { actionLabel?: string; actionTab?: Tab; holdMs?: number },
+    ) => {
+      setFlash({
+        text,
+        kind,
+        actionLabel: opts?.actionLabel,
+        actionTab: opts?.actionTab,
+      });
+      if (kind === "err") setError(text);
+      else setError("");
+      window.clearTimeout(flashTimerRef.current);
+      const hold = opts?.holdMs ?? (kind === "err" ? 10000 : opts?.actionLabel ? 8000 : 4200);
+      flashTimerRef.current = window.setTimeout(
+        () => setFlash((cur) => (cur?.text === text ? null : cur)),
+        hold,
+      );
+    },
+    [],
+  );
 
   const refreshEngine = useCallback(async () => {
     if (!isTauri()) {
@@ -216,7 +397,8 @@ function App() {
     setEngine(await getEngineStatus());
   }, []);
 
-  const refreshHealth = useCallback(async () => {
+  const refreshHealth = useCallback(async (opts?: { syncCustomer?: boolean }) => {
+    const syncCustomer = opts?.syncCustomer !== false;
     try {
       const h = await api.health();
       // Healthy poll: clear transport/connection sticky errors only — do not wipe action feedback.
@@ -228,66 +410,102 @@ function App() {
       });
       setHealth(h);
       setVectorization(Boolean(h.vectorization_enabled));
-      setAutoDaily(Boolean(h.auto_daily_enabled));
-      setAutoHour(Number(h.auto_daily_hour ?? 9));
       setCursorKeyConfigured(Boolean(h.cursor_api_key_configured));
       setCursorKeyHint(String(h.cursor_api_key_hint || ""));
-      if (h.paths && typeof h.paths === "object") {
-        if (h.paths.cache_root) setCacheRoot(String(h.paths.cache_root));
-        if (h.paths.render_root) setRenderRoot(String(h.paths.render_root));
-        if (h.paths.data_root) setDataRoot(String(h.paths.data_root));
-      }
-      if (h.render_root) setRenderRoot(String(h.render_root));
-      if (h.vector_store && typeof h.vector_store === "object" && "db" in h.vector_store) {
-        setVectorDbPath(String((h.vector_store as { db?: string }).db || ""));
+      if (!formSyncPausedRef.current) {
+        const ad = Boolean(h.auto_daily_enabled);
+        const ah = Number(h.auto_daily_hour ?? 9);
+        setAutoDaily(ad);
+        setAutoHour(ah);
+        scheduleBaselineRef.current = { autoDaily: ad, autoHour: ah };
+        if (h.paths && typeof h.paths === "object") {
+          if (h.paths.cache_root) setCacheRoot(String(h.paths.cache_root));
+          if (h.paths.render_root) setRenderRoot(String(h.paths.render_root));
+          if (h.paths.data_root) setDataRoot(String(h.paths.data_root));
+        }
+        if (h.render_root) setRenderRoot(String(h.render_root));
+        if (h.vector_store && typeof h.vector_store === "object" && "db" in h.vector_store) {
+          setVectorDbPath(String((h.vector_store as { db?: string }).db || ""));
+        }
+        pathsBaselineRef.current = {
+          ...pathsBaselineRef.current,
+          cache: h.paths?.cache_root ? String(h.paths.cache_root) : pathsBaselineRef.current.cache,
+          render: String(h.render_root || h.paths?.render_root || pathsBaselineRef.current.render),
+          data: h.paths?.data_root ? String(h.paths.data_root) : pathsBaselineRef.current.data,
+        };
       }
       if (h.active_customer) setCustomerName(h.active_customer);
       if (h.active_customer_id) setActiveCustomerId(h.active_customer_id);
-      const custs = await api.listCustomers();
-      setCustomers(custs);
-      const active = custs.find((c) => c.name === h.active_customer) ?? custs[0];
-      const configured = Boolean(
-        h.setup_complete ||
-          (active && active.library_root && active.output_root) ||
-          custs.some((c) => c.library_root && c.output_root),
-      );
-      if (active) {
-        setActiveCustomerId(active.id);
-        setCustomerName(active.name);
-        setLibraryRoot(String(active.library_root || ""));
-        setLibraryRootsText((active.library_roots || []).join("\n"));
-        setOutputRoot(String(active.output_root || ""));
-        setKeywordPackPath(String(active.keyword_pack_path || ""));
-        setBrandLogo(brandFromProfile(active.profile || null));
-        void api
-          .keywordsActiveSummary(active.id)
-          .then((s) =>
-            setTitlePoolSummary({
-              loaded: s.loaded,
-              title_pool_count: s.title_pool_count,
-              title_pool_sample: s.title_pool_sample || [],
-              hooks_count: s.hooks_count,
-              max_chars_per_line: s.max_chars_per_line,
-              version: s.version,
-            }),
-          )
-          .catch(() => setTitlePoolSummary(null));
-        const expr = (active.profile?.expression || {}) as Record<string, unknown>;
-        if (expr.voice_lang) setVoiceLang(String(expr.voice_lang));
-        if (expr.subtitle_lang) setSubtitleLang(String(expr.subtitle_lang));
-        if (expr.subtitle_burn) setSubtitleBurn(String(expr.subtitle_burn));
-        if (expr.dual_secondary_lang) setDualSecondaryLang(String(expr.dual_secondary_lang));
-        setWizName((prev) => prev || active.name);
-        setWizLib((prev) => prev || String(active.library_root || ""));
-        setWizOut((prev) => prev || String(active.output_root || ""));
-        setWizKw((prev) => prev || String(active.keyword_pack_path || ""));
-      }
-      // First-run wizard only until setup is complete (never reopen every poll)
-      if (h.onboarded || configured) {
+      if (syncCustomer) {
+        const custs = await api.listCustomers();
+        setCustomers(custs);
+        const active = custs.find((c) => c.name === h.active_customer) ?? custs[0];
+        const configured = Boolean(
+          h.setup_complete ||
+            (active && active.library_root && active.output_root) ||
+            custs.some((c) => c.library_root && c.output_root),
+        );
+        if (active) {
+          setActiveCustomerId(active.id);
+          setCustomerName(active.name);
+          const syncForms = !formSyncPausedRef.current;
+          if (syncForms) {
+            const lib = String(active.library_root || "");
+            const libs = (active.library_roots || []).join("\n");
+            const out = String(active.output_root || "");
+            const kw = String(active.keyword_pack_path || "");
+            setLibraryRoot(lib);
+            setLibraryRootsText(libs);
+            setOutputRoot(out);
+            setKeywordPackPath(kw);
+            setBrandLogo(brandFromProfile(active.profile || null));
+            const expr = (active.profile?.expression || {}) as Record<string, unknown>;
+            const voice = expr.voice_lang ? String(expr.voice_lang) : "zh";
+            const sub = expr.subtitle_lang ? String(expr.subtitle_lang) : "zh";
+            const burn = expr.subtitle_burn ? String(expr.subtitle_burn) : "external";
+            const dual = expr.dual_secondary_lang ? String(expr.dual_secondary_lang) : "en";
+            if (expr.voice_lang) setVoiceLang(voice);
+            if (expr.subtitle_lang) setSubtitleLang(sub);
+            if (expr.subtitle_burn) setSubtitleBurn(burn);
+            if (expr.dual_secondary_lang) setDualSecondaryLang(dual);
+            exprBaselineRef.current = { voice, sub, burn, dual };
+            pathsBaselineRef.current = {
+              ...pathsBaselineRef.current,
+              lib,
+              libs,
+              out,
+              kw,
+            };
+          }
+          void api
+            .keywordsActiveSummary(active.id)
+            .then((s) =>
+              setTitlePoolSummary({
+                loaded: s.loaded,
+                title_pool_count: s.title_pool_count,
+                title_pool_sample: s.title_pool_sample || [],
+                hooks_count: s.hooks_count,
+                max_chars_per_line: s.max_chars_per_line,
+                version: s.version,
+              }),
+            )
+            .catch(() => setTitlePoolSummary(null));
+          setWizName((prev) => prev || active.name);
+          setWizLib((prev) => prev || String(active.library_root || ""));
+          setWizOut((prev) => prev || String(active.output_root || ""));
+          setWizKw((prev) => prev || String(active.keyword_pack_path || ""));
+        }
+        // First-run wizard only until setup is complete (never reopen every poll)
+        if (h.onboarded || configured) {
+          setShowWizard(false);
+        } else if (!wizardDismissedRef.current) {
+          setShowWizard(true);
+        }
+
+      } else if (h.onboarded || h.setup_complete) {
         setShowWizard(false);
-      } else if (!wizardDismissedRef.current) {
-        setShowWizard(true);
       }
+
       try {
         setServices(await api.servicesStatus());
       } catch {
@@ -405,8 +623,10 @@ function App() {
       if (!cancelled) await refreshAll();
     })();
     const t = setInterval(() => {
-      refreshHealth();
-      refreshEngine();
+      healthTickRef.current += 1;
+      // Light health every 5s; customer/keyword sync ~every 30s (pulse must not hammer DB)
+      void refreshHealth({ syncCustomer: healthTickRef.current % 6 === 0 });
+      void refreshEngine();
     }, 5000);
     return () => {
       cancelled = true;
@@ -435,45 +655,17 @@ function App() {
     };
   }, []);
 
-  function renderLangOptions(includeNone: boolean) {
-    const REGION_ORDER = ["东亚", "东南亚", "南亚", "中东/北非", "欧亚", "欧美", "其他"];
-    const rows = langCatalog.filter((l) => includeNone || l.code !== "none");
-    const byRegion = new Map<string, typeof rows>();
-    for (const row of rows) {
-      const r = row.region || "其他";
-      if (!byRegion.has(r)) byRegion.set(r, []);
-      byRegion.get(r)!.push(row);
-    }
-    const ordered = [
-      ...REGION_ORDER.filter((r) => byRegion.has(r)),
-      ...[...byRegion.keys()].filter((r) => !REGION_ORDER.includes(r)),
-    ];
-    if (ordered.length === 0) {
-      return (
-        <>
-          <option value="zh">中文（简体）</option>
-          <option value="en">English</option>
-          {includeNone ? <option value="none">关闭</option> : null}
-        </>
-      );
-    }
-    return ordered.map((region) => (
-      <optgroup key={region} label={region}>
-        {(byRegion.get(region) || []).map((l) => (
-          <option key={l.code} value={l.code}>
-            {l.label_zh}
-            {l.code !== "none" && l.label_native && l.label_native !== l.label_zh
-              ? ` · ${l.label_native}`
-              : ""}
-          </option>
-        ))}
-      </optgroup>
-    ));
-  }
-
   async function onEngineToggle() {
     if (engine?.healthy) {
-      if (!window.confirm("停止引擎将中断正在进行的入库/渲染。确定？")) return;
+      {
+        const stopOk = await askConfirm({
+          title: "停止引擎",
+          body: "停止引擎将中断正在进行的入库/渲染。确定？",
+          confirmLabel: "停止",
+          danger: true,
+        });
+        if (!stopOk) return;
+      }
     }
     setEngineBusy(true);
     setError("");
@@ -520,6 +712,17 @@ function App() {
         ...(dataRoot.trim() ? { data_root: dataRoot.trim() } : {}),
       });
       await refreshAll();
+      pathsBaselineRef.current = {
+        lib: libraryRoot,
+        libs: libraryRootsText,
+        out: outputRoot,
+        kw: keywordPackPath,
+        cache: cacheRoot,
+        render: renderRoot,
+        data: dataRoot,
+      };
+      scheduleBaselineRef.current = { autoDaily, autoHour };
+      formSyncPausedRef.current = false;
       notify("路径与调度设置已保存", "ok");
     } catch (e) {
       notify(String(e), "err");
@@ -529,11 +732,14 @@ function App() {
   }
 
   async function enableVectorization() {
-    const ok = window.confirm(
-      "开启增量向量化：已有向量会保留，只补齐尚未索引的素材。\n" +
+    const ok = await askConfirm({
+      title: "开启向量化",
+      body:
+        "开启增量向量化：已有向量会保留，只补齐尚未索引的素材。\n" +
         "新片库会自然跑完全部缺口；老片库不会整库重算。\n" +
         "需要本机 Ollama。确定开启？",
-    );
+      confirmLabel: "开启",
+    });
     if (!ok) return;
     setActionBusy("vecOn");
     try {
@@ -554,6 +760,13 @@ function App() {
   }
 
   async function disableVectorization() {
+    const ok = await askConfirm({
+      title: "关闭向量化",
+      body: "关闭后新入库素材不再自动补向量索引；已有向量会保留。确定关闭？",
+      confirmLabel: "关闭向量化",
+      danger: true,
+    });
+    if (!ok) return;
     setActionBusy("vecOff");
     try {
       await api.updateSettings({ vectorization_enabled: false });
@@ -613,7 +826,15 @@ function App() {
   }
 
   async function clearCursorApiKey() {
-    if (!window.confirm("清除已保存的 Cursor API Key？")) return;
+    if (
+      !(await askConfirm({
+        title: "清除 API Key",
+        body: "清除已保存的 Cursor API Key？",
+        confirmLabel: "清除",
+        danger: true,
+      }))
+    )
+      return;
     setActionBusy("cursorClear");
     try {
       await api.updateSettings({ cursor_api_key: "" });
@@ -714,6 +935,33 @@ function App() {
   }
 
   async function switchCustomer(name: string) {
+    if (
+      actionBusy ||
+      reviewBusyId != null ||
+      packBusyId != null ||
+      batchBusy ||
+      exprSaveBusy ||
+      brandBusy ||
+      chromeBusy ||
+      coverBusy ||
+      queueBusy ||
+      autoUploadBusy ||
+      engineBusy
+    ) {
+      notify("有操作进行中，请稍后再切换客户", "warn");
+      return;
+    }
+    if (exprDirty || pathsDirty || scheduleDirty) {
+      const ok = await askConfirm({
+        title: "未保存的更改",
+        body: "当前有未保存的表达设置、路径或调度修改。切换客户将丢弃这些本地未保存更改。",
+        confirmLabel: "仍要切换",
+        cancelLabel: "留下",
+        danger: true,
+      });
+      if (!ok) return;
+      formSyncPausedRef.current = false;
+    }
     setActionBusy("switchCustomer");
     try {
       // Drop stale cards immediately so preview URLs aren't hit under the new active customer
@@ -741,11 +989,12 @@ function App() {
     const next = { ...brandLogo, ...patch };
     setBrandLogo(next);
     setBrandBusy(true);
+    const quiet = !("logo_enabled" in patch || "logo_position" in patch);
     try {
       const updated = await api.updateCustomer(activeCustomerId, { brand: next });
       setCustomers((prev) => prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)));
       if (updated.profile) setBrandLogo(brandFromProfile(updated.profile));
-      notify("品牌标识已保存", "ok");
+      if (!quiet) notify("品牌标识已保存", "ok");
     } catch (e) {
       notify(String(e), "err");
       await refreshAll();
@@ -804,9 +1053,16 @@ function App() {
           : rerender
             ? `成片 #${id} 已打回并排队重渲`
             : `成片 #${id} 已打回`;
-      notify(msg, "ok");
+      notify(
+        status === "approved" ? `${msg}（仍留在审片，可继续下一条）` : msg,
+        "ok",
+        status === "approved"
+          ? { actionLabel: "去发布", actionTab: "publish", holdMs: 9000 }
+          : undefined,
+      );
       await refreshAll();
-      if (status === "approved") setTab("publish");
+      setMediaEpoch((n) => n + 1);
+      // Stay on review for batch cinema workflow (plan §9)
     } catch (e) {
       notify(String(e), "err");
     } finally {
@@ -820,6 +1076,7 @@ function App() {
       await api.rerenderOutput(id, reviewReason);
       notify(`成片 #${id} 已排队重渲`, "ok");
       await refreshAll();
+      setMediaEpoch((n) => n + 1);
     } catch (e) {
       notify(String(e), "err");
     } finally {
@@ -849,11 +1106,14 @@ function App() {
       if (expr.subtitle_burn) setSubtitleBurn(String(expr.subtitle_burn));
       if (expr.dual_secondary_lang) setDualSecondaryLang(String(expr.dual_secondary_lang));
       const burn = String(expr.subtitle_burn || subtitleBurn);
+      const v = String(expr.voice_lang || voiceLang);
+      const s = String(expr.subtitle_lang || subtitleLang);
+      const d = String(expr.dual_secondary_lang || dualSecondaryLang);
+      exprBaselineRef.current = { voice: v, sub: s, burn, dual: d };
+      formSyncPausedRef.current = false;
       notify(
-        `已保存表达设置：旁白 ${String(expr.voice_lang || voiceLang)} / 字幕 ${String(expr.subtitle_lang || subtitleLang)} / ${burn}${
-          burn === "burn_dual"
-            ? `（双语副语言 ${String(expr.dual_secondary_lang || dualSecondaryLang)}）`
-            : ""
+        `已保存表达设置：旁白 ${v} / 字幕 ${s} / ${burn}${
+          burn === "burn_dual" ? `（双语副语言 ${d}）` : ""
         }。下次生产/重渲生效。`,
         "ok",
       );
@@ -869,6 +1129,18 @@ function App() {
     setPackLast("");
     try {
       if (activeCustomerId) {
+        if (exprDirty) {
+          const ok = await askConfirm({
+            title: "导出将保存表达设置",
+            body: "当前表达设置尚未点「保存」。继续导出会一并写入客户配置（旁白/字幕/烧录）。",
+            confirmLabel: "保存并导出",
+            cancelLabel: "取消",
+          });
+          if (!ok) {
+            setPackBusyId(null);
+            return;
+          }
+        }
         await api.updateCustomer(activeCustomerId, {
           expression: {
             voice_lang: voiceLang,
@@ -877,6 +1149,12 @@ function App() {
             dual_secondary_lang: dualSecondaryLang,
           },
         });
+        exprBaselineRef.current = {
+          voice: voiceLang,
+          sub: subtitleLang,
+          burn: subtitleBurn,
+          dual: dualSecondaryLang,
+        };
       }
       const res = await api.exportPublishPack(id, {
         voice_lang: voiceLang,
@@ -923,7 +1201,7 @@ function App() {
       notify("请填写 publish_pack 目录路径", "err");
       return;
     }
-    setReachBusy(true);
+    setQueueBusy(true);
     setReachMsg("");
     try {
       const res = await api.reachFromPack({ pack_dir: reachPackDir.trim() });
@@ -932,12 +1210,12 @@ function App() {
     } catch (e) {
       notify(String(e), "err");
     } finally {
-      setReachBusy(false);
+      setQueueBusy(false);
     }
   }
 
   async function reachOpenItem(id: number) {
-    setReachBusy(true);
+    setQueueBusy(true);
     try {
       const res = await api.reachOpen(id, false, chromeSelected || undefined);
       setReachMsg(res.disclaimer || `已打开官方入口；粘贴卡：${res.paste_card || ""}`);
@@ -945,7 +1223,7 @@ function App() {
     } catch (e) {
       notify(String(e), "err");
     } finally {
-      setReachBusy(false);
+      setQueueBusy(false);
     }
   }
 
@@ -1004,7 +1282,7 @@ function App() {
   async function reachSelectChromeProfile(name: string) {
     setChromeSelected(name);
     if (!name) return;
-    setReachBusy(true);
+    setChromeBusy(true);
     try {
       const plat = chromeProfilePlatform(name);
       const res = await api.reachChromeSelect(name, plat);
@@ -1013,13 +1291,13 @@ function App() {
     } catch (e) {
       notify(String(e), "err");
     } finally {
-      setReachBusy(false);
+      setChromeBusy(false);
     }
   }
 
   async function reachCreateChromeProfiles() {
     const count = Math.max(1, Math.min(10, Number(chromeCreateCount) || 1));
-    setReachBusy(true);
+    setChromeBusy(true);
     try {
       const res = await api.reachChromeCreate({ platform: chromeCreatePlatform, count });
       const names = (res.created || []).map((c) => c.name).join("、");
@@ -1030,7 +1308,7 @@ function App() {
     } catch (e) {
       notify(String(e), "err");
     } finally {
-      setReachBusy(false);
+      setChromeBusy(false);
     }
   }
 
@@ -1039,7 +1317,7 @@ function App() {
       notify("请先选择 Chrome 本地配置", "err");
       return;
     }
-    setReachBusy(true);
+    setChromeBusy(true);
     try {
       const plat = chromeProfilePlatform(chromeSelected) || chromeCreatePlatform;
       await api.reachChromeSelect(chromeSelected, plat);
@@ -1048,7 +1326,7 @@ function App() {
     } catch (e) {
       notify(String(e), "err");
     } finally {
-      setReachBusy(false);
+      setChromeBusy(false);
     }
   }
 
@@ -1077,7 +1355,6 @@ function App() {
       notify("请先选择 Chrome 本地配置", "err");
       return;
     }
-    setReachBusy(true);
     setAutoUploadBusy(true);
     setAutoUploadPhase("starting");
     setAutoUploadMsg("启动中…");
@@ -1094,7 +1371,6 @@ function App() {
       setAutoUploadPhase(res.phase || "waiting_login");
       setAutoUploadMsg(res.message || res.disclaimer || "等待登录就绪…");
       setReachMsg(res.disclaimer || "已启动：登录就绪后自动上传当前队列项（风控自负）");
-      // poll until terminal
       for (let i = 0; i < 180; i++) {
         await new Promise((r) => setTimeout(r, 2000));
         const st = await pollAutoUploadOnce();
@@ -1107,8 +1383,6 @@ function App() {
     } catch (e) {
       notify(String(e), "err");
       setAutoUploadBusy(false);
-    } finally {
-      setReachBusy(false);
     }
   }
 
@@ -1124,7 +1398,7 @@ function App() {
   }
 
   async function coverCreateTemplate() {
-    setReachBusy(true);
+    setCoverBusy(true);
     try {
       const name = coverNewName.trim() || "未命名封面套";
       const res = await api.coverTemplateCreate(name);
@@ -1135,12 +1409,12 @@ function App() {
     } catch (e) {
       notify(String(e), "err");
     } finally {
-      setReachBusy(false);
+      setCoverBusy(false);
     }
   }
 
   async function coverSelectTemplate(id: string) {
-    setReachBusy(true);
+    setCoverBusy(true);
     try {
       await api.coverTemplateSelect(id);
       setCoverSelectedId(id);
@@ -1150,13 +1424,21 @@ function App() {
     } catch (e) {
       notify(String(e), "err");
     } finally {
-      setReachBusy(false);
+      setCoverBusy(false);
     }
   }
 
   async function coverDeleteTemplate(id: string) {
-    if (!window.confirm("删除该封面模板套？")) return;
-    setReachBusy(true);
+    if (
+      !(await askConfirm({
+        title: "删除封面模板",
+        body: "删除该封面模板套？",
+        confirmLabel: "删除",
+        danger: true,
+      }))
+    )
+      return;
+    setCoverBusy(true);
     try {
       await api.coverTemplateDelete(id);
       setReachMsg("已删除封面模板");
@@ -1164,7 +1446,7 @@ function App() {
     } catch (e) {
       notify(String(e), "err");
     } finally {
-      setReachBusy(false);
+      setCoverBusy(false);
     }
   }
 
@@ -1175,7 +1457,7 @@ function App() {
     }
     const path = await pickImageFile();
     if (!path) return;
-    setReachBusy(true);
+    setCoverBusy(true);
     try {
       await api.coverTemplateSetSlot(coverEditId, platform, slotIndex, path);
       setReachMsg(`已写入 ${platform} 槽位 ${slotIndex}`);
@@ -1183,7 +1465,7 @@ function App() {
     } catch (e) {
       notify(String(e), "err");
     } finally {
-      setReachBusy(false);
+      setCoverBusy(false);
     }
   }
 
@@ -1194,7 +1476,7 @@ function App() {
     }
     const dir = reachPackDir.trim() || (await pickDir());
     if (!dir) return;
-    setReachBusy(true);
+    setCoverBusy(true);
     try {
       await api.coverTemplateSeed(coverEditId, dir);
       setReachMsg("已从物料包灌入空槽封面");
@@ -1202,12 +1484,12 @@ function App() {
     } catch (e) {
       notify(String(e), "err");
     } finally {
-      setReachBusy(false);
+      setCoverBusy(false);
     }
   }
 
   async function coverPreviewResolve() {
-    setReachBusy(true);
+    setCoverBusy(true);
     try {
       const res = await api.coverTemplatesResolve(
         coverPreviewPlat,
@@ -1225,7 +1507,7 @@ function App() {
     } catch (e) {
       notify(String(e), "err");
     } finally {
-      setReachBusy(false);
+      setCoverBusy(false);
     }
   }
 
@@ -1290,28 +1572,179 @@ function App() {
     engine?.repo ||
     "";
 
+  const pendingReviewCount = outputs.filter(
+    (o) =>
+      (o.state === "ready" || o.state === "review") &&
+      o.review_status !== "approved" &&
+      o.review_status !== "rejected",
+  ).length;
+  const readyCount = Number(opsReport?.ready ?? report?.ready ?? 0);
+  const runningJobs = jobs.filter((j) => {
+    const s = String(j.status || "");
+    return s === "running" || s === "queued" || s === "pending";
+  }).length;
+  const pathBlocked = Boolean(health && health.path_health && !health.path_health.ok);
+  const pipelineNodes = [
+    { id: "assets" as Tab, label: "素材", count: Number(report?.assets ?? assets.length) },
+    { id: "produce" as Tab, label: "生产", count: runningJobs, warn: runningJobs > 0 },
+    {
+      id: "review" as Tab,
+      label: "审片",
+      count: pendingReviewCount,
+      warn: ttsBadCount > 0,
+      blocked: ttsBadCount > 0,
+    },
+    { id: "pack" as Tab, label: "物料", count: readyCount },
+    { id: "publish" as Tab, label: "发布", count: readyCount },
+    {
+      id: "reach" as Tab,
+      label: "触达",
+      count: Number(reachInbox?.unread_count ?? 0),
+      warn: Number(reachInbox?.unread_count ?? 0) > 0,
+    },
+  ];
+
+  const cmdExtra: CmdItem[] = [
+    {
+      id: "engine-toggle",
+      label: engineOn ? "停止引擎" : "启动引擎",
+      run: () => {
+        void onEngineToggle();
+      },
+    },
+    {
+      id: "refresh",
+      label: "刷新全部数据",
+      run: () => {
+        void refreshAll();
+      },
+    },
+    {
+      id: "density",
+      label: density === "command" ? "切换到批处理密度" : "切换到指挥密度",
+      run: () => setDensity((d) => (d === "command" ? "compact" : "command")),
+    },
+    {
+      id: "shortcuts",
+      label: "快捷键说明",
+      hint: "?",
+      run: () => {
+        void askConfirm({
+          title: "快捷键",
+          body:
+            "⌘/Ctrl+K  命令面板\n" +
+            "1–9       切换九个页签\n" +
+            "审片页：J/K 上下条 · A 通过 · R 重渲 · F 影院\n" +
+            "?         打开本说明",
+          confirmLabel: "知道了",
+          cancelLabel: "关闭",
+        });
+      },
+    },
+  ];
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const meta = e.metaKey || e.ctrlKey;
+      if (meta && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCmdOpen((v) => !v);
+        return;
+      }
+      if (!meta && e.key === "?" && !(e.target as HTMLElement)?.isContentEditable) {
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT") {
+          e.preventDefault();
+          void askConfirm({
+            title: "快捷键",
+            body:
+              "⌘/Ctrl+K  命令面板\n" +
+              "1–9       切换九个页签\n" +
+              "审片页：J/K 上下条 · A 通过 · R 重渲 · F 影院\n" +
+              "?         打开本说明",
+            confirmLabel: "知道了",
+            cancelLabel: "关闭",
+          });
+          return;
+        }
+      }
+      const tag = (e.target as HTMLElement)?.tagName;
+      const typing =
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        (e.target as HTMLElement)?.isContentEditable;
+      if (typing || cmdOpen || dialog) return;
+      if (e.key >= "1" && e.key <= "9") {
+        const idx = Number(e.key) - 1;
+        if (TABS[idx]) {
+          e.preventDefault();
+          setTab(TABS[idx][0]);
+        }
+      }
+      if (tab === "review" && readyOutputs.length) {
+        const ids = readyOutputs.map((o) => Number(o.id));
+        const cur = reviewFocusId ?? ids[0];
+        const ix = Math.max(0, ids.indexOf(cur));
+        if (e.key === "j" || e.key === "J") {
+          e.preventDefault();
+          setReviewFocusId(ids[Math.min(ids.length - 1, ix + 1)] ?? cur);
+        }
+        if (e.key === "k" || e.key === "K") {
+          e.preventDefault();
+          setReviewFocusId(ids[Math.max(0, ix - 1)] ?? cur);
+        }
+        if ((e.key === "a" || e.key === "A") && cur) {
+          e.preventDefault();
+          void decideReview(cur, "approved");
+        }
+        if ((e.key === "r" || e.key === "R") && cur) {
+          e.preventDefault();
+          void rerenderOnly(cur);
+        }
+        if (e.key === "f" || e.key === "F") {
+          e.preventDefault();
+          setCinemaMode((v) => !v);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [cmdOpen, dialog, tab, readyOutputs, reviewFocusId]);
+
   return (
-    <div className="app">
+    <div className={`app${density === "compact" ? " density-compact" : ""}`}>
       <aside className="rail">
         <div className="brand">
           <div className="brand-mark">
             <h1 className="brand-name">速影</h1>
             <span className="brand-ver">SUYING</span>
           </div>
-          <p className="brand-tag">本地智能混剪控制台</p>
+          <p className="brand-tag">LOCAL AI MONTAGE</p>
         </div>
         <nav className="nav">
-          {TABS.map(([t, label, idx]) => (
-            <button
-              key={t}
-              type="button"
-              className={`nav-btn${tab === t ? " active" : ""}`}
-              onClick={() => setTab(t)}
-            >
-              <span className="nav-idx">{idx}</span>
-              {label}
-            </button>
-          ))}
+          {TABS.map(([t, label, idx]) => {
+            const Icon = TAB_ICONS[t];
+            const badge =
+              t === "reach" && Number(reachInbox?.unread_count ?? 0) > 0
+                ? Number(reachInbox?.unread_count ?? 0)
+                : t === "review" && pendingReviewCount > 0
+                  ? pendingReviewCount
+                  : 0;
+            return (
+              <button
+                key={t}
+                type="button"
+                className={`nav-btn${tab === t ? " active" : ""}`}
+                onClick={() => setTab(t)}
+              >
+                <span className="nav-idx">{idx}</span>
+                <Icon className="nav-icon" size={16} aria-hidden />
+                <span className="nav-label">{label}</span>
+                {badge > 0 ? <em className="nav-badge">{badge > 99 ? "99+" : badge}</em> : null}
+              </button>
+            );
+          })}
         </nav>
         <div className="rail-foot">
           <div className="rail-power">
@@ -1377,10 +1810,50 @@ function App() {
         <div className="topbar-title">
           <h2>{tabLabel}</h2>
           <span>
-            {customerName || "未选择客户"} · {vectorization ? "向量化开" : "向量化关"}
+            {TAB_BLURB[tab]} · {customerName || "未选择客户"} · {vectorization ? "向量化开" : "向量化关"}
           </span>
         </div>
         <div className="topbar-actions">
+          <div className="pulse-bar" aria-label="实时脉冲">
+            <button type="button" className="pulse-chip" onClick={() => setTab("pack")}>
+              Ready {readyCount}
+            </button>
+            <button type="button" className="pulse-chip" onClick={() => setTab("produce")}>
+              任务 {runningJobs}
+            </button>
+            <button type="button" className="pulse-chip" onClick={() => setTab("review")}>
+              TTS {ttsBadCount}
+            </button>
+          </div>
+          <NextActionPill
+            engineOn={engineOn}
+            engineBusy={engineBusy}
+            health={health}
+            engine={engine}
+            readyCount={readyCount}
+            pendingReview={pendingReviewCount}
+            ttsBad={ttsBadCount}
+            runningJobs={runningJobs}
+            hasTodayPlan={Boolean(todayPlan)}
+            onStartEngine={() => {
+              void onEngineToggle();
+            }}
+            onSetTab={setTab}
+          />
+          <button
+            type="button"
+            title="命令面板 ⌘K"
+            onClick={() => setCmdOpen(true)}
+          >
+            ⌘K
+          </button>
+          <button
+            type="button"
+            title="密度"
+            onClick={() => setDensity((d) => (d === "command" ? "compact" : "command"))}
+          >
+            {density === "command" ? "指挥档" : "批处理档"}
+          </button>
           <label className="field-inline">
             客户
             <select
@@ -1406,6 +1879,18 @@ function App() {
             aria-live="polite"
           >
             <span className="banner-text">{flash?.text || error}</span>
+            {flash?.actionLabel && flash.actionTab ? (
+              <button
+                type="button"
+                className="banner-action"
+                onClick={() => {
+                  setTab(flash.actionTab!);
+                  setFlash(null);
+                }}
+              >
+                {flash.actionLabel}
+              </button>
+            ) : null}
             <button
               type="button"
               className="banner-dismiss"
@@ -1423,6 +1908,14 @@ function App() {
         {!vectorization && health && (
           <div className="banner warn">
             向量化尚未开启。入库只会做规范化；语义检索与自动增量补索引需在「运维」手动开启（不会整库重算）。
+          </div>
+        )}
+        {!engineOn && !engineBusy && (
+          <div className="banner warn engine-offline-banner">
+            <span>引擎离线 — 生产、扫描与审片同步需先启动引擎。</span>
+            <button type="button" className="primary" onClick={() => void onEngineToggle()}>
+              启动引擎
+            </button>
           </div>
         )}
 
@@ -1502,6 +1995,7 @@ function App() {
         )}
 
         <main className={tab === "assistant" ? "assistant-shell" : "panel"}>
+          <StageMotion tabKey={tab}>
           {tab === "overview" && (
             <section>
               <div className="panel-head">
@@ -1510,6 +2004,7 @@ function App() {
                   刷新
                 </button>
               </div>
+              <OverviewPipeline nodes={pipelineNodes} onJump={setTab} pathBlocked={pathBlocked} />
               <div className="stat-grid">
                 <div className="stat">
                   <div className="stat-label">素材</div>
@@ -1681,7 +2176,33 @@ function App() {
                   {actionBusy === "createJob" ? "创建中…" : "创建任务"}
                 </button>
               </div>
-              {dryResult && <pre>{JSON.stringify(dryResult, null, 2)}</pre>}
+              {dryResult && (() => {
+                const s = dryRunSummary(dryResult);
+                return (
+                  <div className="dry-card">
+                    <div className="dry-card-head">
+                      <strong>Dry-run 结果</strong>
+                      <span className="dry-count">{s.count} 条候选</span>
+                    </div>
+                    <p className="hint">
+                      主题 {s.theme} · 分类 {s.category}
+                    </p>
+                    {s.samples.length > 0 ? (
+                      <ul className="dry-samples">
+                        {s.samples.map((t, i) => (
+                          <li key={`${i}-${t}`}>{t}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="hint">无候选样本</p>
+                    )}
+                    <details>
+                      <summary>原始 JSON</summary>
+                      <pre className="dry-raw">{JSON.stringify(dryResult, null, 2)}</pre>
+                    </details>
+                  </div>
+                );
+              })()}
               <table>
                 <thead>
                   <tr>
@@ -1767,15 +2288,24 @@ function App() {
                 </button>
                 <button
                   type="button"
-                  onClick={() =>
-                    api
-                      .deleteCalendar(calDay)
-                      .then(() => {
+                  onClick={() => {
+                    void (async () => {
+                      const ok = await askConfirm({
+                        title: "删除日历日",
+                        body: `删除 ${calDay} 的日历计划？此操作不可撤销。`,
+                        confirmLabel: "删除",
+                        danger: true,
+                      });
+                      if (!ok) return;
+                      try {
+                        await api.deleteCalendar(calDay);
                         notify(`已删除日历日：${calDay}`, "ok");
-                        return refreshAll();
-                      })
-                      .catch((e) => notify(String(e), "err"))
-                  }
+                        await refreshAll();
+                      } catch (e) {
+                        notify(String(e), "err");
+                      }
+                    })();
+                  }}
                 >
                   删除该日
                 </button>
@@ -1828,7 +2358,7 @@ function App() {
                     api
                       .scanAssets(0)
                       .then((r) => {
-                        notify(`全量扫描已触发：${JSON.stringify(r)}`, "ok");
+                        notify(briefResult("全量扫描已触发", r), "ok");
                         return refreshAll();
                       })
                       .catch((e) => notify(String(e), "err"))
@@ -1842,7 +2372,7 @@ function App() {
                   onClick={() =>
                     api
                       .scanStatus()
-                      .then((r) => notify(`扫描状态：${JSON.stringify(r)}`, "info"))
+                      .then((r) => notify(briefResult("扫描状态", r), "info"))
                       .catch((e) => notify(String(e), "err"))
                   }
                 >
@@ -1906,8 +2436,16 @@ function App() {
                 <span className="count">{readyOutputs.length} PENDING</span>
               </div>
               <p className="hint">
-                新渲成片默认含旁白+烧录字幕。旧片显示「无旁白/无烧录字幕」时，用「仅重渲」或下方批量补齐后再过审。过审后可到「发布」台复制文案并拖到网页。
+                新渲成片默认含旁白+烧录字幕。旧片显示「无旁白/无烧录字幕」时，用「仅重渲」或下方批量补齐后再过审。通过后默认留在本页便于连续审片；快捷键：J/K 上下、A 通过、R 重渲、F 影院。
               </p>
+              <div className="cinema-bar">
+                <button type="button" className={cinemaMode ? "primary" : undefined} onClick={() => setCinemaMode((v) => !v)}>
+                  {cinemaMode ? "退出影院" : "影院模式"}
+                </button>
+                <button type="button" onClick={() => setTab("publish")}>
+                  去发布台
+                </button>
+              </div>
               <div className="actions-inline" style={{ marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
                 <label>
                   筛选
@@ -1939,6 +2477,7 @@ function App() {
                         r.count ? "ok" : "warn",
                       );
                       await refreshAll();
+                      setMediaEpoch((n) => n + 1);
                     } catch (e) {
                       notify(String(e), "err");
                     } finally {
@@ -1967,6 +2506,7 @@ function App() {
                         r.count ? "ok" : "warn",
                       );
                       await refreshAll();
+                      setMediaEpoch((n) => n + 1);
                     } catch (e) {
                       notify(String(e), "err");
                     } finally {
@@ -1977,6 +2517,7 @@ function App() {
                   {batchBusy ? "排队中…" : `批量重渲音色违规→Edge（≤20）`}
                 </button>
               </div>
+              <p className="review-note-hint">以下打回原因与批注应用于下一次通过/打回/重渲操作（全页共享，非每卡独立）。</p>
               <label>
                 打回原因
                 <select value={reviewReason} onChange={(e) => setReviewReason(e.target.value)}>
@@ -1991,14 +2532,23 @@ function App() {
                 批注
                 <input value={reviewNote} onChange={(e) => setReviewNote(e.target.value)} />
               </label>
-              <div className="review-list">
+              <div className={cinemaMode ? "review-list review-layout-cinema" : "review-list"}>
                 {readyOutputs.map((o) => {
                   const covers = (o.covers as string[]) || [];
                   const oid = Number(o.id);
                   const videoPath = String(o.output_path || "");
                   const mediaOk = o.media_ok !== false && Boolean(videoPath);
+                  const focused =
+                    reviewFocusId === oid ||
+                    (reviewFocusId == null &&
+                      readyOutputs[0] != null &&
+                      Number(readyOutputs[0].id) === oid);
                   return (
-                    <article key={String(o.id)} className="review-card">
+                    <article
+                      key={String(o.id)}
+                      className={`review-card${focused ? " is-focus" : ""}`}
+                      onClick={() => setReviewFocusId(oid)}
+                    >
                       <div className="review-meta">
                         <strong>#{String(o.id)}</strong>
                         <span>{String(o.state)}</span>
@@ -2173,15 +2723,21 @@ function App() {
               <div className="actions-inline" style={{ marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.75rem" }}>
                 <label>
                   旁白语言
-                  <select value={voiceLang} onChange={(e) => setVoiceLang(e.target.value)}>
-                    {renderLangOptions(true)}
-                  </select>
+                  <LangCombobox
+                    value={voiceLang}
+                    onChange={setVoiceLang}
+                    languages={langCatalog}
+                    includeNone
+                  />
                 </label>
                 <label>
                   字幕语言
-                  <select value={subtitleLang} onChange={(e) => setSubtitleLang(e.target.value)}>
-                    {renderLangOptions(true)}
-                  </select>
+                  <LangCombobox
+                    value={subtitleLang}
+                    onChange={setSubtitleLang}
+                    languages={langCatalog}
+                    includeNone
+                  />
                 </label>
                 <label>
                   字幕方式
@@ -2194,12 +2750,11 @@ function App() {
                 {subtitleBurn === "burn_dual" ? (
                   <label>
                     双语副语言
-                    <select
+                    <LangCombobox
                       value={dualSecondaryLang}
-                      onChange={(e) => setDualSecondaryLang(e.target.value)}
-                    >
-                      {renderLangOptions(false)}
-                    </select>
+                      onChange={setDualSecondaryLang}
+                      languages={langCatalog}
+                    />
                   </label>
                 ) : null}
                 <button
@@ -2209,8 +2764,12 @@ function App() {
                   onClick={() => void saveExpressionPrefs()}
                 >
                   {exprSaveBusy ? "保存中…" : "保存表达设置"}
+                  {exprDirty ? <span className="dirty-dot" title="未保存" /> : null}
                 </button>
               </div>
+              {exprDirty ? (
+                <p className="expr-dirty-hint">表达设置已修改未保存；导出物料包前会再次确认。</p>
+              ) : null}
               <p className="hint" style={{ marginTop: "-0.35rem" }}>
                 旁白语言 = 成片语音；字幕语言 = 主字幕文案；双语烧录时「双语副语言」为第二行。共{" "}
                 {Math.max(0, langCatalog.filter((l) => l.code !== "none").length)}{" "}
@@ -2266,6 +2825,7 @@ function App() {
               onNotify={notify}
               onRefresh={refreshAll}
               onGoReach={() => setTab("reach")}
+              mediaEpoch={mediaEpoch}
             />
           )}
 
@@ -2406,7 +2966,7 @@ function App() {
                 slotSpecs={coverSlotSpecs}
                 previewPlat={coverPreviewPlat}
                 previewMsg={coverPreviewMsg}
-                busy={reachBusy}
+                busy={coverBusy}
                 onNewName={setCoverNewName}
                 onEditId={setCoverEditId}
                 onPreviewPlat={setCoverPreviewPlat}
@@ -2426,7 +2986,7 @@ function App() {
                   <select
                     value={chromeCreatePlatform}
                     onChange={(e) => setChromeCreatePlatform(e.target.value)}
-                    disabled={reachBusy}
+                    disabled={chromeBusy}
                     style={{ minWidth: 120 }}
                   >
                     {reachPlatforms.map((p) => (
@@ -2444,11 +3004,11 @@ function App() {
                     max={10}
                     value={chromeCreateCount}
                     onChange={(e) => setChromeCreateCount(Number(e.target.value) || 1)}
-                    disabled={reachBusy}
+                    disabled={chromeBusy}
                     style={{ width: 64 }}
                   />
                 </label>
-                <button type="button" className="primary" disabled={reachBusy} onClick={reachCreateChromeProfiles}>
+                <button type="button" className="primary" disabled={chromeBusy} onClick={reachCreateChromeProfiles}>
                   创建配置
                 </button>
               </div>
@@ -2458,7 +3018,7 @@ function App() {
                   <select
                     value={chromeSelected}
                     onChange={(e) => reachSelectChromeProfile(e.target.value)}
-                    disabled={reachBusy || chromeProfiles.length === 0}
+                    disabled={chromeBusy || chromeProfiles.length === 0}
                     style={{ minWidth: 160 }}
                   >
                     {chromeProfiles.length === 0 && <option value="">暂无本地配置</option>}
@@ -2472,7 +3032,7 @@ function App() {
                 <button
                   type="button"
                   className="primary"
-                  disabled={reachBusy || !chromeSelected || !chromeInstalled}
+                  disabled={chromeBusy || !chromeSelected || !chromeInstalled}
                   onClick={reachOpenChromeProfile}
                 >
                   打开官方页
@@ -2480,7 +3040,7 @@ function App() {
                 <button
                   type="button"
                   className="primary"
-                  disabled={reachBusy || autoUploadBusy || !chromeSelected || !chromeInstalled}
+                  disabled={chromeBusy || autoUploadBusy || !chromeSelected || !chromeInstalled}
                   onClick={() => reachStartAutoUpload()}
                 >
                   {autoUploadBusy ? "等待登录/上传中…" : "等待登录后自动上传"}
@@ -2494,6 +3054,9 @@ function App() {
                   刷新
                 </button>
               </div>
+              <p className="hint reach-risk-hint">
+                自动上传会用本机 Chrome 打开官方页并代填；平台风控与账号安全由你自行承担（accept_risk）。
+              </p>
               {chromeRoot ? (
                 <p className="path">
                   配置目录 {chromeRoot}
@@ -2514,8 +3077,8 @@ function App() {
                   placeholder="publish_pack 目录路径"
                   style={{ minWidth: 280, flex: 1 }}
                 />
-                <button type="button" className="primary" disabled={reachBusy} onClick={reachEnqueueFromPack}>
-                  {reachBusy ? "处理中…" : "从物料包入队"}
+                <button type="button" className="primary" disabled={queueBusy} onClick={reachEnqueueFromPack}>
+                  {queueBusy ? "处理中…" : "从物料包入队"}
                 </button>
               </div>
               {reachMsg && <p className="path">{reachMsg}</p>}
@@ -2550,7 +3113,7 @@ function App() {
                       <button
                         type="button"
                         className="primary"
-                        disabled={reachBusy || it.status === "published" || it.status === "cancelled"}
+                        disabled={queueBusy || it.status === "published" || it.status === "cancelled"}
                         onClick={() => reachOpenItem(Number(it.id))}
                       >
                         打开官方入口
@@ -2558,7 +3121,6 @@ function App() {
                       <button
                         type="button"
                         disabled={
-                          reachBusy ||
                           autoUploadBusy ||
                           !chromeSelected ||
                           !chromeInstalled ||
@@ -2587,6 +3149,14 @@ function App() {
               notify={notify}
               keyConfigured={cursorKeyConfigured}
               onGoOps={() => setTab("ops")}
+              onConfirmReset={() =>
+                askConfirm({
+                  title: "开启新对话",
+                  body: "当前会话上下文将清空。确定？",
+                  confirmLabel: "开启新对话",
+                  danger: true,
+                })
+              }
             />
           )}
 
@@ -2699,7 +3269,7 @@ function App() {
                     api
                       .zspaceSyncInstall()
                       .then((r) => {
-                        notify(`同步服务已安装: ${JSON.stringify(r)}`, "ok");
+                        notify(briefResult("同步服务已安装", r), "ok");
                         return api.zspaceSyncStatus().then(setSyncStatus);
                       })
                       .catch((e) => notify(String(e), "err"))
@@ -2952,7 +3522,7 @@ function App() {
                       api
                         .reloadKeywordsFromPath(activeCustomerId ?? undefined)
                         .then(async (r) => {
-                          notify(`词池已重载: ${JSON.stringify(r)}`, "ok");
+                          notify(briefResult("词池已重载", r), "ok");
                           try {
                             const s = await api.keywordsActiveSummary(activeCustomerId ?? undefined);
                             setTitlePoolSummary({
@@ -3055,7 +3625,7 @@ function App() {
                     setActionBusy("scheduler");
                     api
                       .schedulerRunNow(true)
-                      .then((r) => notify(`调度已触发: ${JSON.stringify(r)}`, "ok"))
+                      .then((r) => notify(briefResult("调度已触发", r), "ok"))
                       .catch((e) => notify(String(e), "err"))
                       .finally(() => setActionBusy(null));
                   }}
@@ -3098,8 +3668,53 @@ function App() {
               </table>
             </section>
           )}
+          </StageMotion>
         </main>
       </div>
+      <CommandPalette
+        open={cmdOpen}
+        onClose={() => setCmdOpen(false)}
+        onSetTab={setTab}
+        extra={cmdExtra}
+      />
+      {dialog?.mode === "confirm" ? (
+        <AppDialog
+          open
+          title={dialog.title}
+          body={dialog.body}
+          confirmLabel={dialog.confirmLabel}
+          cancelLabel={dialog.cancelLabel}
+          danger={dialog.danger}
+          onConfirm={() => {
+            dialog.resolve(true);
+            setDialog(null);
+          }}
+          onCancel={() => {
+            dialog.resolve(false);
+            setDialog(null);
+          }}
+        />
+      ) : null}
+      {dialog?.mode === "prompt" ? (
+        <AppDialog
+          mode="prompt"
+          open
+          title={dialog.title}
+          body={dialog.body}
+          placeholder={dialog.placeholder}
+          defaultValue={dialog.defaultValue}
+          confirmLabel={dialog.confirmLabel}
+          cancelLabel={dialog.cancelLabel}
+          onConfirm={(v) => {
+            dialog.resolve(v);
+            setDialog(null);
+          }}
+          onCancel={() => {
+            dialog.resolve(null);
+            setDialog(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
