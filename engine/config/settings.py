@@ -117,16 +117,20 @@ class AppSettings(BaseSettings):
     audio_target_lufs: float = -14.0
     keep_source_audio: bool = False  # True 时才混入原片环境音
     preserve_source_resolution: bool = True  # canvas ≥ max source size in plan
-    # G4 TTS: mock (ffmpeg tone) | say (macOS). Real cloud TTS later via same field.
-    tts_provider: str = "mock"
-    tts_voice: str = ""  # e.g. Tingting / Samantha; empty = OS default
-    tts_chars_per_sec_zh: float = 4.2
+    # G4 TTS: edge (晓晓) | say | mock | auto (prefer edge)
+    tts_provider: str = "edge"
+    tts_voice: str = "zh-CN-XiaoxiaoNeural"
+    tts_rate: str = "-8%"
+    tts_pitch: str = "+20Hz"
+    tts_chars_per_sec_zh: float = 3.8
     tts_chars_per_sec_en: float = 13.0
     # G4 mix: narration leads; BGM bed ducks under voice
     narration_gain: float = 1.0
     bgm_bed_gain: float = 0.2
     # G5 Reach limits (per customer / calendar day)
     reach_daily_quota: int = 5
+    # Per-platform caps; empty = only total applies. When set, sum(values) must be <= reach_daily_quota.
+    reach_platform_quotas: dict[str, int] = Field(default_factory=dict)
     reach_fail_threshold: int = 3
     # Vectorization is OFF by default; customer must enable manually in App
     vectorization_enabled: bool = False
@@ -137,6 +141,8 @@ class AppSettings(BaseSettings):
     # First-run wizard completed
     onboarded: bool = False
     product_name: str = "速影"
+    # Cursor Agent SDK / Cloud Agents — stored in workspace settings (never sync tree)
+    cursor_api_key: str = ""
 
 
 def settings_file(data_root: Path) -> Path:
@@ -158,6 +164,9 @@ def load_settings() -> AppSettings:
             settings = AppSettings()
             settings.paths.data_root = bootstrap
             settings.paths.cache_root = Path.home() / "Suying" / "cache"
+            from engine.ops.cursor_key import apply_cursor_api_key_env
+
+            apply_cursor_api_key_env(settings.cursor_api_key)
             return settings
 
     raw = json.loads(path.read_text(encoding="utf-8"))
@@ -173,6 +182,9 @@ def load_settings() -> AppSettings:
 
     settings = AppSettings(**raw)
     settings.paths.data_root = data_root
+    from engine.ops.cursor_key import apply_cursor_api_key_env
+
+    apply_cursor_api_key_env(settings.cursor_api_key)
     return settings
 
 
@@ -192,6 +204,9 @@ def save_settings(settings: AppSettings) -> None:
         settings_file(boot).write_text(
             json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
         )
+    from engine.ops.cursor_key import apply_cursor_api_key_env
+
+    apply_cursor_api_key_env(settings.cursor_api_key)
 
 
 def enable_vectorization(settings: AppSettings | None = None) -> AppSettings:

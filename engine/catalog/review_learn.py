@@ -21,8 +21,16 @@ REJECT_REASONS: dict[str, str] = {
     "audio_bad": "声音糊/吵/无声感",
     "reuse": "素材复用难看",
     "dark_blur": "画面暗糊",
+    "ops_voice_subtitle": "补旁白/字幕",
+    "ops_tts_noncompliant": "音色不合规(非Edge晓晓)",
+    "tts_lock_say": "音色不合规(macOS say)",
     "other": "其他",
 }
+
+# Ops re-render should keep the same footage and only redo VO/subs/render
+KEEP_FOOTAGE_REASONS = frozenset(
+    {"ops_voice_subtitle", "ops_tts_noncompliant", "tts_lock_say"}
+)
 
 DEFAULT_DOWNWEIGHT = 0.12
 MIN_SCORE = 0.05
@@ -129,17 +137,23 @@ def create_rerender_job(
     *,
     reason: str = "other",
 ) -> Job:
-    """Queue a count=1 job that excludes cliplets/assets from the rejected output."""
+    """Queue a count=1 re-render. Reject reasons exclude old footage; ops TTS reasons keep it."""
     if not out.job_id:
         raise ValueError("成片无关联任务，无法一键重渲")
     parent = session.get(Job, out.job_id)
     if not parent:
         raise ValueError("原任务不存在，无法一键重渲")
 
-    cliplet_ids = cliplet_ids_from_output(session, out)
-    asset_uuids = asset_uuids_from_output(session, out)
-    # Prefer excluding whole assets so re-render cannot reuse the same takes
-    exclude_assets = list(asset_uuids)
+    keep_footage = reason in KEEP_FOOTAGE_REASONS
+    if keep_footage:
+        # Voice/subtitle ops: same takes, new Edge VO (do not exclude assets)
+        cliplet_ids: list[int] = []
+        exclude_assets: list[str] = []
+    else:
+        cliplet_ids = cliplet_ids_from_output(session, out)
+        asset_uuids = asset_uuids_from_output(session, out)
+        # Prefer excluding whole assets so reject re-render cannot reuse the same takes
+        exclude_assets = list(asset_uuids)
 
     tpl = session.scalar(select(Template).where(Template.name == parent.template_name))
     parent_snap = parent.config_snapshot_json or {}
@@ -159,6 +173,7 @@ def create_rerender_job(
         "reject_reason": reason,
         "exclude_cliplet_ids": cliplet_ids,
         "exclude_asset_uuids": exclude_assets,
+        "keep_footage": keep_footage,
     }
 
     job = Job(

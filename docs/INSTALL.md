@@ -33,3 +33,11 @@
 - [ ] 导入词包 JSON/MD
 - [ ] 投递 5–10 条测试视频到资料库并扫描
 - [ ] Dry-run 通过后再创建正式任务
+
+## 冒烟（推荐）
+
+```bash
+python3 scripts/smoke_test.py
+python3 scripts/smoke_zero_fork.py   # 第二客户隔离 / 零分叉
+python3 scripts/smoke_ops.py         # G6 运营：报表 / 无旁白筛选 / 批量重渲
+```

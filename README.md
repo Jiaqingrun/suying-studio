@@ -60,5 +60,5 @@ python3 scripts/smoke_test.py
 已实现：多片库路径、摄入 Watcher、词包导入与冷却、模板约束抽样、Dry-run、FFmpeg 渲染烧字幕、质检门闩、任务队列/熔断、日志 CSV 导出、桌面控制台。
 
 后置 / 进行中：以 [`docs/DEV_LOCK.md`](docs/DEV_LOCK.md) §E 为准。  
-BGM：`~/Suying/music/` 或客户 `04-音乐/`。  
+BGM：`~/Suying/music/` 或客户 `04-音乐/`。曲库调用与合规见 [`docs/MUSIC.md`](docs/MUSIC.md)（含 `bensound-*` + `km-*` 轻柔欢快）。
 Pack/Reach 在 G1+G2 过关前禁止开工。

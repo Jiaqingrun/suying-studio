@@ -145,7 +145,7 @@ class ReachQueueItem(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     customer_id: Mapped[int] = mapped_column(Integer, ForeignKey("customers.id"), index=True)
-    platform: Mapped[str] = mapped_column(String(32), index=True)  # douyin/channels/xhs/wechat_mp
+    platform: Mapped[str] = mapped_column(String(32), index=True)  # douyin/channels/xhs/kuaishou/…
     status: Mapped[str] = mapped_column(String(32), default="queued", index=True)
     # queued | awaiting_human | published | failed | cancelled | blocked
     title: Mapped[str] = mapped_column(Text, default="")
@@ -174,6 +174,9 @@ class Cliplet(Base):
     category: Mapped[str] = mapped_column(String(128), default="uncategorized")
     theme: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     theme_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    scene: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    objects_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    actions_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     score: Mapped[float] = mapped_column(Float, default=1.0)
     embedding_json: Mapped[list[float] | None] = mapped_column(JSON, nullable=True)
     indexed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -389,6 +392,9 @@ def _run_sqlite_migrations(settings: AppSettings | None = None) -> None:
         _add_column_if_missing(conn, "cliplet_usage", "customer_id", "INTEGER")
         _add_column_if_missing(conn, "cliplets", "theme", "VARCHAR(64)")
         _add_column_if_missing(conn, "cliplets", "theme_score", "FLOAT")
+        _add_column_if_missing(conn, "cliplets", "scene", "VARCHAR(64)")
+        _add_column_if_missing(conn, "cliplets", "objects_json", "JSON")
+        _add_column_if_missing(conn, "cliplets", "actions_json", "JSON")
         _migrate_calendar_unique(conn)
 
     session = get_session()

@@ -163,19 +163,31 @@ def export_publish_pack(
     foreign_locales: list[str] | None = None,
     include_narration: bool = True,
     tts_provider: str = "mock",
+    expression_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Create `<stem>.publish_pack/` beside the ready mp4.
     Returns manifest dict + paths.
 
-    G4: by default also emits English subtitle + copy + optional narration bed
-    (``foreign_locales`` default ``["en"]``).
+    P2: ``profile.expression`` / ``expression_overrides`` control
+    ``voice_lang`` / ``subtitle_lang`` / ``subtitle_burn``.
+    G4 default still emits English when prefs ask for it (or legacy foreign_locales).
     """
+    from engine.pack.expression import (
+        build_dual_subtitle_srt,
+        foreign_locales_for_prefs,
+        resolve_expression_prefs,
+    )
+
     output_path = Path(output_path)
     if not output_path.is_file():
         raise FileNotFoundError(f"成片不存在: {output_path}")
 
-    locales = list(foreign_locales) if foreign_locales is not None else ["en"]
+    prefs = resolve_expression_prefs(profile, overrides=expression_overrides)
+    if foreign_locales is not None:
+        locales = list(foreign_locales)
+    else:
+        locales = foreign_locales_for_prefs(prefs)
 
     side = _load_sidecar(Path(sidecar_path) if sidecar_path else output_path.with_suffix(".json"))
     title = str(side.get("title") or output_path.stem)
@@ -235,18 +247,73 @@ def export_publish_pack(
         "compliance": "compliance.json",
         "sidecar": "source.sidecar.json" if side else None,
     }
+
+    if include_narration and prefs["voice_lang"] in ("zh", "zh-TW"):
+        try:
+            from engine.pack.narration_script import narration_script_zh
+            from engine.pack.tts import narration_bed_from_result, synthesize_script
+            from engine.render.voice_subtitle import resolve_tts_provider
+            from engine.config.settings import load_settings as _ls
+            from engine.pack.languages import edge_voice_for_lang
+
+            script_zh = narration_script_zh(
+                title,
+                brand=brand_name,
+                theme=theme,
+                description=str(copy0.get("description") or ""),
+                speak_title=False,
+            )
+            if prefs["voice_lang"] == "zh-TW":
+                # Soft traditional cue — keep structure, TTS uses TW voice
+                script_zh = script_zh.replace("这里是", "這裡是").replace("实拍", "實拍").replace("发货", "出貨")
+            provider = resolve_tts_provider(_ls())
+            vlang = prefs["voice_lang"]
+            narr_zh = synthesize_script(
+                script_zh,
+                dest / f"narration.{vlang}",
+                lang=vlang,
+                provider=provider,  # type: ignore[arg-type]
+                voice=edge_voice_for_lang(vlang),
+            )
+            bed_zh = narration_bed_from_result(narr_zh, dest / f"voiceover.{vlang}.wav")
+            files["voiceover"] = bed_zh.name
+            files["narration"] = f"narration.{vlang}"
+            from engine.pack.narration_script import srt_from_narration_segments
+
+            timed = srt_from_narration_segments(narr_zh.segments, video_duration_sec=dur or None)
+            if timed.strip():
+                srt_name = f"subtitle.{vlang}.srt"
+                (dest / srt_name).write_text(timed, encoding="utf-8")
+                if vlang == "zh":
+                    (dest / "subtitle.zh.srt").write_text(timed, encoding="utf-8")
+                else:
+                    files["subtitle_zh_TW"] = srt_name
+        except Exception:  # noqa: BLE001
+            pass
+
     variants: dict[str, Any] = {}
+    foreign_srts: dict[str, str] = {}
 
-    if "en" in locales:
+    # Build variants for every requested foreign locale (+ zh-TW)
+    needed_locales = list(locales)
+    for key in ("voice_lang", "subtitle_lang"):
+        lang = prefs.get(key) or ""
+        if lang and lang not in ("zh", "none") and lang not in needed_locales:
+            needed_locales.append(lang)
+
+    for loc in needed_locales:
         from engine.pack.locale import (
-            build_platform_copy_en,
+            build_platform_copy_for_lang,
             glossary_from_pack,
-            narration_script_en,
-            translate_phrase,
+            narration_script_for_lang,
+            subtitle_cue_text,
         )
+        from engine.pack.languages import edge_voice_for_lang
+        from engine.pack.tts import narration_bed_from_result, synthesize_script
 
-        gloss = glossary_from_pack(pack_data)
-        copy_en = build_platform_copy_en(
+        gloss = glossary_from_pack(pack_data, lang=loc if loc == "en" else "en")
+        copy_loc = build_platform_copy_for_lang(
+            loc,
             title_zh=title,
             brand=brand_name,
             theme=theme,
@@ -255,44 +322,136 @@ def export_publish_pack(
             glossary=gloss,
             description=str(copy0.get("description") or ""),
         )
-        (dest / "copy.en.json").write_text(
-            json.dumps(copy_en, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-        title_en = str(copy_en.get("title_en") or translate_phrase(title, gloss))
-        srt_en = build_subtitle_srt(title_en.replace(" — ", "｜"), duration_sec=min(8.0, max(4.0, dur * 0.25)))
-        (dest / "subtitle.en.srt").write_text(srt_en, encoding="utf-8")
-        files["copy_en"] = "copy.en.json"
-        files["subtitle_en"] = "subtitle.en.srt"
+        copy_name = f"copy.{loc}.json"
+        (dest / copy_name).write_text(json.dumps(copy_loc, ensure_ascii=False, indent=2), encoding="utf-8")
+        cue = str(copy_loc.get("title_localized") or subtitle_cue_text(loc, brand=brand_name))
+        srt_loc = build_subtitle_srt(cue.replace(" — ", "｜"), duration_sec=min(8.0, max(4.0, dur * 0.25)))
+        srt_name = f"subtitle.{loc}.srt"
+        (dest / srt_name).write_text(srt_loc, encoding="utf-8")
+        foreign_srts[loc] = srt_loc
+        files[f"copy_{loc.replace('-', '_')}"] = copy_name
+        files[f"subtitle_{loc.replace('-', '_')}"] = srt_name
         variant_meta: dict[str, Any] = {
-            "locale": "en",
-            "copy": "copy.en.json",
-            "subtitle": "subtitle.en.srt",
+            "locale": loc,
+            "copy": copy_name,
+            "subtitle": srt_name,
         }
-        if include_narration:
-            from engine.pack.tts import narration_bed_from_result, synthesize_script
+        if include_narration and prefs["voice_lang"] == loc and loc not in ("zh", "zh-TW"):
+            script_loc = narration_script_for_lang(loc, brand=brand_name, title_zh=title, speak_title=False)
+            narr_dir = dest / f"narration.{loc}"
+            # Prefer Edge when available for foreign voices
+            from engine.render.voice_subtitle import resolve_tts_provider
+            from engine.config.settings import load_settings as _ls
 
-            script_en = narration_script_en(title, brand=brand_name, glossary=gloss)
-            narr_dir = dest / "narration.en"
+            provider = resolve_tts_provider(_ls())
+            if tts_provider in ("mock", "say"):
+                provider = tts_provider  # type: ignore[assignment]
             narr = synthesize_script(
-                script_en,
+                script_loc,
                 narr_dir,
-                lang="en",
-                provider=tts_provider if tts_provider in ("mock", "say") else "mock",  # type: ignore[arg-type]
+                lang=loc,
+                provider=provider,  # type: ignore[arg-type]
+                voice=edge_voice_for_lang(loc),
             )
-            bed = narration_bed_from_result(narr, dest / "voiceover.en.wav")
-            variant_meta["narration_dir"] = "narration.en"
-            variant_meta["voiceover"] = "voiceover.en.wav"
-            variant_meta["narration_manifest"] = "narration.en/narration_manifest.json"
-            variant_meta["script"] = script_en
+            bed = narration_bed_from_result(narr, dest / f"voiceover.{loc}.wav")
+            variant_meta["narration_dir"] = f"narration.{loc}"
+            variant_meta["voiceover"] = f"voiceover.{loc}.wav"
+            variant_meta["script"] = script_loc
             variant_meta["duration_sec"] = narr.total_duration_sec
-            files["voiceover_en"] = bed.name
-            files["narration_en"] = "narration.en"
-        variants["en"] = variant_meta
+            files[f"voiceover_{loc.replace('-', '_')}"] = bed.name
+            files[f"narration_{loc.replace('-', '_')}"] = f"narration.{loc}"
+            from engine.pack.narration_script import srt_from_narration_segments
+
+            timed = srt_from_narration_segments(narr.segments, video_duration_sec=dur or None)
+            if timed.strip():
+                (dest / srt_name).write_text(timed, encoding="utf-8")
+                foreign_srts[loc] = timed
+        variants[loc] = variant_meta
+
+    # Primary subtitle pointer by subtitle_lang
+    sub_lang = prefs["subtitle_lang"]
+    if sub_lang == "none":
+        files["subtitle_primary"] = None
+    elif sub_lang == "zh":
+        files["subtitle_primary"] = files.get("subtitle")
+    else:
+        key = f"subtitle_{sub_lang.replace('-', '_')}"
+        files["subtitle_primary"] = files.get(key) or files.get("subtitle")
+
+    if prefs["subtitle_burn"] == "burn_dual":
+        # Dual = subtitle_lang (primary) + dual_secondary_lang
+        primary_code = sub_lang if sub_lang != "none" else "zh"
+        secondary_code = prefs.get("dual_secondary_lang") or (
+            "zh" if primary_code not in ("zh", "zh-TW") else "en"
+        )
+        srt_primary = (
+            srt
+            if primary_code in ("zh", "zh-TW")
+            else foreign_srts.get(primary_code, srt)
+        )
+        srt_secondary = (
+            srt
+            if secondary_code in ("zh", "zh-TW")
+            else foreign_srts.get(secondary_code, "")
+        )
+        if primary_code not in ("zh", "zh-TW") and foreign_srts.get(primary_code):
+            srt_primary = foreign_srts[primary_code]
+        if secondary_code in ("zh", "zh-TW"):
+            srt_secondary = srt
+        elif foreign_srts.get(secondary_code):
+            srt_secondary = foreign_srts[secondary_code]
+        if srt_primary and srt_secondary:
+            dual = build_dual_subtitle_srt(srt_primary, srt_secondary)
+            (dest / "subtitle.dual.srt").write_text(dual, encoding="utf-8")
+            files["subtitle_dual"] = "subtitle.dual.srt"
+            files["subtitle_primary"] = "subtitle.dual.srt"
+            files["dual_pair"] = f"{primary_code}+{secondary_code}"
+
+    # Render: external = ship SRT only; burn_* = ffmpeg soft-burn into pack video
+    burn_source = files.get("subtitle_primary")
+    if prefs["subtitle_burn"] == "burn_mono":
+        if sub_lang in ("zh", "none"):
+            burn_source = files.get("subtitle")
+        else:
+            burn_source = files.get(f"subtitle_{sub_lang.replace('-', '_')}") or files.get("subtitle")
+    elif prefs["subtitle_burn"] == "burn_dual":
+        burn_source = files.get("subtitle_dual") or burn_source
+    burn_intent: dict[str, Any] = {
+        "mode": prefs["subtitle_burn"],
+        "source_srt": burn_source,
+        "burn_in_video": prefs["subtitle_burn"] in ("burn_mono", "burn_dual"),
+        "note": (
+            "外挂字幕，不烧录"
+            if prefs["subtitle_burn"] == "external"
+            else "已请求烧录"
+        ),
+        "burned": False,
+        "burn_error": None,
+    }
+    if burn_intent["burn_in_video"] and burn_source:
+        from engine.render.subtitles_burn import burn_srt_into_video
+
+        srt_path = dest / str(burn_source)
+        burned_name = "video.burned.mp4"
+        burned_path = dest / burned_name
+        result = burn_srt_into_video(dest / "video.mp4", srt_path, burned_path)
+        if result.get("ok"):
+            burn_intent["burned"] = True
+            burn_intent["method"] = result.get("method")
+            burn_intent["note"] = "已烧录到 video.burned.mp4（原片 video.mp4 保留）"
+            files["video_burned"] = burned_name
+        else:
+            burn_intent["burn_error"] = str(result.get("error") or "burn failed")
+            burn_intent["method"] = result.get("method")
+            burn_intent["note"] = f"烧录失败，仍交付外挂 SRT：{burn_intent['burn_error'][:200]}"
+    files["subtitle_burn_intent"] = burn_intent
 
     banned = collect_banned_terms(profile=profile, pack_data=pack_data)
     scan_texts = [title, json.dumps(copy_doc, ensure_ascii=False), srt]
-    if "copy.en.json" in (files.get("copy_en") or ""):
-        scan_texts.append((dest / "copy.en.json").read_text(encoding="utf-8"))
+    for loc in needed_locales:
+        cp = dest / f"copy.{loc}.json"
+        if cp.is_file():
+            scan_texts.append(cp.read_text(encoding="utf-8"))
     hits = scan_banned_terms(scan_texts, banned)
     compliance = {
         "passed": len(hits) == 0,
@@ -305,7 +464,7 @@ def export_publish_pack(
     )
 
     manifest = {
-        "version": "1.1",
+        "version": "1.3",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "source_output": str(output_path),
         "pack_dir": str(dest),
@@ -315,8 +474,10 @@ def export_publish_pack(
         "brand": brand_name,
         "compliance_passed": compliance["passed"],
         "platforms": list(PLATFORMS),
-        "locales": ["zh", *locales],
+        "locales": ["zh", *needed_locales],
         "variants": variants,
+        "expression": prefs,
+        "subtitle_burn_intent": burn_intent,
     }
     (dest / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"

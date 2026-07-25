@@ -88,5 +88,117 @@
     "产品": "stable-product",
     "特写": "stable-product",
     "耗材": "stable-product"
-  }
+  },
+  "piece_type_bindings": {
+    "配送": "配送承诺",
+    "仓配": "配送承诺",
+    "产品": "单品介绍",
+    "施工机械": "单品介绍",
+    "门店": "门店实力",
+    "default": "综合日更"
+  },
+  "piece_type_rules": {
+    "配送承诺": {
+      "template": "fast-ship",
+      "slots": {
+        "hook": {"prefer_scenes": ["仓内货架", "产品特写"], "prefer_objects": []},
+        "body": {"prefer_scenes": ["仓内货架", "装车卸货"], "prefer_objects": ["货车", "货架", "三轮车"]},
+        "cta": {"prefer_scenes": ["装车卸货", "门店门头"], "prefer_objects": ["货车"]}
+      },
+      "continuity": {"require_scene_or_object": true, "max_object_kinds": 4}
+    },
+    "单品介绍": {
+      "template": "stable-product",
+      "slots": {
+        "hook": {"prefer_scenes": ["产品特写"], "prefer_objects": ["五金工具", "钢筋机械"]},
+        "body": {"prefer_scenes": ["产品特写", "仓内货架"], "prefer_objects": ["五金工具", "钢筋机械", "货架"]},
+        "cta": {"prefer_scenes": ["仓内货架", "门店门头"], "prefer_objects": []}
+      },
+      "continuity": {"require_scene_or_object": true, "max_object_kinds": 3}
+    },
+    "门店实力": {
+      "template": "default-vertical",
+      "slots": {
+        "hook": {"prefer_scenes": ["门店门头"], "prefer_objects": []},
+        "body": {"prefer_scenes": ["门店门头", "仓内货架"], "prefer_objects": ["货架"]},
+        "cta": {"prefer_scenes": ["装车卸货", "仓内货架"], "prefer_objects": ["货车"]}
+      },
+      "continuity": {"require_scene_or_object": true, "max_object_kinds": 4}
+    },
+    "综合日更": {
+      "template": "default-vertical",
+      "slots": {},
+      "continuity": {"require_scene_or_object": true, "max_object_kinds": 5}
+    }
+  },
+  "scene_rules": [
+    {
+      "theme": "装车卸货",
+      "keywords": ["装车", "卸货", "货车", "卡车", "配送", "发货", "送货", "车斗", "三轮车", "出库", "运货"]
+    },
+    {
+      "theme": "仓内货架",
+      "keywords": ["仓库", "货架", "堆放", "库存", "分拣", "配货", "码垛", "仓内", "库房", "拣货"]
+    },
+    {
+      "theme": "门店门头",
+      "keywords": ["门店", "门头", "展厅", "展示区", "店面", "招牌", "收银台"]
+    },
+    {
+      "theme": "产品特写",
+      "keywords": ["特写", "产品", "配件", "细节", "工具", "五金"]
+    },
+    {
+      "theme": "工地现场",
+      "keywords": ["工地", "现场", "施工", "钢筋", "浇筑"]
+    },
+    {
+      "theme": "人物作业",
+      "keywords": ["工人", "员工", "作业", "操作", "搬运"]
+    }
+  ],
+  "object_rules": [
+    {
+      "theme": "货车",
+      "keywords": ["货车", "卡车", "厢式", "车斗"]
+    },
+    {
+      "theme": "三轮车",
+      "keywords": ["三轮车", "电动工程三轮车"]
+    },
+    {
+      "theme": "货架",
+      "keywords": ["货架", "仓内", "堆放"]
+    },
+    {
+      "theme": "钢筋机械",
+      "keywords": ["钢筋", "切断机", "弯曲机", "调直", "弯箍"]
+    },
+    {
+      "theme": "五金工具",
+      "keywords": ["电钻", "扳手", "螺丝", "焊条", "砂轮", "五金", "切割机"]
+    }
+  ],
+  "action_rules": [
+    {
+      "theme": "装车",
+      "keywords": ["装车", "装货", "上车"]
+    },
+    {
+      "theme": "卸货",
+      "keywords": ["卸货", "卸下"]
+    },
+    {
+      "theme": "分拣",
+      "keywords": ["分拣", "拣货", "配货"]
+    },
+    {
+      "theme": "堆放",
+      "keywords": ["堆放", "码垛", "堆叠"]
+    },
+    {
+      "theme": "演示",
+      "keywords": ["演示", "开机", "试用", "操作设备"]
+    }
+  ]
 }

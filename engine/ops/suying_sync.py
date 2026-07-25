@@ -256,6 +256,9 @@ def customer_local_paths(name: str, cfg: dict[str, Any] | None = None) -> dict[s
         "output_root": str(base / "02-成片"),
         "keyword_dir": str(base / "03-词池"),
         "keyword_pack_path": str(base / "03-词池" / "keyword-pack.json"),
+        "music_root": str(base / "04-音乐"),
+        "brand_root": str(base / "05-品牌"),
+        "cover_templates_root": str(base / "05-品牌" / "封面模板"),
         "work_root": str(work_root),
         "data_root": str(work_root / "db"),
         "cache_root": str(work_root / "cache"),
@@ -282,7 +285,14 @@ def ensure_customer_dirs(name: str, *, register: bool = True) -> dict[str, Any]:
         raise ValueError("客户名不能为空")
     cfg = load_config()
     paths = customer_local_paths(name, cfg)
-    for key in ("library_root", "output_root", "keyword_dir"):
+    for key in (
+        "library_root",
+        "output_root",
+        "keyword_dir",
+        "music_root",
+        "brand_root",
+        "cover_templates_root",
+    ):
         Path(paths[key]).mkdir(parents=True, exist_ok=True)
     for sub in ("ready", "review", "failed"):
         (Path(paths["output_root"]) / sub).mkdir(parents=True, exist_ok=True)
@@ -290,14 +300,29 @@ def ensure_customer_dirs(name: str, *, register: bool = True) -> dict[str, Any]:
     for sub in ("db", "cache/frames", "cache/library", "cache/proxies", "cache/temp", "render", "logs"):
         (work / sub).mkdir(parents=True, exist_ok=True)
 
-    readme = Path(cfg["local_root"]) / "速影客户" / "速影目录说明.md"
-    if not readme.exists():
-        readme.parent.mkdir(parents=True, exist_ok=True)
-        readme.write_text(
-            "速影客户/<客户>/{01-片库,02-成片,03-词池}\n"
-            "引擎状态在 ../速影工作区（不同步）。\n",
+    cover_readme = Path(paths["cover_templates_root"]) / "README.txt"
+    if not cover_readme.exists():
+        cover_readme.write_text(
+            "速影封面模板套装目录（每客户固定）。\n"
+            "index.json = 套装索引；tpl_<id>/ = 各平台槽位图。\n"
+            "请用 App「封面设置」管理。\n",
             encoding="utf-8",
         )
+
+    readme = Path(cfg["local_root"]) / "速影客户" / "速影目录说明.md"
+    readme.parent.mkdir(parents=True, exist_ok=True)
+    readme.write_text(
+        "# 速影客户目录说明\n\n"
+        "速影客户/<客户名>/\n"
+        "  01-片库/     源视频入库\n"
+        "  02-成片/     ready | review | failed | packs\n"
+        "  03-词池/     keyword-pack.json\n"
+        "  04-音乐/     可选 BGM\n"
+        "  05-品牌/     logo、字体、style_lock\n"
+        "    封面模板/  每客户封面套装（index.json + tpl_*）\n\n"
+        "引擎状态在 ../速影工作区（db/cache/render，不同步到极空间）。\n",
+        encoding="utf-8",
+    )
 
     registered = False
     if register:
@@ -350,7 +375,7 @@ def _plist_body(script_sh: Path) -> str:
   <key>RunAtLoad</key>
   <true/>
   <key>StartInterval</key>
-  <integer>1800</integer>
+  <integer>600</integer>
   <key>StartOnMount</key>
   <true/>
   <key>WatchPaths</key>

@@ -26,7 +26,8 @@ L0 黄金样片标尺 → Sprint A 有声+字幕+熔断
 | A2 | 字幕收紧（dual_chip：每行≤6 字、字号 96） | dry-run / 成片标题已截短 |
 | A3 | 质量熔断 | `quality_circuit_threshold` |
 
-音乐：`~/Suying/music/` 或客户 `04-音乐/`（无曲时用 placeholder）。默认 **仅 BGM**（`keep_source_audio=false`）。
+音乐：`~/Suying/music/` 或客户 `04-音乐/`（无曲时用 placeholder）。默认 **仅 BGM**（`keep_source_audio=false`）。  
+曲目清单与调用名（`bensound-*` / `km-*`）见 [`MUSIC.md`](MUSIC.md)。
 
 ## Sprint B — ✅ 代码已落地（行业包配置化）
 

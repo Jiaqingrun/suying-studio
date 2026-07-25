@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from engine.catalog.db import Asset, Cliplet, Customer
-from engine.catalog.theme_tags import apply_theme_to_cliplet
+from engine.catalog.semantic_tags import annotate_cliplet
 from engine.catalog.industry_pack import pack_id_for_customer
 from engine.ingest.vision_caption import describe_cliplet_vision
 from engine.config.settings import load_settings
@@ -113,7 +113,7 @@ def create_cliplets_for_asset(
             category=asset.category,
             score=q,
         )
-        apply_theme_to_cliplet(row, asset, pack_id=pack_id)
+        annotate_cliplet(row, asset, pack_id=pack_id)
         session.add(row)
         rows.append(row)
     session.commit()
@@ -146,7 +146,7 @@ def recaption_existing_cliplets(
         row.description = desc
         row.embedding_json = None
         row.indexed_at = None
-        apply_theme_to_cliplet(row, asset)
+        annotate_cliplet(row, asset)
         if backend == "vision":
             vision_n += 1
         else:

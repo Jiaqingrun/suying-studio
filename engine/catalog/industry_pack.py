@@ -89,6 +89,30 @@ def template_bindings_for_pack(pack_id: str | None = None) -> dict[str, str]:
     return {str(k).strip().lower(): str(v) for k, v in (load_industry_pack(pack_id).get("template_bindings") or {}).items()}
 
 
+def piece_type_rules_for_pack(pack_id: str | None = None) -> dict[str, Any]:
+    """Piece-type montage rules: slot prefer_scenes/objects + continuity."""
+    raw = load_industry_pack(pack_id).get("piece_type_rules") or {}
+    return {str(k): dict(v) if isinstance(v, dict) else {} for k, v in raw.items()}
+
+
+def resolve_piece_type(content_theme: str | None, *, pack_id: str | None = None) -> str:
+    """Map content theme → piece type id (pack.piece_type_bindings or defaults)."""
+    theme = (content_theme or "default").strip() or "default"
+    bindings = load_industry_pack(pack_id).get("piece_type_bindings") or {}
+    if theme in bindings:
+        return str(bindings[theme])
+    # sensible defaults for building-supply-like packs
+    defaults = {
+        "配送": "配送承诺",
+        "仓配": "配送承诺",
+        "产品": "单品介绍",
+        "施工机械": "单品介绍",
+        "门店": "门店实力",
+        "default": "综合日更",
+    }
+    return str(defaults.get(theme, "综合日更"))
+
+
 def resolve_pack_id_from_profile(profile: dict[str, Any] | None) -> str | None:
     if not profile:
         return None

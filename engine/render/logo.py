@@ -10,12 +10,42 @@ from engine.config.settings import AppSettings
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _LOGO_NAMES = ("logo.png", "logo.webp", "logo.jpg", "logo.jpeg")
 
+# Canonical corner placements for ffmpeg overlay (W/H = frame, w/h = logo).
+LOGO_POSITIONS: tuple[str, ...] = (
+    "top_left",
+    "top_right",
+    "bottom_left",
+    "bottom_right",
+)
+LOGO_POSITION_LABELS: dict[str, str] = {
+    "top_left": "左上",
+    "top_right": "右上",
+    "bottom_left": "左下",
+    "bottom_right": "右下",
+}
+
 
 def brand_from_profile(profile: dict[str, Any] | None) -> dict[str, Any]:
     if not profile:
         return {}
     brand = profile.get("brand")
     return brand if isinstance(brand, dict) else {}
+
+
+def normalize_logo_position(raw: Any) -> str:
+    pos = str(raw or "").strip().lower().replace("-", "_")
+    aliases = {
+        "tl": "top_left",
+        "tr": "top_right",
+        "bl": "bottom_left",
+        "br": "bottom_right",
+        "left_top": "top_left",
+        "right_top": "top_right",
+        "left_bottom": "bottom_left",
+        "right_bottom": "bottom_right",
+    }
+    pos = aliases.get(pos, pos)
+    return pos if pos in LOGO_POSITIONS else "bottom_right"
 
 
 def resolve_logo_path(
@@ -69,15 +99,37 @@ def logo_overlay_opts(brand: dict[str, Any], canvas_w: int) -> dict[str, Any]:
     """Sizing / placement for ffmpeg overlay."""
     max_w = int(brand.get("logo_max_width") or max(120, canvas_w // 7))
     margin = int(brand.get("logo_margin") or max(24, canvas_w // 40))
-    position = str(brand.get("logo_position") or "bottom_right")
+    position = normalize_logo_position(brand.get("logo_position"))
     return {"max_width": max_w, "margin": margin, "position": position}
 
 
 def overlay_xy_expr(position: str, margin: int) -> str:
     m = max(0, margin)
+    pos = normalize_logo_position(position)
     return {
         "bottom_right": f"W-w-{m}:H-h-{m}",
         "bottom_left": f"{m}:H-h-{m}",
         "top_right": f"W-w-{m}:{m}",
         "top_left": f"{m}:{m}",
-    }.get(position, f"W-w-{m}:H-h-{m}")
+    }.get(pos, f"W-w-{m}:H-h-{m}")
+
+
+def merge_brand_patch(profile: dict[str, Any] | None, patch: dict[str, Any] | None) -> dict[str, Any]:
+    """Deep-merge brand keys into profile_json; normalize logo_position."""
+    out = dict(profile or {})
+    brand = dict(brand_from_profile(out))
+    if isinstance(patch, dict):
+        for k, v in patch.items():
+            brand[k] = v
+    if "logo_position" in brand:
+        brand["logo_position"] = normalize_logo_position(brand.get("logo_position"))
+    if "logo_enabled" in brand:
+        brand["logo_enabled"] = bool(brand.get("logo_enabled"))
+    for key in ("logo_max_width", "logo_margin"):
+        if key in brand:
+            try:
+                brand[key] = max(0, int(brand[key]))
+            except (TypeError, ValueError):
+                brand.pop(key, None)
+    out["brand"] = brand
+    return out

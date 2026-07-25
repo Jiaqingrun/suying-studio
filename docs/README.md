@@ -10,11 +10,17 @@
 | 2 | [`DEVELOPMENT_STANDARDS.md`](DEVELOPMENT_STANDARDS.md) | 通用多客户工程标准 |
 | 3 | [`PRODUCT_PLAN.md`](PRODUCT_PLAN.md) | 产品是什么、三档、分期 |
 | 3b | [`REACH_NON_GOALS.md`](REACH_NON_GOALS.md) | Reach 触达非目标（人在回路） |
+| 3c | [`SEMANTIC_PIPELINE.md`](SEMANTIC_PIPELINE.md) | 语义切片 / 表达层落地顺序 |
+| 3d | [`ZERO_FORK.md`](ZERO_FORK.md) | 第二客户零分叉验收 |
+| 3e | [`CONTINUOUS_QUEUE.md`](CONTINUOUS_QUEUE.md) | 自动循环推进队列（当前 G6） |
+| 3f | [`HUMAN_PUBLISH_CONFIRM.md`](HUMAN_PUBLISH_CONFIRM.md) | 人点发布补记（已确认） |
+| 3g | [`APP_OPT_QUEUE.md`](APP_OPT_QUEUE.md) | App 优化收口（A10→G6） |
 | 4 | [`V8_QUALITY.md`](V8_QUALITY.md) | 质量冲刺执行细节 |
 | 5 | [`GOLDEN_SAMPLES.md`](GOLDEN_SAMPLES.md) | L0 标尺（须落分） |
 | 6 | [`V8_STORAGE.md`](V8_STORAGE.md) | 同步区 vs 工作区 |
 | 7 | [`V8_SUYING_APP.md`](V8_SUYING_APP.md) | App 能力 |
-| 8 | [`BACKLOG.md`](BACKLOG.md) | 问题清单（以 DEV_LOCK §E 为准更新状态） |
+| 8 | [`MUSIC.md`](MUSIC.md) | BGM 曲库调用（`bensound-*` / `km-*`）与合规 |
+| 9 | [`BACKLOG.md`](BACKLOG.md) | 问题清单（以 DEV_LOCK §E 为准更新状态） |
 
 运维手册：`INSTALL.md` · `SOP.md` · `ACCEPTANCE.md`（入口以 App 向导 + DEV_LOCK 为准）。
 

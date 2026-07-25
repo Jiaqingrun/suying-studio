@@ -173,10 +173,19 @@ def main() -> None:
         assert again.json()["job"]["id"]
 
         # E1.C1: logo resolve is optional; missing file must not crash
-        from engine.render.logo import resolve_logo_path, overlay_xy_expr
+        from engine.render.logo import (
+            LOGO_POSITIONS,
+            normalize_logo_position,
+            overlay_xy_expr,
+            resolve_logo_path,
+        )
 
         assert resolve_logo_path(settings, profile={"brand": {"logo_enabled": False}}) is None
+        assert normalize_logo_position("tr") == "top_right"
+        assert overlay_xy_expr("top_left", 36).startswith("36:")
         assert "W-w-" in overlay_xy_expr("bottom_right", 36)
+        for pos in LOGO_POSITIONS:
+            assert ":" in overlay_xy_expr(pos, 24)
         brand_dir = settings.paths.output_root.parent / "05-品牌"
         brand_dir.mkdir(parents=True, exist_ok=True)
         logo_file = brand_dir / "logo.png"
@@ -323,7 +332,31 @@ def main() -> None:
         # circuit may block new enqueue; use an existing id or create via direct DB bypass for open test
         plats = client.get("/reach/platforms")
         assert plats.status_code == 200, plats.text
-        assert len(plats.json().get("platforms") or []) >= 4
+        pj = plats.json()
+        plat_list = pj.get("platforms") or []
+        assert len(plat_list) >= 7
+        plat_ids = {p["id"] for p in plat_list}
+        for need in ("douyin", "channels", "xhs", "kuaishou", "baijiahao", "toutiao", "zhihu"):
+            assert need in plat_ids, need
+        assert "haokan" not in plat_ids
+        assert "wechat_mp" not in plat_ids
+        assert "xigua" not in plat_ids
+        assert all(p.get("short") for p in plat_list)
+        specs = pj.get("slot_specs") or {}
+        assert len(specs.get("douyin") or []) == 2
+        assert (specs.get("douyin") or [])[0].get("aspect") == "9:16"
+        assert (specs.get("douyin") or [])[1].get("aspect") == "16:9"
+        assert len(specs.get("channels") or []) == 2
+        assert (specs.get("channels") or [])[0].get("aspect") == "6:7"
+        assert len(specs.get("xhs") or []) == 1
+        assert (specs.get("xhs") or [])[0].get("aspect") == "3:4"
+        assert len(specs.get("zhihu") or []) == 2
+        assert len(specs.get("toutiao") or []) == 1
+        assert len(specs.get("baijiahao") or []) == 1
+        assert "haokan" not in specs
+        assert "wechat_mp" not in specs
+        assert "xigua" not in specs
+        # circuit may block new enqueue; use an existing id or create via direct DB bypass for open test
         # reset one failed → queued then open dry_run
         from engine.reach.queue import set_status as _ss
 
@@ -343,6 +376,107 @@ def main() -> None:
         assert oj.get("open", {}).get("url", "").startswith("http")
         assert Path(oj.get("paste_card") or "").is_file()
 
+        # G5.43b: Chrome local profiles (list/create/open; no real browser launch)
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "smoke01").mkdir()
+            (root / "accounts.txt").write_text("smoke01\n", encoding="utf-8")
+            old_env = __import__("os").environ.get("SUYING_CHROME_PROFILES")
+            __import__("os").environ["SUYING_CHROME_PROFILES"] = str(root)
+            try:
+                cps = client.get("/reach/chrome-profiles")
+                assert cps.status_code == 200, cps.text
+                cpj = cps.json()
+                assert cpj.get("ok") is True
+                assert cpj.get("auto_publish") is False
+                assert any(p["name"] == "smoke01" for p in (cpj.get("profiles") or []))
+                plat_ids = {p["id"] for p in (cpj.get("platforms") or [])}
+                assert "kuaishou" in plat_ids and "channels" in plat_ids and "xhs" in plat_ids
+                assert "toutiao" in plat_ids and "baijiahao" in plat_ids and "zhihu" in plat_ids
+
+                created = client.post(
+                    "/reach/chrome-profiles/create",
+                    json={"platform": "xhs", "count": 2},
+                )
+                assert created.status_code == 200, created.text
+                cj = created.json()
+                assert cj.get("count") == 2
+                assert cj.get("selected")
+                assert all(c["platform"] == "xhs" for c in (cj.get("created") or []))
+                assert (root / "accounts.json").is_file()
+                # create must not require launching Chrome
+                assert Path(cj["created"][0]["path"]).is_dir()
+
+                cps2 = client.get("/reach/chrome-profiles")
+                names = {p["name"] for p in (cps2.json().get("profiles") or [])}
+                assert cj["created"][0]["name"] in names
+                assert any(
+                    p.get("platform") == "xhs" for p in (cps2.json().get("profiles") or [])
+                )
+
+                cop = client.post(
+                    "/reach/chrome-profiles/open",
+                    json={"name": cj["created"][0]["name"], "dry_run": True},
+                )
+                assert cop.status_code == 200, cop.text
+                assert cop.json().get("platform") == "xhs"
+                assert "xiaohongshu" in (cop.json().get("open") or {}).get("url", "")
+
+                ch = client.post(
+                    "/reach/chrome-profiles/open",
+                    json={"name": "smoke01", "platform": "channels", "dry_run": True},
+                )
+                assert ch.status_code == 200, ch.text
+                assert ch.json().get("platform") == "channels"
+                assert "channels.weixin" in (ch.json().get("open") or {}).get("url", "")
+
+                sel = client.post(
+                    "/reach/chrome-profiles/select",
+                    json={"name": "smoke01", "platform": "douyin"},
+                )
+                assert sel.status_code == 200, sel.text
+                assert sel.json().get("selected") == "smoke01"
+                opened2 = client.post(
+                    f"/reach/queue/{oid}/open",
+                    json={"dry_run": True, "chrome_profile": "smoke01"},
+                )
+                assert opened2.status_code == 200, opened2.text
+                o2 = opened2.json().get("open") or {}
+                assert o2.get("chrome_profile") == "smoke01" or "user_data_dir" in o2
+
+                # G5.V auto-upload dry_run while chrome root still valid
+                bad_au = client.post(
+                    "/reach/auto-upload/start",
+                    json={"chrome_profile": "smoke01", "queue_id": oid, "accept_risk": False},
+                )
+                assert bad_au.status_code == 400
+                au = client.post(
+                    "/reach/auto-upload/start",
+                    json={
+                        "chrome_profile": "smoke01",
+                        "queue_id": oid,
+                        "platform": "douyin",
+                        "accept_risk": True,
+                        "dry_run": True,
+                    },
+                )
+                assert au.status_code == 200, au.text
+                assert au.json().get("ok") is True
+                import time as _time
+
+                _time.sleep(0.5)
+                aus = client.get("/reach/auto-upload/status")
+                assert aus.status_code == 200, aus.text
+                assert aus.json().get("ok") is True
+                assert aus.json().get("phase") in ("done", "starting", "waiting_login", "idle")
+                auc = client.post("/reach/auto-upload/cancel")
+                assert auc.status_code == 200
+            finally:
+                if old_env is None:
+                    __import__("os").environ.pop("SUYING_CHROME_PROFILES", None)
+                else:
+                    __import__("os").environ["SUYING_CHROME_PROFILES"] = old_env
+
         # G5.44: local message hub
         inbox = client.get("/reach/inbox")
         assert inbox.status_code == 200, inbox.text
@@ -352,6 +486,127 @@ def main() -> None:
         assert ib.get("scrapes_platform_inbox") is False
         assert isinstance(ib.get("notices"), list)
         assert "unread_count" in ib
+
+        # G5.V cover templates + publish hard gate (copy + cover slots)
+        from engine.reach.publish_assets import PublishAssetsError, require_publish_assets
+
+        data_root = settings.paths.data_root
+        # missing body → gate fails
+        empty_pack = base / "empty_pack"
+        empty_pack.mkdir()
+        (empty_pack / "video.mp4").write_bytes(b"\x00\x00")
+        (empty_pack / "cover.jpg").write_bytes(b"fakejpg")
+        (empty_pack / "cover_2.jpg").write_bytes(b"fakejpg2")
+        try:
+            require_publish_assets(
+                platform="douyin",
+                pack_dir=empty_pack,
+                data_root=data_root,
+                title="t",
+                body="",
+            )
+            raise AssertionError("expected PublishAssetsError for empty body")
+        except PublishAssetsError as e:
+            assert "文案" in str(e)
+
+        # channels needs 2 covers by default — only 1 → fail when no template
+        one_cover = base / "one_cover_pack"
+        one_cover.mkdir()
+        (one_cover / "video.mp4").write_bytes(b"\x00")
+        (one_cover / "cover.jpg").write_bytes(b"j")
+        (one_cover / "copy.zh.json").write_text(
+            json.dumps(
+                {
+                    "platforms": {
+                        "channels": {"title": "短标题", "body": "视频号描述正文"},
+                        "douyin": {"title": "抖音标题", "body": "抖音正文足够长"},
+                    }
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        try:
+            require_publish_assets(
+                platform="channels",
+                pack_dir=one_cover,
+                data_root=data_root,
+            )
+            raise AssertionError("expected PublishAssetsError for missing cover slot")
+        except PublishAssetsError as e:
+            assert "封面" in str(e) or "槽" in str(e)
+
+        # API: create / select / set slot / resolve
+        ct = client.post("/reach/cover-templates", json={"name": "smoke-cover"})
+        assert ct.status_code == 200, ct.text
+        tid = ct.json()["template"]["id"]
+        ctl = client.get("/reach/cover-templates")
+        assert ctl.status_code == 200, ctl.text
+        ctlj = ctl.json()
+        assert ctlj.get("slot_counts", {}).get("douyin") == 2
+        assert ctlj.get("slot_counts", {}).get("kuaishou") == 2
+        assert len((ctlj.get("slot_specs") or {}).get("douyin") or []) == 2
+        assert (ctlj.get("slot_specs") or {}).get("channels", [{}])[0].get("aspect") == "6:7"
+        sel = client.post("/reach/cover-templates/select", json={"template_id": tid})
+        assert sel.status_code == 200, sel.text
+        assert sel.json().get("selected_id") == tid
+        img = base / "slot.jpg"
+        img.write_bytes(b"jpgdata")
+        slot = client.post(
+            f"/reach/cover-templates/{tid}/slot",
+            json={"platform": "douyin", "slot_index": 0, "source_path": str(img)},
+        )
+        assert slot.status_code == 200, slot.text
+        assert slot.json()["template"]["complete"]["douyin"] is False  # needs 2 slots
+        img_h = base / "slot_h.jpg"
+        img_h.write_bytes(b"jpgdataH")
+        slot2 = client.post(
+            f"/reach/cover-templates/{tid}/slot",
+            json={"platform": "douyin", "slot_index": 1, "source_path": str(img_h)},
+        )
+        assert slot2.status_code == 200, slot2.text
+        assert slot2.json()["template"]["complete"]["douyin"] is True
+        dy0 = (slot2.json()["template"]["slots_detail"]["douyin"] or [])[0]
+        assert dy0.get("label") == "竖封面" and dy0.get("aspect") == "9:16"
+        # second cover for channels
+        img2 = base / "slot2.jpg"
+        img2.write_bytes(b"jpgdata2")
+        client.post(
+            f"/reach/cover-templates/{tid}/slot",
+            json={"platform": "channels", "slot_index": 0, "source_path": str(img)},
+        )
+        client.post(
+            f"/reach/cover-templates/{tid}/slot",
+            json={"platform": "channels", "slot_index": 1, "source_path": str(img2)},
+        )
+        # now channels gate passes with template
+        ok_assets = require_publish_assets(
+            platform="channels",
+            pack_dir=one_cover,
+            data_root=data_root,
+            template_id=tid,
+        )
+        assert ok_assets["ok"] is True
+        assert len(ok_assets["covers"]) == 2
+        # douyin with only pack cover.jpg (1 file) should fail gate needing 2
+        try:
+            require_publish_assets(
+                platform="douyin",
+                pack_dir=one_cover,
+                data_root=data_root,
+                template_id="__no_such_template__",
+            )
+            raise AssertionError("expected PublishAssetsError for douyin missing second cover")
+        except PublishAssetsError as e:
+            assert "封面" in str(e) or "槽" in str(e)
+        resolved = client.post(
+            "/reach/cover-templates/resolve",
+            json={"platform": "douyin", "pack_dir": str(one_cover), "template_id": tid},
+        )
+        assert resolved.status_code == 200, resolved.text
+        assert resolved.json()["resolve"]["ok"] is True
+        assert resolved.json()["gate"]["ok"] is True
+        assert len(resolved.json()["resolve"]["covers"]) == 2
 
         # G4.30: TTS adapter — script → segment WAVs + real durations
         from engine.pack.tts import estimate_duration_sec, split_script, synthesize_script

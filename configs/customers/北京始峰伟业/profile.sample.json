@@ -11,5 +11,11 @@
     "logo_max_width": 160,
     "logo_margin": 36,
     "title_layout": "dual_chip"
+  },
+  "expression": {
+    "voice_lang": "zh",
+    "subtitle_lang": "zh",
+    "subtitle_burn": "external",
+    "_comment": "voice_lang/subtitle_lang: zh|en|none；subtitle_burn: external|burn_mono|burn_dual"
   }
 }

@@ -153,14 +153,122 @@ class JobWorker:
 
         render_meta: dict[str, Any] = {}
         profile = (customer_row.profile_json if customer_row else None) or {}
+        profile = profile if isinstance(profile, dict) else {}
+
+        # Frozen video template lock (始峰写死规则)
+        from engine.pack.video_lock import load_video_lock, logo_enabled_from_lock
+        from engine.render.voice_subtitle import burn_subtitles_inplace, prepare_narration_for_plan
+
+        video_lock = load_video_lock(
+            str(customer),
+            output_root=getattr(customer_row, "output_root", None) or settings.paths.output_root,
+            profile=profile,
+        )
+        render_meta["video_lock"] = {
+            "locked": True,
+            "locked_at": video_lock.get("locked_at"),
+            "strip_all_punctuation": video_lock.get("strip_all_punctuation"),
+            "reference_title": video_lock.get("reference_title"),
+        }
+
+        # Force logo off when lock says so (unless profile explicitly enables)
+        if not logo_enabled_from_lock(video_lock, profile):
+            brand_prof = dict(profile.get("brand") or {}) if isinstance(profile.get("brand"), dict) else {}
+            brand_prof["logo_enabled"] = False
+            profile = {**profile, "brand": brand_prof}
+
+        brand = "品牌"
+        if isinstance(profile.get("brand"), dict):
+            brand = str(profile["brand"].get("display_name") or brand)
+        pack = get_active_pack(session, customer)
+        if pack and isinstance(pack.data_json, dict):
+            brand = str(
+                (pack.data_json.get("company_info") or {}).get("display_name_preferred") or brand
+            )
+
+        voice_dir = rendering_dir / f"job{job.id}_{attempt}_voice"
+        voice_info = prepare_narration_for_plan(
+            settings,
+            plan,
+            profile=profile,
+            work_dir=voice_dir,
+            brand=brand,
+            video_lock=video_lock,
+        )
+        # VIDEO_LOCK Edge TTS: retry once on network flake; never ship say/mock VO
+        lock_voice = video_lock.get("voice") if isinstance(video_lock.get("voice"), dict) else {}
+        requires_edge = str(lock_voice.get("provider") or "").lower() in ("edge", "xiaoxiao")
+        vlang = str(voice_info.get("voice_lang") or "zh")
+        edge_label = "Edge 晓晓" if vlang.startswith("zh") else f"Edge（{vlang}）"
+        if requires_edge and (
+            voice_info.get("error")
+            or voice_info.get("provider") not in (None, "edge")
+            or (voice_info.get("voice_lang") != "none" and not voice_info.get("narration_path"))
+        ):
+            log_event(
+                session,
+                job.id,
+                "warning",
+                f"锁死音色 {edge_label} 失败，重试旁白",
+                {"error": voice_info.get("error"), "provider": voice_info.get("provider")},
+            )
+            import time as _time
+
+            _time.sleep(2.5)
+            # Reuse same work_dir so per-sentence WAV resume can skip finished cues
+            voice_info = prepare_narration_for_plan(
+                settings,
+                plan,
+                profile=profile,
+                work_dir=voice_dir,
+                brand=brand,
+                video_lock=video_lock,
+            )
+            vlang = str(voice_info.get("voice_lang") or "zh")
+            edge_label = "Edge 晓晓" if vlang.startswith("zh") else f"Edge（{vlang}）"
+        if requires_edge and voice_info.get("voice_lang") != "none":
+            if voice_info.get("error") or voice_info.get("provider") != "edge" or not voice_info.get(
+                "narration_path"
+            ):
+                job.consecutive_failures += 1
+                log_event(
+                    session,
+                    job.id,
+                    "error",
+                    f"旁白未使用锁死 {edge_label}，中止本条以免交付错误音色",
+                    {
+                        "error": voice_info.get("error"),
+                        "provider": voice_info.get("provider"),
+                        "hint": "检查网络能否访问 api.msedgeservices.com",
+                    },
+                )
+                session.commit()
+                return
+
+        narr_path = voice_info.get("narration_path")
+        if narr_path:
+            render_meta["narration_path"] = narr_path
+            render_meta["tts_provider"] = voice_info.get("provider")
+            render_meta["tts_voice"] = voice_info.get("voice")
+            render_meta["tts_mode"] = voice_info.get("tts_mode")
+            render_meta["voice_lang"] = voice_info.get("voice_lang")
+            render_meta["subtitle_lang"] = voice_info.get("subtitle_lang")
+            render_meta["subtitle_burn"] = voice_info.get("subtitle_burn")
+            render_meta["dual_secondary_lang"] = voice_info.get("dual_secondary_lang")
+            render_meta["inter_sentence_gap_sec"] = voice_info.get("inter_sentence_gap_sec")
+            render_meta["narration_script"] = voice_info.get("script_display") or voice_info.get("script")
+        if voice_info.get("error"):
+            log_event(session, job.id, "warning", "旁白合成失败，继续无旁白渲染", {"error": voice_info["error"]})
+
         ok = render_plan(
             settings,
             plan,
             temp_out,
             template.model_dump(),
             render_meta=render_meta,
-            profile=profile if isinstance(profile, dict) else {},
+            profile=profile,
             customer_name=str(customer),
+            narration_path=Path(narr_path) if narr_path else None,
         )
         if not ok:
             job.consecutive_failures += 1
@@ -168,8 +276,44 @@ class JobWorker:
             session.commit()
             return
 
+        # Subtitles: always keep SRT sidecar when present; burn only for burn_mono / burn_dual
+        srt_path = voice_info.get("srt_path")
+        burn_mode = str(voice_info.get("subtitle_burn") or "external")
+        render_meta["subtitle_burn"] = burn_mode
+        if srt_path and voice_info.get("subtitle_lang") != "none":
+            render_meta["subtitle_path"] = srt_path
+            render_meta["dual_secondary_lang"] = voice_info.get("dual_secondary_lang")
+            if burn_mode in ("burn_mono", "burn_dual"):
+                burned = burn_subtitles_inplace(
+                    temp_out,
+                    Path(srt_path),
+                    work_dir=voice_dir,
+                    font_size=int(voice_info.get("subtitle_font_size") or 64),
+                    bottom_padding_px=int(voice_info.get("subtitle_bottom_padding_px") or 400),
+                )
+                render_meta["subtitle_burned"] = bool(burned.get("ok"))
+                if not burned.get("ok"):
+                    log_event(
+                        session,
+                        job.id,
+                        "warning",
+                        "字幕烧录失败，成片仍保留无字幕版（SRT 已生成）",
+                        {"error": burned.get("error"), "mode": burn_mode},
+                    )
+                else:
+                    render_meta["subtitle_burn_method"] = burned.get("method")
+            else:
+                render_meta["subtitle_burned"] = False
+                log_event(
+                    session,
+                    job.id,
+                    "info",
+                    "字幕方式为外挂 SRT，未烧录进成片",
+                    {"srt": srt_path},
+                )
+
         qc = run_qc(temp_out, plan, require_audio=bool(settings.require_audio))
-        pack = get_active_pack(session, customer)
+        # pack already loaded above for brand
         copy = build_copywriting(plan, pack.data_json if pack else None, music_credit=render_meta.get("music_credit"))
 
         cover_count = int(getattr(template, "cover_count", 3) or 3)
@@ -207,6 +351,23 @@ class JobWorker:
         sidecar_new = final_out.with_suffix(".json")
         if sidecar.exists():
             sidecar.rename(sidecar_new)
+        if srt_path and Path(srt_path).is_file():
+            try:
+                import shutil
+
+                src_srt = Path(srt_path)
+                # Keep dual / lang tag from work SRT name (e.g. subtitle.dual.srt → .dual.srt)
+                tag = src_srt.stem.replace("subtitle.", "", 1) if src_srt.stem.startswith("subtitle.") else "sub"
+                shutil.copy2(src_srt, final_out.with_name(f"{final_out.stem}.{tag}.srt"))
+            except OSError:
+                pass
+        if narr_path and Path(str(narr_path)).is_file():
+            try:
+                import shutil
+
+                shutil.copy2(narr_path, final_out.with_suffix(".voice.wav"))
+            except OSError:
+                pass
 
         # move covers next to final output
         final_cover_dir = final_dir / f"montage_{job.id}_{seed}_covers"

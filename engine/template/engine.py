@@ -10,7 +10,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from engine.catalog.db import Asset, Cliplet, ClipletUsage, Customer, KeywordUsage
-from engine.catalog.keyword_pack import check_compliance, get_active_pack, pick_keyword
+from engine.catalog.keyword_pack import (
+    check_compliance,
+    get_active_pack,
+    normalize_title_layout,
+    list_title_pool,
+    pick_keyword,
+    pick_title,
+)
 from engine.catalog.theme_tags import content_to_pack_themes, resolve_job_themes
 from engine.catalog.vector_index import cosine, embed_text, search_cliplets
 from engine.template.hooks import pick_hook, query_for_role
@@ -32,7 +39,7 @@ class TemplateDefinition(BaseModel):
     slots: list[SlotDefinition] = Field(default_factory=list)
     title_template: str = "{keyword}"
     title_position: str = "top"  # top | upper | middle — fixed band, not random
-    title_font_size: int = 96
+    title_font_size: int = 92
     title_color: str = "#E10600"
     title_bar_color: str = "#111827"
     title_bar_opacity: float = 0.0  # no mask over footage
@@ -127,7 +134,7 @@ DEFAULT_TEMPLATE = TemplateDefinition(
     ],
     title_template="{hook}\n{keyword}",
     title_position="top",
-    title_font_size=96,
+    title_font_size=92,
     title_color="#E10600",
     title_bar_color="#111827",
     title_bar_opacity=0.0,
@@ -135,7 +142,7 @@ DEFAULT_TEMPLATE = TemplateDefinition(
     title_stroke_width=6,
     title_stroke_color="#FFE600",
     title_layout="dual_chip",
-    title_max_chars=6,
+    title_max_chars=10,
     title_max_lines=2,
     reframe_mode="smart",
     cover_count=3,
@@ -163,7 +170,7 @@ FAST_SHIP_TEMPLATE = TemplateDefinition(
     ],
     title_template="{hook}\n{keyword}",
     title_position="top",
-    title_font_size=96,
+    title_font_size=92,
     title_color="#E10600",
     title_bar_color="#111827",
     title_bar_opacity=0.0,
@@ -171,7 +178,7 @@ FAST_SHIP_TEMPLATE = TemplateDefinition(
     title_stroke_width=6,
     title_stroke_color="#FFE600",
     title_layout="dual_chip",
-    title_max_chars=6,
+    title_max_chars=10,
     title_max_lines=2,
     reframe_mode="smart",
     cover_count=3,
@@ -198,7 +205,7 @@ STABLE_PRODUCT_TEMPLATE = TemplateDefinition(
     ],
     title_template="{hook}\n{keyword}",
     title_position="top",
-    title_font_size=96,
+    title_font_size=92,
     title_color="#E10600",
     title_bar_color="#111827",
     title_bar_opacity=0.0,
@@ -206,7 +213,7 @@ STABLE_PRODUCT_TEMPLATE = TemplateDefinition(
     title_stroke_width=6,
     title_stroke_color="#FFE600",
     title_layout="dual_chip",
-    title_max_chars=6,
+    title_max_chars=10,
     title_max_lines=2,
     reframe_mode="smart",
     cover_count=3,
@@ -249,6 +256,10 @@ class ClipPlan:
     cliplet_id: int | None = None
     score: float | None = None
     description: str | None = None
+    theme: str | None = None
+    scene: str | None = None
+    objects: list[str] = field(default_factory=list)
+    actions: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -350,13 +361,35 @@ def _pick_from_cliplets(
     customer_id: int | None = None,
     prefer_unused_assets: set[str] | None = None,
     content_theme: str | None = None,
+    prefer_scenes: list[str] | None = None,
+    prefer_objects: list[str] | None = None,
+    prev_scene: str | None = None,
+    prev_objects: list[str] | None = None,
+    used_object_kinds: set[str] | None = None,
+    max_object_kinds: int | None = None,
+    continuity_soft: bool = True,
 ) -> ClipPlan | None:
     prefer_theme = content_theme if content_theme and content_theme != "default" else None
+    prefer_scene = None
+    if prefer_scenes:
+        # hard-filter first preferred scene when pool is deep enough later
+        prefer_scene = prefer_scenes[0]
     candidates: list[tuple[Cliplet, float]] = []
     if template.use_semantic:
-        # Prefer theme-scoped search first; fall back to global semantic if thin.
-        if prefer_theme:
+        # Prefer theme/scene-scoped search first; fall back to global semantic if thin.
+        if prefer_theme or prefer_scene:
             candidates = search_cliplets(
+                session,
+                query,
+                category=category if category != "default" else None,
+                theme=prefer_theme,
+                scene=prefer_scene,
+                top_k=40,
+                min_duration=slot.min_duration,
+                customer_id=customer_id,
+            )
+        if len(candidates) < 5:
+            extra = search_cliplets(
                 session,
                 query,
                 category=category if category != "default" else None,
@@ -365,6 +398,10 @@ def _pick_from_cliplets(
                 min_duration=slot.min_duration,
                 customer_id=customer_id,
             )
+            seen = {c.id for c, _ in candidates}
+            for row, score in extra:
+                if row.id not in seen:
+                    candidates.append((row, score))
         if len(candidates) < 5:
             extra = search_cliplets(
                 session,
@@ -409,6 +446,11 @@ def _pick_from_cliplets(
         q = float(c.score or 1.0)
         if q < template.min_cliplet_quality:
             return False
+        if max_object_kinds and used_object_kinds is not None:
+            objs = set(c.objects_json or [])
+            new_kinds = used_object_kinds | objs
+            if len(new_kinds) > max_object_kinds and not objs.issubset(used_object_kinds):
+                return False
         return True
 
     filtered = [(c, s) for c, s in candidates if _ok(c, s) and c.id not in cooldown_ids]
@@ -428,6 +470,32 @@ def _pick_from_cliplets(
         if len(themed) >= 2:
             filtered = themed
 
+    if prefer_scenes:
+        scene_hit = [(c, s) for c, s in filtered if (c.scene or "") in prefer_scenes]
+        if len(scene_hit) >= 2:
+            filtered = scene_hit
+
+    if prefer_objects:
+        obj_hit = [
+            (c, s)
+            for c, s in filtered
+            if set(c.objects_json or []) & set(prefer_objects)
+        ]
+        if len(obj_hit) >= 2:
+            filtered = obj_hit
+
+    # Soft continuity: prefer same scene OR shared object with previous clip
+    if continuity_soft and (prev_scene or prev_objects):
+        cont = []
+        prev_objs = set(prev_objects or [])
+        for c, s in filtered:
+            same_scene = bool(prev_scene and (c.scene or "") == prev_scene)
+            shared_obj = bool(prev_objs and prev_objs & set(c.objects_json or []))
+            if same_scene or shared_obj:
+                cont.append((c, s))
+        if len(cont) >= 2:
+            filtered = cont
+
     # Prefer higher semantic score; down-weight assets already used earlier in this job
     job_used = prefer_unused_assets or set()
     weights = []
@@ -437,6 +505,14 @@ def _pick_from_cliplets(
             w *= 0.15
         if prefer_theme and (c.theme or "") == prefer_theme:
             w *= 4.0
+        if prefer_scenes and (c.scene or "") in prefer_scenes:
+            w *= 3.0
+        if prefer_objects and set(c.objects_json or []) & set(prefer_objects):
+            w *= 2.5
+        if prev_scene and (c.scene or "") == prev_scene:
+            w *= 2.0
+        if prev_objects and set(prev_objects) & set(c.objects_json or []):
+            w *= 2.0
         weights.append(w)
     pick_idx = rng.choices(range(len(filtered)), weights=weights, k=1)[0]
     cliplet, score = filtered[pick_idx]
@@ -456,6 +532,10 @@ def _pick_from_cliplets(
         cliplet_id=cliplet.id,
         score=round(score, 4),
         description=cliplet.description,
+        theme=cliplet.theme,
+        scene=cliplet.scene,
+        objects=list(cliplet.objects_json or []),
+        actions=list(cliplet.actions_json or []),
     )
 
 
@@ -478,7 +558,10 @@ def _assemble_clips(
     content_theme: str | None = None,
     exclude_cliplet_ids: set[int] | None = None,
     exclude_asset_uuids: set[str] | None = None,
+    pack_id: str | None = None,
 ) -> tuple[list[ClipPlan], str]:
+    from engine.catalog.industry_pack import piece_type_rules_for_pack, resolve_piece_type
+
     used_cliplet_ids: set[int] = set(exclude_cliplet_ids or ())
     used_assets: set[str] = set(exclude_asset_uuids or ())
     job_used = set(job_used_assets or set()) | set(exclude_asset_uuids or set())
@@ -487,8 +570,28 @@ def _assemble_clips(
     cliplet_count = session.scalar(select(Cliplet.id).limit(1))
     use_cliplets = cliplet_count is not None
 
+    piece_type = resolve_piece_type(content_theme, pack_id=pack_id)
+    piece_rules = piece_type_rules_for_pack(pack_id).get(piece_type) or {}
+    slot_prefs = piece_rules.get("slots") if isinstance(piece_rules.get("slots"), dict) else {}
+    continuity = piece_rules.get("continuity") if isinstance(piece_rules.get("continuity"), dict) else {}
+    max_object_kinds = continuity.get("max_object_kinds")
+    try:
+        max_object_kinds = int(max_object_kinds) if max_object_kinds is not None else None
+    except (TypeError, ValueError):
+        max_object_kinds = None
+    continuity_soft = bool(continuity.get("require_scene_or_object", True))
+    used_object_kinds: set[str] = set()
+    prev_scene: str | None = None
+    prev_objects: list[str] = []
+
     for slot in template.slots:
         clip = None
+        # slot prefs: exact name → role → empty
+        pref = {}
+        if isinstance(slot_prefs, dict):
+            pref = slot_prefs.get(slot.name) or slot_prefs.get(slot.role or "") or {}
+        prefer_scenes = list(pref.get("prefer_scenes") or []) if isinstance(pref, dict) else []
+        prefer_objects = list(pref.get("prefer_objects") or []) if isinstance(pref, dict) else []
         if use_cliplets:
             q = query_for_role(
                 slot.role,
@@ -511,10 +614,20 @@ def _assemble_clips(
                 customer_id=customer_id,
                 prefer_unused_assets=job_used if template.prefer_unused_assets_in_job else None,
                 content_theme=content_theme,
+                prefer_scenes=prefer_scenes or None,
+                prefer_objects=prefer_objects or None,
+                prev_scene=prev_scene,
+                prev_objects=prev_objects or None,
+                used_object_kinds=used_object_kinds,
+                max_object_kinds=max_object_kinds,
+                continuity_soft=continuity_soft and bool(clips),
             )
             if clip and clip.cliplet_id:
                 used_cliplet_ids.add(clip.cliplet_id)
                 used_assets.add(clip.asset_uuid)
+                used_object_kinds.update(clip.objects or [])
+                prev_scene = clip.scene
+                prev_objects = list(clip.objects or [])
         if not clip:
             slot_assets = assets
             if slot.category:
@@ -533,6 +646,8 @@ def _assemble_clips(
                 desc_blob += " " + clip.description
         else:
             warnings.append(f"槽位 {slot.name} 无可用素材")
+    if piece_type:
+        warnings.append(f"片型: {piece_type}")
     return clips, desc_blob
 
 
@@ -615,28 +730,74 @@ def build_plan(
     recent = recent_titles(session, template.title_cooldown_recent, customer_id=customer_id)
     exclude_hooks = recent_hooks_from_titles(recent)
     hook = pick_hook(rng, hooks, exclude=exclude_hooks, pack_id=pack_id)
-    if template.force_hook_title:
-        title = template.title_template.format(hook=hook, keyword=keyword, brand=brand, theme=pack_theme)
-    else:
-        title = f"{keyword}"
-    # If exact title recently used, reshuffle hook once more
-    if title in recent:
-        hook = pick_hook(rng, hooks, exclude=exclude_hooks | {hook}, pack_id=pack_id)
-        title = template.title_template.format(hook=hook, keyword=keyword, brand=brand, theme=pack_theme)
-        warnings.append("已避开近期重复标题")
 
-    # Sprint A: clamp title length before style / consistency
-    # Allow newline between hook/keyword without counting as content overflow.
-    compact = title.replace("\n", "")
-    max_title = int(template.title_max_chars) * int(template.title_max_lines)
-    if len(compact) > max_title:
-        # Prefer keeping two short lines
-        parts = [p.strip() for p in title.split("\n") if p.strip()]
-        if len(parts) >= 2:
-            title = parts[0][: template.title_max_chars] + "\n" + parts[1][: template.title_max_chars]
+    # Prefer dedicated on-screen title_pool (spoken=false); fall back to hook/keyword template
+    # Layout: random single or dual from pool (no force dual-fill)
+    title_line_cap = int(template.title_max_chars)
+    try:
+        from engine.pack.video_lock import load_video_lock
+
+        _tlock = load_video_lock(customer_name)
+        _tt = _tlock.get("title") if isinstance(_tlock.get("title"), dict) else {}
+        if _tt.get("max_chars"):
+            title_line_cap = int(_tt["max_chars"])
+    except Exception:
+        pass
+
+    title_pool = list_title_pool(pack, theme=pack_theme or content_theme, prefer_rich=True) if pack else []
+    title_from_pool = False
+    if title_pool:
+        picked = pick_title(
+            rng,
+            title_pool,
+            exclude=set(recent),
+            pack=pack,
+            max_chars_per_line=title_line_cap,
+            theme=pack_theme or content_theme,
+        )
+        if picked:
+            title = normalize_title_layout(picked, max_chars_per_line=title_line_cap)
+            title_from_pool = True
+            hook = title.split("\n")[0].strip() or hook
+            warnings.append(f"标题语库选用（共{len(title_pool)}条）")
         else:
-            title = compact[: max_title - 1] + "…"
-        warnings.append(f"标题已截断至每行≤{template.title_max_chars}字")
+            title = None  # type: ignore[assignment]
+    else:
+        title = None  # type: ignore[assignment]
+
+    if not title_from_pool:
+        if template.force_hook_title:
+            title = template.title_template.format(hook=hook, keyword=keyword, brand=brand, theme=pack_theme)
+        else:
+            title = f"{keyword}"
+        # If exact title recently used, reshuffle hook once more
+        if title in recent:
+            hook = pick_hook(rng, hooks, exclude=exclude_hooks | {hook}, pack_id=pack_id)
+            title = template.title_template.format(hook=hook, keyword=keyword, brand=brand, theme=pack_theme)
+            warnings.append("已避开近期重复标题")
+
+    if pack:
+        title_hits = check_compliance(title, pack)
+        if title_hits:
+            block_reasons.extend([f"标题合规命中: {t}" for t in title_hits])
+
+    # Clamp lines ≤ max_chars (preserve single vs dual from pool)
+    max_c = int(title_line_cap)
+    max_lines = int(template.title_max_lines)
+    title = normalize_title_layout(title, max_chars_per_line=max_c, max_lines=max_lines)
+    parts = [p.strip() for p in title.split("\n") if p.strip()]
+    clamped = [p[:max_c] for p in parts[:max_lines]]
+    if clamped != parts[:max_lines] or len(parts) > max_lines:
+        title = "\n".join(clamped)
+        warnings.append(f"标题已截断至每行≤{max_c}字、最多{max_lines}行")
+    else:
+        title = "\n".join(clamped) if clamped else title
+
+    # Locked rule: strip all punctuation from on-screen titles
+    from engine.pack.text_sanitize import strip_all_punctuation
+
+    title = strip_all_punctuation(title, keep_newlines=True) or title
+    title = normalize_title_layout(title, max_chars_per_line=max_c, max_lines=max_lines)
     theme_hint = {
         "配送": "装车 货车 配送 发货",
         "仓配": "仓库 货架 配货 库存",
@@ -682,6 +843,7 @@ def build_plan(
             content_theme=content_theme,
             exclude_cliplet_ids=exclude_cliplet_ids,
             exclude_asset_uuids=exclude_asset_uuids,
+            pack_id=pack_id,
         )
         score = 0.0
         if blob.strip():
@@ -718,9 +880,17 @@ def build_plan(
         "stroke_width": template.title_stroke_width,
         "stroke_color": template.title_stroke_color,
         "layout": template.title_layout,
-        "max_chars": template.title_max_chars,
+        "max_chars": title_line_cap,
         "max_lines": template.title_max_lines,
     }
+    # Apply frozen VIDEO_LOCK title style when present on pack/company
+    try:
+        from engine.pack.video_lock import apply_lock_to_title_style, load_video_lock
+
+        _lock = load_video_lock(customer_name)
+        title_style = apply_lock_to_title_style(title_style, _lock)
+    except Exception:
+        pass
 
     return MontagePlan(
         seed=seed,

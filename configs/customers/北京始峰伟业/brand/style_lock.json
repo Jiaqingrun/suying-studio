@@ -31,10 +31,10 @@
   },
   "title": {
     "font_family": "STHeiti Medium / PingFang Bold",
-    "font_size_px": 96,
+    "font_size_px": 92,
     "color": "#E10600",
     "align": "center",
-    "max_chars": 6,
+    "max_chars": 10,
     "max_lines": 2,
     "line_spacing_px": 14,
     "stroke": {
@@ -49,22 +49,24 @@
     "template": "{hook}\\n{keyword}",
     "forbidden": [
       "divider ｜ · ，",
-      "keyword >6 chars"
+      "keyword >12 chars"
     ],
     "bold": true,
-    "wrap": "prefer_pipe_then_balanced",
+    "wrap": "auto_balanced_center",
     "layout": "dual_chip",
     "line1": {
-      "text": "#FFFFFF",
-      "stroke": "#000000",
-      "note": "白字黑描边，无整行方框"
+      "text": "#E10600",
+      "stroke": "#FFE600",
+      "note": "红字黄边，居中"
     },
     "line2": {
-      "text": "#FFE600",
-      "stroke": "#000000",
-      "italic": true,
-      "note": "黄字黑描边略斜，无整行方框"
-    }
+      "text": "#E10600",
+      "stroke": "#FFE600",
+      "note": "红字黄边，居中，可双行"
+    },
+    "prefer_full_dual": false,
+    "min_chars_total": 16,
+    "random_single_or_dual": true
   },
   "avatar_badge": {
     "file": "avatar.png",
@@ -106,5 +108,31 @@
       "summer",
       "upbeat"
     ]
+  },
+  "subtitle": {
+    "font_size_px": 64,
+    "bottom_padding_px": 400,
+    "no_background_mask": true,
+    "color": "#FFFFFF",
+    "outline": "#000000",
+    "auto_dual_line": true
+  },
+  "locked": true,
+  "locked_at": "2026-07-25",
+  "do_not_change_without_user_approval": true,
+  "strip_all_punctuation": true,
+  "reference_template_video": "/Users/qr/Desktop/始峰五金-旁白贯穿.mp4",
+  "voice": {
+    "provider": "edge",
+    "voice": "zh-CN-XiaoxiaoNeural",
+    "label": "晓晓",
+    "rate": "-8%",
+    "pitch": "+20Hz",
+    "fill_video_duration": true,
+    "forbid_theme_announce": true,
+    "chars_per_sec_zh": 3.8
+  },
+  "logo": {
+    "enabled": false
   }
 }

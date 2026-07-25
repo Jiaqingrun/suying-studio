@@ -95,11 +95,14 @@ template/render/qc  ← 不得 import apps、不得读「客户中文名」分�
   01-片库/          # library_root（可多根，见 library_roots）
   02-成片/          # output_root → ready|review|failed|packs
   03-词池/          # keyword pack 文件
-  04-音乐/          # 可选 BGM（无则回退全局 music_root）
-  05-品牌/          # logo、字体、style_lock（可选）
+  04-音乐/          # 可选 BGM（无则回退全局 music_root）；见 docs/MUSIC.md
+  05-品牌/          # logo、字体、style_lock；封面模板/（每客户固定）
+    封面模板/        # index.json + tpl_<id>/ 各平台槽位图（权威存放）
 ```
 
 引擎只认 **路径字段**，不认「始峰」「徐玲飞」等业务名。人员子目录是客户片库内部约定，产品不解析人名语义。
+
+封面模板不得混放在工作区全局 `db/cover_templates/`（仅作迁移源）；读写一律走当前客户的 `05-品牌/封面模板/`。
 
 ### 3.3 Customer.profile_json（推荐 schema）
 

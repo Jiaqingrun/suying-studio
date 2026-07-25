@@ -10,7 +10,15 @@ from sqlalchemy.orm import Session
 
 from engine.catalog.db import ReachQueueItem
 
-PLATFORMS = ("douyin", "channels", "xhs", "wechat_mp")
+PLATFORMS = (
+    "douyin",
+    "channels",
+    "xhs",
+    "kuaishou",
+    "baijiahao",
+    "toutiao",
+    "zhihu",
+)
 
 # Terminal / active states
 STATUSES = (

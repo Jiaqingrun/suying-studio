@@ -1,0 +1,94 @@
+{
+  "locked": true,
+  "locked_at": "2026-07-25",
+  "do_not_change_without_user_approval": true,
+  "reference_title": "少等半天少跑几趟路",
+  "reference_outputs": [
+    "/Users/qr/Desktop/始峰五金-旁白贯穿.mp4",
+    "/Users/qr/QR-Volume/极空间团队文件同步/速影客户/北京始峰伟业/02-成片/ready/2026-07-25/montage_45_1116965198.mp4"
+  ],
+  "strip_all_punctuation": true,
+  "canvas": {
+    "width": 1080,
+    "height": 1920,
+    "aspect": "9:16"
+  },
+  "title": {
+    "font_size": 92,
+    "color": "#E10600",
+    "stroke_color": "#FFE600",
+    "stroke_width": 6,
+    "bar_opacity": 0.0,
+    "bold": true,
+    "layout": "dual_chip",
+    "position": "top",
+    "max_chars": 10,
+    "max_lines": 2,
+    "spoken": false,
+    "forbid_in_subtitle": true,
+    "auto_wrap_center": true,
+    "theme_matched_rich": true,
+    "prefer_full_dual": false,
+    "random_single_or_dual": true,
+    "min_chars_total": 6,
+    "target_chars_per_line": 8
+  },
+  "subtitle": {
+    "font_size": 64,
+    "color": "#FFFFFF",
+    "outline": "#000000",
+    "bottom_padding_px": 400,
+    "no_background_mask": true,
+    "auto_dual_line": true,
+    "horizontal": "center",
+    "tail_trim_seconds": 0.04,
+        "inter_sentence_gap_seconds": 0.15,
+    "forbid_title_content": true
+  },
+  "voice": {
+    "provider": "edge",
+    "voice": "zh-CN-XiaoxiaoNeural",
+    "label": "晓晓",
+    "rate": "-8%",
+    "pitch": "+20Hz",
+    "fill_video_duration": true,
+    "forbid_theme_announce": true,
+    "chars_per_sec_zh": 3.8
+  },
+  "logo": {
+    "enabled": false
+  },
+  "narration": {
+    "rich_theme_script": true,
+    "strip_punctuation": true,
+    "forbid_title_content": true,
+    "forbid_interjections": [
+      "嗨",
+      "呀",
+      "哦",
+      "嗯",
+      "呐",
+      "啦",
+      "嘿",
+      "哈",
+      "哇"
+    ],
+    "forbid_tech_jargon": [
+      "参数",
+      "规格",
+      "立方",
+      "型号参数",
+      "技术指标"
+    ],
+    "focus": [
+      "配货效率",
+      "发货效率",
+      "配送服务"
+    ]
+  },
+  "compose": {
+    "preferred_runtime": "ffmpeg",
+    "keep_source_audio": false,
+    "template_name": "default-vertical"
+  }
+}

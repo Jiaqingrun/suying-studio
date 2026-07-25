@@ -154,12 +154,17 @@ def backfill_cliplet_themes(
     skipped = 0
     by_theme: Counter[str] = Counter()
     for row in rows:
-        if not force and (row.theme or "").strip():
+        theme_ok = (row.theme or "").strip() not in ("", "default")
+        scene_ok = (row.scene or "").strip() not in ("", "default")
+        if not force and theme_ok and scene_ok:
             by_theme[row.theme] += 1
             skipped += 1
             continue
         asset = session.get(Asset, row.asset_id)
-        theme = apply_theme_to_cliplet(row, asset, pack_id=pack_id)
+        from engine.catalog.semantic_tags import annotate_cliplet
+
+        meta = annotate_cliplet(row, asset, pack_id=pack_id)
+        theme = str(meta.get("theme") or row.theme or "default")
         by_theme[theme] += 1
         updated += 1
     session.commit()

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Sync ZSpace team space (/public) ↔ external disk via local client proxy.
 
-Requires 极空间 desktop client logged in (local proxy on 127.0.0.1:13581).
+Requires 极空间 desktop client logged in (local proxy port from vuex, often 13579/13581).
 Official「文档同步」cannot select team space; this script uses the client tunnel API.
 
 Directions from ~/.qr/suying-sync.json (installed by 速影 App):
@@ -25,7 +25,7 @@ from pathlib import Path
 
 DEFAULT_LOCAL = Path("/Users/qr/QR-Volume/极空间团队文件同步")
 DEFAULT_REMOTE = "/public"
-DEFAULT_PROXY = "http://127.0.0.1:13581"
+DEFAULT_PROXY = "http://127.0.0.1:13579"
 VUEX = Path.home() / "Library/Application Support/zspace/vuex.json"
 LOG_DIR = Path.home() / ".qr/logs"
 STATE_PATH = Path.home() / ".qr/zspace-team-sync-state.json"
@@ -254,8 +254,25 @@ class ZSpaceClient:
             },
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8", "replace"))
+        last_err: Exception | None = None
+        for attempt in range(1, 5):
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    return json.loads(resp.read().decode("utf-8", "replace"))
+            except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
+                last_err = e
+                time.sleep(min(8, attempt * 1.5))
+                # rebuild request (body already consumed otherwise on some pythons)
+                req = urllib.request.Request(
+                    url,
+                    data=form_body({**self.common, **body}),
+                    headers={
+                        "Cookie": self.cookie,
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                    method="POST",
+                )
+        raise RuntimeError(f"POST {path} failed after retries: {last_err}")
 
     def list_dir(self, path: str) -> list[dict]:
         start = 0
@@ -305,25 +322,40 @@ class ZSpaceClient:
     def download(self, remote_path: str, dest: Path, expected_size: int | None = None) -> None:
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_suffix(dest.suffix + ".partial")
-        offset = tmp.stat().st_size if tmp.exists() else 0
-        q = urllib.parse.urlencode(
-            {"path": remote_path, "offset": offset, "remote_port": 8050}
-        )
-        url = f"{self.proxy}/v2/file/download?{q}&webagent=v2"
-        req = urllib.request.Request(url, headers={"Cookie": self.cookie}, method="GET")
-        mode = "ab" if offset else "wb"
-        with urllib.request.urlopen(req, timeout=600) as resp, tmp.open(mode) as out:
-            while True:
-                chunk = resp.read(1024 * 1024)
-                if not chunk:
-                    break
-                out.write(chunk)
+        last_err: Exception | None = None
+        for attempt in range(1, 4):
+            try:
+                offset = tmp.stat().st_size if tmp.exists() else 0
+                q = urllib.parse.urlencode(
+                    {"path": remote_path, "offset": offset, "remote_port": 8050}
+                )
+                url = f"{self.proxy}/v2/file/download?{q}&webagent=v2"
+                req = urllib.request.Request(url, headers={"Cookie": self.cookie}, method="GET")
+                mode = "ab" if offset else "wb"
+                with urllib.request.urlopen(req, timeout=600) as resp, tmp.open(mode) as out:
+                    while True:
+                        chunk = resp.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        out.write(chunk)
+                last_err = None
+                break
+            except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
+                last_err = e
+                time.sleep(min(10, attempt * 2))
+        if last_err is not None:
+            raise RuntimeError(f"download {remote_path} failed after retries: {last_err}")
         size = tmp.stat().st_size
         if expected_size is not None and expected_size > 0 and size != expected_size:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
             raise RuntimeError(
                 f"size mismatch {remote_path}: got {size}, expected {expected_size}"
             )
         tmp.replace(dest)
+        cleanup_zspace_temps(dest)
 
     def upload(self, local_file: Path, remote_file_path: str) -> None:
         remote_file_path = "/" + remote_file_path.strip("/")
@@ -377,6 +409,21 @@ class ZSpaceClient:
             raise RuntimeError(
                 f"upload {backend_file}: {res.get('code')} {res.get('msg') or raw[:200]}"
             )
+
+
+def cleanup_zspace_temps(dest: Path) -> None:
+    """Remove leftover official-client temp files like .VID_xxx.mp4.z<hash>."""
+    parent = dest.parent
+    if not parent.is_dir():
+        return
+    needle = f".{dest.name}.z"
+    for p in parent.iterdir():
+        name = p.name
+        if name.startswith(needle) or name == f".{dest.name}.partial":
+            try:
+                p.unlink()
+            except OSError:
+                pass
 
 
 
@@ -448,9 +495,22 @@ def sync_pull(
     files = walk_files(client, remote_root)
     log(f"远程文件数: {len(files)}", log_file)
 
-    downloaded = skipped = failed = mapped = 0
+    downloaded = skipped = failed = mapped = pending = 0
     bytes_dl = 0
     errors: list[str] = []
+
+    # Pre-count pending so logs show the backlog clearly
+    for it in files:
+        try:
+            rel = relative_under_public(it["path"])
+        except ValueError:
+            continue
+        dest = local_root / remote_rel_to_local_rel(rel)
+        size = int(it.get("size") or 0)
+        if not (dest.exists() and dest.stat().st_size == size and size >= 0):
+            pending += 1
+    if pending:
+        log(f"待拉取: {pending} 个文件（本地缺失或大小不一致）", log_file)
 
     for i, it in enumerate(files, 1):
         rpath = it["path"]

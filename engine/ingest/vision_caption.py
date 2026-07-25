@@ -23,9 +23,9 @@ def heuristic_describe(asset: Asset, start: float, end: float) -> str:
         f"素材:{name}",
         f"片段{start:.1f}-{end:.1f}秒共{dur}秒",
         orientation,
-        "工地五金门店仓库实拍素材" if cat in {"Camera", "WeiXin", "Pictures"} else "业务素材",
+        "实拍业务素材",
     ]
-    for token in ("仓库", "门店", "送货", "产品", "工具", "装车", "五金"):
+    for token in ("仓库", "门店", "送货", "产品", "工具", "装车", "五金", "货架", "工地"):
         if token in name:
             bits.append(token)
     return "；".join(bits)
@@ -53,9 +53,11 @@ def vision_caption(image_path: Path, *, model: str = VISION_MODEL, timeout: floa
     try:
         b64 = base64.b64encode(image_path.read_bytes()).decode("ascii")
         prompt = (
-            "你是五金建材批发短视频素材标注员。"
-            "用一句中文描述画面（15–40字），点明：场景（仓库/门店/工地/装车/产品特写等）、"
-            "可见物体或动作。不要开场白，不要引号。"
+            "你是短视频实拍素材标注员。"
+            "用一句中文描述画面（20–45字），必须点明："
+            "①场景（仓库货架/装车卸货/门店门头/产品特写/工地现场/人物作业 等）；"
+            "②可见主要物品；③若有动作也写上。"
+            "不要开场白，不要引号，不要推测价格或品牌口号。"
         )
         with httpx.Client(timeout=timeout) as client:
             resp = client.post(

@@ -119,13 +119,12 @@ class IngestWatcher:
         count = 0
         session = get_session()
         try:
+            # Skip anything already catalogued (ready / reject / failed / in-flight).
+            # Previously only "ready" was known → rejected_landscape got re-normalized forever.
             known = {
                 row
                 for row in session.scalars(
-                    select(Asset.source_path).where(
-                        Asset.customer_id == customer_id,
-                        Asset.status == "ready",
-                    )
+                    select(Asset.source_path).where(Asset.customer_id == customer_id)
                 ).all()
             }
             log.info("scan known_assets=%s", len(known))
@@ -149,6 +148,7 @@ class IngestWatcher:
                     len(missing),
                     defer_index,
                 )
+                attempted = 0
                 for path in missing:
                     try:
                         asset = ingest_file(
@@ -159,16 +159,30 @@ class IngestWatcher:
                             customer_id=customer_id,
                             defer_index=defer_index,
                         )
-                        if asset:
+                        known.add(str(path.resolve()))
+                        attempted += 1
+                        if asset and getattr(asset, "status", None) == "ready":
                             count += 1
-                            known.add(str(path.resolve()))
                             log.info("scan ingested #%s asset=%s %s", count, asset.id, path)
-                            if on_progress:
-                                on_progress(count)
+                        if on_progress:
+                            # Report ready count; also surface attempts via side channel
+                            on_progress(count)
+                            try:
+                                from engine.ops.scan_state import scan_state
+
+                                scan_state["attempted"] = int(scan_state.get("attempted") or 0) + 1
+                                scan_state["ingested"] = count
+                            except Exception:
+                                pass
                     except Exception:
                         log.exception("scan ingest failed %s", path)
-                    if limit is not None and count >= limit:
-                        log.info("scan finished ingested=%s (hit limit)", count)
+                        known.add(str(path.resolve()))
+                    if limit is not None and attempted >= limit:
+                        log.info(
+                            "scan finished ingested=%s attempted=%s (hit limit)",
+                            count,
+                            attempted,
+                        )
                         return count
         finally:
             session.close()

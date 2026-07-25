@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "速影 · 创作台弹窗拦截",
+  "version": "1.0.0",
+  "description": "自动关闭抖音/视频号/小红书/快手创作台的营销弹窗、活动浮层，避免挡住发布。",
+  "permissions": [],
+  "host_permissions": [
+    "https://creator.douyin.com/*",
+    "https://channels.weixin.qq.com/*",
+    "https://creator.xiaohongshu.com/*",
+    "https://cp.kuaishou.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://creator.douyin.com/*",
+        "https://channels.weixin.qq.com/*",
+        "https://creator.xiaohongshu.com/*",
+        "https://cp.kuaishou.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "action": {
+    "default_title": "速影弹窗拦截（已启用）"
+  }
+}

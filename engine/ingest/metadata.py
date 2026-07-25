@@ -175,6 +175,32 @@ def ingest_file(
             pre.get("rotation"),
             file_path,
         )
+        existing = session.scalar(
+            select(Asset).where(Asset.source_path == source_key, Asset.customer_id == customer_id)
+        )
+        if existing and existing.status == "rejected_landscape":
+            return None
+        root = library_root or settings.paths.library_root
+        if existing:
+            asset = existing
+        else:
+            asset = Asset(
+                uuid=str(uuid.uuid4()),
+                customer_id=customer_id,
+                source_path=source_key,
+                storage_path="",
+                category=category_from_path(root, file_path),
+                status="rejected_landscape",
+                metadata_json={},
+            )
+            session.add(asset)
+        meta = dict(asset.metadata_json or {})
+        meta.update({**pre, "library_root": str(root), "reject_reason": "landscape"})
+        asset.status = "rejected_landscape"
+        asset.metadata_json = meta
+        asset.width = pre.get("width")
+        asset.height = pre.get("height")
+        session.commit()
         return None
 
     existing = session.scalar(

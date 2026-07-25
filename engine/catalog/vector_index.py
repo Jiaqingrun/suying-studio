@@ -59,7 +59,9 @@ def cosine(a: list[float], b: list[float]) -> float:
 
 
 def index_cliplet(session: Session, cliplet: Cliplet) -> Cliplet:
-    emb, _backend = embed_text(cliplet.description or "")
+    from engine.catalog.semantic_tags import compose_embed_text
+
+    emb, _backend = embed_text(compose_embed_text(cliplet))
     cliplet.embedding_json = emb
     cliplet.indexed_at = datetime.now(timezone.utc)
     session.commit()
@@ -84,6 +86,8 @@ def search_cliplets(
     *,
     category: str | None = None,
     theme: str | None = None,
+    scene: str | None = None,
+    object_tag: str | None = None,
     top_k: int = 20,
     min_duration: float = 2.0,
     customer_id: int | None = None,
@@ -96,9 +100,30 @@ def search_cliplets(
         stmt = stmt.where(Cliplet.category == category)
     if theme and theme != "default":
         stmt = stmt.where(Cliplet.theme == theme)
+    if scene and scene != "default":
+        stmt = stmt.where(Cliplet.scene == scene)
     rows = list(session.scalars(stmt).all())
+    # objects_json is a list; hard-filter in Python (portable across SQLite/JSON backends)
+    if object_tag and object_tag != "default":
+        rows = [r for r in rows if object_tag in (r.objects_json or [])]
+    q_tokens = [t for t in (query or "").replace("，", " ").replace(",", " ").split() if t.strip()]
     scored: list[tuple[Cliplet, float]] = []
     for row in rows:
-        scored.append((row, cosine(q_emb, row.embedding_json or [])))
+        base = cosine(q_emb, row.embedding_json or [])
+        # Soft keyword boost so tag-bearing clips surface for queries like「装车 货车」
+        blob = " ".join(
+            [
+                row.theme or "",
+                row.scene or "",
+                " ".join(row.objects_json or []),
+                " ".join(row.actions_json or []),
+                row.description or "",
+            ]
+        )
+        boost = 0.0
+        for tok in q_tokens:
+            if tok and tok in blob:
+                boost += 0.04
+        scored.append((row, base + boost))
     scored.sort(key=lambda x: x[1], reverse=True)
     return scored[:top_k]

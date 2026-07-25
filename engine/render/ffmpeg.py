@@ -59,29 +59,48 @@ def clamp_title_text(title: str, max_chars: int = 10, max_lines: int = 2) -> str
     return t
 
 
-def _wrap_title(title: str, max_chars: int = 6, max_lines: int = 2) -> str:
-    """Auto line-break: prefer existing newlines, then balanced split. No divider glyphs."""
+def _wrap_title(
+    title: str,
+    max_chars: int = 12,
+    max_lines: int = 2,
+    *,
+    per_line_limit: int | None = None,
+) -> str:
+    """Auto line-break + center-ready lines.
+
+    - Respect existing newlines (clamp each line).
+    - Else split near midpoint when longer than one line budget.
+    - per_line_limit: pixel-fit chars/line (large fonts); max_chars is content budget/line.
+    """
     raw = (title or "").replace("\r\n", "\n").replace("\r", "\n").strip()
-    # Strip legacy dividers if any slipped in
     for sep in ("｜", "|", "·", "—", "－"):
         raw = raw.replace(sep, "\n")
-    # If already multi-line, clamp each line
+    line_cap = max(1, int(per_line_limit or max_chars))
+    content_cap = max(line_cap, int(max_chars))
+
     if "\n" in raw:
         parts = [p.strip() for p in raw.split("\n") if p.strip()]
-        lines = [p[:max_chars] for p in parts[:max_lines]]
-        return "\n".join(lines)
-    title = clamp_title_text(raw.replace("\n", " "), max_chars=max_chars, max_lines=max_lines)
-    if max_lines <= 1 or len(title) <= max_chars:
-        return title
-    # Balanced split near midpoint (no punctuation divider required)
-    target = min(max_chars, max(1, (len(title) + 1) // 2))
+        lines = [p[:content_cap] for p in parts[:max_lines]]
+        # If a single explicit line still overflows pixel budget, re-split it
+        if len(lines) == 1 and len(lines[0]) > line_cap and max_lines >= 2:
+            return _wrap_title(lines[0], max_chars=content_cap, max_lines=max_lines, per_line_limit=line_cap)
+        return "\n".join(ln[:line_cap] if len(ln) > line_cap else ln for ln in lines)
+
+    title = clamp_title_text(raw.replace("\n", " "), max_chars=content_cap, max_lines=max_lines)
+    if max_lines <= 1 or len(title) <= line_cap:
+        return title[:line_cap]
+    # Balanced split near midpoint
+    target = min(line_cap, max(1, (len(title) + 1) // 2))
     break_at = target
     for i in range(target, max(0, target - 3), -1):
         if i < len(title) and title[i - 1] in " 　":
             break_at = i
             break
-    line1 = title[:break_at].strip()[:max_chars]
-    line2 = title[break_at:].strip()[:max_chars]
+    # Prefer not overflowing line 2 either
+    if len(title) - break_at > line_cap:
+        break_at = max(1, len(title) - line_cap)
+    line1 = title[:break_at].strip()[:line_cap]
+    line2 = title[break_at:].strip()[:line_cap]
     return "\n".join(ln for ln in (line1, line2) if ln)
 
 
@@ -115,15 +134,22 @@ def render_title_png(
 ) -> Path:
     """Render title overlay.
 
-    layout=dual_chip (default):
-      line1 — black fill + white border + white text
-      line2 — yellow fill + black border + black text
-    layout=stroke: legacy fill+outline without per-line plates.
+    layout=dual_chip (default) / stroke:
+      Auto wrap up to max_lines, each line centered.
+      Red fill (#E10600) + yellow stroke (#FFE600) by default.
     """
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     font = _find_font(font_size, bold=bold)
-    text = _wrap_title(title, max_chars=max_chars, max_lines=max_lines)
+    # Large fonts: fit chars/line to canvas (glyph≈font_size + stroke)
+    px_budget = max(200, int(width * 0.92) - int(stroke_width) * 2)
+    chars_fit = max(4, min(int(max_chars), px_budget // max(int(font_size), 1)))
+    text = _wrap_title(
+        title,
+        max_chars=max_chars,
+        max_lines=max_lines,
+        per_line_limit=chars_fit,
+    )
     lines = [ln.strip() for ln in text.split("\n") if ln.strip()] or [text]
 
     pos = (position or "top").lower()
@@ -134,29 +160,22 @@ def render_title_png(
     else:
         y_ratio = 0.05
 
-    if (layout or "dual_chip").lower() in {"dual_chip", "douyin_ref", "ref"}:
-        # Reference style: stroke only around glyphs — no solid full-line plate.
-        # line1 — white text + black stroke
-        # line2 — yellow text + thicker black stroke (slight italic)
-        line_styles = [
-            {"text": "#FFFFFF", "stroke": "#000000", "stroke_w": max(5, stroke_width), "italic": False},
-            {"text": "#FFE600", "stroke": "#000000", "stroke_w": max(6, stroke_width + 1), "italic": True},
-        ]
-        gap = 18
+    # 红字黄边：双行居中自动换行（dual_chip 与 stroke 统一视觉）
+    layout_key = (layout or "dual_chip").lower()
+    if layout_key in {"dual_chip", "douyin_ref", "ref", "stroke", "red_yellow"}:
+        sw = max(8, int(stroke_width))
+        gap = max(20, int(font_size * 0.12))
+        fill = _hex_to_rgba(color, 1.0)
+        stroke = _hex_to_rgba(stroke_color, 1.0)
 
-        def _draw_stroked_line(ln: str, y0: int, st: dict) -> int:
-            sw = int(st["stroke_w"])
+        def _draw_stroked_line(ln: str, y0: int) -> int:
             bb = draw.textbbox((0, 0), ln, font=font)
             tw, th = bb[2] - bb[0], bb[3] - bb[1]
-            shear = 0.22 if st.get("italic") else 0.0
-            shear_px = int(th * shear) if shear else 0
-            layer_w = tw + sw * 2 + shear_px + 8
+            layer_w = tw + sw * 2 + 8
             layer_h = th + sw * 2 + 8
             layer = Image.new("RGBA", (layer_w, layer_h), (0, 0, 0, 0))
             ld = ImageDraw.Draw(layer)
             ox, oy = sw + 4, sw + 2
-            fill = _hex_to_rgba(st["text"], 1.0)
-            stroke = _hex_to_rgba(st["stroke"], 1.0)
             for dx in range(-sw, sw + 1):
                 for dy in range(-sw, sw + 1):
                     if dx == 0 and dy == 0:
@@ -165,13 +184,6 @@ def render_title_png(
                         continue
                     ld.text((ox + dx, oy + dy), ln, font=font, fill=stroke)
             ld.text((ox, oy), ln, font=font, fill=fill)
-            if shear:
-                layer = layer.transform(
-                    (layer_w + shear_px, layer_h),
-                    Image.Transform.AFFINE,
-                    (1, shear, -shear * layer_h * 0.15, 0, 1, 0),
-                    resample=Image.Resampling.BICUBIC,
-                )
             bbox = layer.getbbox()
             if bbox:
                 layer = layer.crop(bbox)
@@ -180,19 +192,17 @@ def render_title_png(
             img.paste(layer, (x, y0), layer)
             return y0 + lh + gap
 
-        # estimate height for top clamp
         approx_h = 0
         for ln in lines[:max_lines]:
             bb = draw.textbbox((0, 0), ln, font=font)
-            approx_h += (bb[3] - bb[1]) + max(6, stroke_width) * 2 + gap
+            approx_h += (bb[3] - bb[1]) + sw * 2 + gap
         y = int(height * y_ratio)
         y = max(8, min(height - approx_h - 8, y))
-        for i, ln in enumerate(lines[:max_lines]):
-            st = line_styles[min(i, len(line_styles) - 1)]
-            y = _draw_stroked_line(ln, y, st)
+        for ln in lines[:max_lines]:
+            y = _draw_stroked_line(ln, y)
     else:
-        # Legacy stroke title (no full-width mask unless bar_opacity > 0)
-        spacing = 14
+        # Fallback: multiline centered stroke
+        spacing = max(14, int(font_size * 0.1))
         bbox = draw.multiline_textbbox((0, 0), text, font=font, align="center", spacing=spacing)
         tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
         pad_y = 24
@@ -359,8 +369,15 @@ def resolve_bgm_path(settings: AppSettings, seed: int) -> Path | None:
         "pop", "dance", "energy", "happy", "sunny", "summer", "hey", "groovy",
         "hiphop", "dubstep", "cute", "moose", "action", "buddy", "ukulele",
         "funk", "rock",
+        # Soft-cheerful Kevin MacLeod batch (km-*) — curated for 日更/轻柔欢快
+        "carefree", "easy-lemon", "wallpaper", "wholesome", "rainbows", "vivacity",
+        "hyperfun", "upbeat-forever", "digital-lemonade", "whimsy", "fluffing",
+        "merry-go", "porch-swing", "clear-waters", "beauty-flow", "eternal-hope",
+        "almost-new", "beachfront", "cattails", "monkeys-spinning", "life-of-riley",
+        "your-call", "feelin-good", "pinball", "run-amok", "faster-does",
+        "thatched", "folk-round", "daily-beetle", "lobby-time", "mellowtron",
     )
-    calm_keys = ("jazz", "piano", "soul", "creative", "anewbeginning", "littleidea", "suspense")
+    calm_keys = ("soul", "creative", "anewbeginning", "littleidea", "suspense", "gymnopedie")
     preferred = [
         f for f in files
         if any(k in f.name.lower() for k in upbeat_keys)
@@ -642,7 +659,7 @@ def render_plan(
         plan.title,
         width,
         height,
-        int(style.get("font_size") or template_meta.get("title_font_size", 96)),
+        int(style.get("font_size") or template_meta.get("title_font_size", 92)),
         title_png,
         position=str(style.get("position") or template_meta.get("title_position", "top")),
         color=str(style.get("color") or template_meta.get("title_color", "#E10600")),
@@ -673,6 +690,11 @@ def render_plan(
         render_meta["bgm_gain_effective"] = effective_bgm_gain if bgm else None
         if bgm and "bensound" in bgm.name.lower():
             render_meta["music_credit"] = f"Music: {bgm.stem.replace('bensound-', '')} — Bensound.com"
+        elif bgm and bgm.name.lower().startswith("km-"):
+            title = bgm.stem[3:].replace("-", " ").strip().title()
+            render_meta["music_credit"] = (
+                f"Music: {title} by Kevin MacLeod (incompetech.com) · CC BY 3.0"
+            )
         elif bgm and not bgm.name.startswith("placeholder-"):
             render_meta["music_credit"] = f"Music: {bgm.stem}"
         else:
@@ -718,19 +740,19 @@ def render_plan(
         logo_idx = next_idx
         next_idx += 1
 
-    # Audio graph: narration lead + BGM bed (+ optional ambient from merged)
+    # Audio graph: narration lead + BGM bed
+    # duration=longest so short foreign VO does not silence-cut BGM before picture ends
     audio_parts: list[str] = []
     if narr_idx is not None and bgm_idx is not None:
         audio_parts = [
-            f"[{narr_idx}:a]volume={narration_gain:.3f},aformat=sample_rates=48000:channel_layouts=stereo,apad[nar]",
+            f"[{narr_idx}:a]volume={narration_gain:.3f},aformat=sample_rates=48000:channel_layouts=stereo[nar]",
             f"[{bgm_idx}:a]volume={effective_bgm_gain:.3f},aformat=sample_rates=48000:channel_layouts=stereo[bg]",
-            f"[nar][bg]amix=inputs=2:duration=first:dropout_transition=2[mix]",
+            f"[nar][bg]amix=inputs=2:duration=longest:dropout_transition=2[mix]",
             f"[mix]{loudnorm}[a]",
         ]
     elif narr_idx is not None:
         audio_parts = [
-            f"[{narr_idx}:a]volume={narration_gain:.3f},aformat=sample_rates=48000:channel_layouts=stereo,apad[nar]",
-            f"[nar]{loudnorm}[a]",
+            f"[{narr_idx}:a]volume={narration_gain:.3f},aformat=sample_rates=48000:channel_layouts=stereo,{loudnorm}[a]",
         ]
     elif bgm_idx is not None and ambient_gain > 0.001:
         audio_parts = [
@@ -764,15 +786,30 @@ def render_plan(
             "160k",
         ]
     )
-    # Narration may be shorter/longer than picture — pin to merged video length
+    # With narration: keep full picture when VO is much shorter (foreign short templates).
+    # Only trim to VO when narration nearly fills the cut (classic 晓晓 贯穿).
     if narr_idx is not None:
+        from engine.pack.tts import probe_audio_duration
+
         merged_probe = probe_output(merged)
         try:
             vdur = float((merged_probe.get("format") or {}).get("duration") or 0)
         except (TypeError, ValueError):
             vdur = 0.0
-        if vdur > 0.1:
-            final_cmd.extend(["-t", f"{vdur:.3f}"])
+        try:
+            ndur = float(probe_audio_duration(Path(narr))) if narr else 0.0
+        except Exception:
+            ndur = 0.0
+        if vdur > 0.1 and ndur > 0.1:
+            if ndur >= max(0.1, vdur - 1.5):
+                # VO fills picture — trim tiny tail so旁白贯穿
+                final_t = min(vdur, ndur + 0.12)
+            else:
+                # Short VO: keep full picture; BGM continues after speech
+                final_t = vdur
+            final_cmd.extend(["-t", f"{final_t:.3f}"])
+        elif ndur > 0.1:
+            final_cmd.extend(["-t", f"{ndur + 0.12:.3f}"])
         else:
             final_cmd.append("-shortest")
     else:
