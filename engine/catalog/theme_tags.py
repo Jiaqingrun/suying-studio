@@ -109,8 +109,12 @@ def resolve_job_themes(
     rng: Any,
     min_clips: int = 3,
     pack_id: str | None = None,
+    avoid_themes: set[str] | None = None,
 ) -> tuple[str, str]:
-    """Pick (content_theme, pack_theme) for clip selection and keyword pick."""
+    """Pick (content_theme, pack_theme) for clip selection and keyword pick.
+
+    When job_theme is default, down-weight / skip themes in avoid_themes (GQual 同质冷却).
+    """
     jt = (job_theme or "default").strip() or "default"
     if jt != "default":
         content = pack_theme_to_content(jt, pack_id=pack_id)
@@ -124,8 +128,11 @@ def resolve_job_themes(
         eligible = [(t, n) for t, n in counts.items() if t != "default" and n > 0]
     if not eligible:
         return "default", "default"
-    themes = [t for t, _ in eligible]
-    weights = [float(n) for _, n in eligible]
+    avoid = {a for a in (avoid_themes or set()) if a and a != "default"}
+    preferred = [(t, n) for t, n in eligible if t not in avoid]
+    pool = preferred if preferred else eligible
+    themes = [t for t, _ in pool]
+    weights = [float(n) for _, n in pool]
     content = rng.choices(themes, weights=weights, k=1)[0]
     pack = content_to_pack_themes(content, pack_id=pack_id)[0]
     return content, pack

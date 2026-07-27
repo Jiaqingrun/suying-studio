@@ -276,8 +276,8 @@ def resolve_cover_store(
         except Exception:
             root = None
     if root is None:
-        # last resort: legacy work-area store
-        dr = Path(data_root) if data_root else Path.home() / "QR-Volume" / "速影工作区" / "db"
+        # Last resort: product-owned local data store.
+        dr = Path(data_root) if data_root else Path.home() / "Suying" / "data"
         return templates_root(legacy_cover_store(dr))
 
     store = customer_cover_store(root)

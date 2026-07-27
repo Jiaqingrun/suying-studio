@@ -32,10 +32,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
+    "targets": ["app"],
     "category": "Productivity",
-    "shortDescription": "始峰速影 — 本地 AI 混剪桌面端",
-    "longDescription": "速影桌面端：素材入库、生产、审片、物料、发布与触达。需本机引擎（montage-studio）协同运行。",
+    "shortDescription": "速影 — 本地 AI 混剪工作台",
+    "longDescription": "速影一体包：素材入库、生产、审片、物料、发布与触达。日更引擎与创作运行时内嵌于 App；Ollama 与片库仍在本机。",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

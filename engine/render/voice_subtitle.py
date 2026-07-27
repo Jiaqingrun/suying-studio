@@ -18,6 +18,7 @@ from engine.pack.narration_script import (
     scrub_title_from_spoken,
     srt_from_narration_segments,
     text_contains_title,
+    tighten_srt_to_voiceover,
 )
 from engine.pack.tts import narration_bed_from_result, synthesize_script
 from engine.render.subtitles_burn import burn_srt_into_video
@@ -135,7 +136,19 @@ def prepare_narration_for_plan(
     voice_lock = lock.get("voice") if isinstance(lock.get("voice"), dict) else {}
     narr_lock = lock.get("narration") if isinstance(lock.get("narration"), dict) else {}
     sub_lock = lock.get("subtitle") if isinstance(lock.get("subtitle"), dict) else {}
+    emoji_lock = lock.get("emoji") if isinstance(lock.get("emoji"), dict) else {}
     strip_punct = bool(lock.get("strip_all_punctuation", narr_lock.get("strip_punctuation", True)))
+
+    # HARD: 字幕必须烧录才能看见行内表情；禁止标题区浮动贴纸。
+    # Preserve explicit burn_dual (still burned); only upgrade external → burn_mono.
+    if bool(sub_lock.get("force_burn_mono") or emoji_lock.get("in_subtitle")):
+        if prefs.get("subtitle_burn") not in ("burn_mono", "burn_dual"):
+            prefs["subtitle_burn"] = "burn_mono"
+    if bool(emoji_lock.get("forbid_title_stickers", True)):
+        out_forbid_stickers = True
+    else:
+        out_forbid_stickers = True  # default hard: never title stickers
+    _ = out_forbid_stickers
 
     out: dict[str, Any] = {
         "narration_path": None,
@@ -173,11 +186,12 @@ def prepare_narration_for_plan(
     out["title_spoken"] = speak_title
     out["title_in_subtitle"] = not forbid_title_in_sub
 
+    visual_hints = clip_description_hints(plan, limit=6)
     script = narration_script_zh(
         on_screen_title,
         brand=brand_name,
         theme=str(plan.theme or "default"),
-        clip_hints=clip_description_hints(plan, limit=4),
+        clip_hints=visual_hints[:4],
         target_duration_sec=plan_dur,
         cps=cps,
         speak_title=speak_title,
@@ -185,7 +199,66 @@ def prepare_narration_for_plan(
     if not speak_title:
         script = scrub_title_from_spoken(script, on_screen_title)
     out["script"] = script
+    out["script_base"] = script
+    out["visual_hints"] = visual_hints
     out["target_duration_sec"] = plan_dur
+    out["emoji_cues"] = []
+    out["ollama_narration"] = False
+
+    # Ops toggle: Ollama rewrites visual descriptions → spoken copy (+ emoji for subtitles)
+    if bool(getattr(settings, "ollama_narration_enabled", False)) and prefs.get("voice_lang") != "none":
+        try:
+            from engine.pack.ollama_narration import (
+                resolve_narration_model,
+                rewrite_narration_with_ollama,
+            )
+
+            model = resolve_narration_model(settings)
+            rewritten = rewrite_narration_with_ollama(
+                base_script=script,
+                visual_hints=visual_hints,
+                theme=str(plan.theme or "default"),
+                brand=brand_name,
+                target_duration_sec=plan_dur,
+                model=model,
+                title=on_screen_title,
+            )
+            out["ollama_narration_model"] = model
+            if rewritten.get("ok") and rewritten.get("script"):
+                script = str(rewritten["script"])
+                if not speak_title:
+                    script = scrub_title_from_spoken(script, on_screen_title)
+                from engine.pack.emoji_stickers import (
+                    ensure_theme_emoji_cues,
+                    sanitize_emoji_cues,
+                    strip_emoji_for_speech,
+                )
+
+                script = strip_emoji_for_speech(script)
+                out["script"] = script
+                out["script_display"] = script
+                out["emoji_cues"] = ensure_theme_emoji_cues(
+                    rewritten.get("emoji_cues") or [],
+                    theme=str(plan.theme or "default"),
+                    video_duration_sec=float(plan_dur or 12.0),
+                    n=3,
+                )
+                out["ollama_narration"] = True
+            else:
+                out["ollama_narration_error"] = rewritten.get("error") or "rewrite_failed"
+        except Exception as e:  # noqa: BLE001
+            out["ollama_narration_error"] = str(e)
+
+    # HARD: emoji_cues always available for subtitle injection (even if Ollama off/fail)
+    if not out.get("emoji_cues"):
+        from engine.pack.emoji_stickers import ensure_theme_emoji_cues
+
+        out["emoji_cues"] = ensure_theme_emoji_cues(
+            [],
+            theme=str(plan.theme or "default"),
+            video_duration_sec=float(plan_dur or 12.0),
+            n=3,
+        )
 
     # Locked voice overrides settings
     if voice_lock.get("provider"):
@@ -244,18 +317,38 @@ def prepare_narration_for_plan(
             rate = str(voice_lock.get("rate") or getattr(settings, "tts_rate", "") or "") or None
             pitch = str(voice_lock.get("pitch") or getattr(settings, "tts_pitch", "") or "") or None
             # Keep locked rate/pitch for zh; neutral defaults for foreign
-            if lang not in ("zh", "zh-TW"):
+            if lang.startswith("zh"):
+                # HARD: VIDEO_LOCK rate/pitch/volume — 情感播报（音高+音量，语速仍 -8%）
+                rate = str(voice_lock.get("rate") or "-8%")
+                pitch = str(voice_lock.get("pitch") or "+35Hz")
+                volume = str(voice_lock.get("volume") or "+12%")
+            elif lang not in ("zh", "zh-TW"):
                 rate = "+0%"
                 pitch = "+0Hz"
+                volume = "+0%"
+            else:
+                volume = str(voice_lock.get("volume") or "+0%")
+            out["tts_rate"] = rate
+            out["tts_pitch"] = pitch
+            out["tts_volume"] = volume
             # Locked Edge: never silently fall back to macOS say (zh = 晓晓; foreign = catalog Edge)
             lock_requires_edge = str(voice_lock.get("provider") or "").lower() in (
                 "edge",
                 "xiaoxiao",
             )
-            # Sentence gap: audible breath for 断句; keep SRT in lockstep with audio bed
+            # HARD: strip emoji / sticker-speak before TTS (emoji only in subtitle display)
+            from engine.pack.emoji_stickers import strip_emoji_for_speech
+
+            script = strip_emoji_for_speech(script)
+            out["script"] = script
+            # Sentence gap: audible breath for 断句; SRT clears during gap (不得拖字)
             gap = float(sub_lock.get("inter_sentence_gap_seconds") or 0.15)
             if gap < 0.1:
                 gap = 0.15  # minimum breath so 晓晓不连读
+            # HARD: pull cue end before speech ends (default 120ms; was 40ms — too sticky)
+            tail_trim = float(sub_lock.get("tail_trim_seconds") or 0.12)
+            if tail_trim < 0.08:
+                tail_trim = 0.12
             narr = synthesize_script(
                 script,
                 work_dir / "narration",
@@ -264,6 +357,7 @@ def prepare_narration_for_plan(
                 voice=voice,
                 rate=rate,
                 pitch=pitch,
+                volume=volume,
                 strip_punctuation=strip_punct and lang.startswith("zh"),
                 allow_fallback=not lock_requires_edge,
                 inter_sentence_gap_sec=gap,
@@ -283,10 +377,19 @@ def prepare_narration_for_plan(
             voice_srt_body = srt_from_narration_segments(
                 narr.segments,
                 bottom_dual_line=False,
-                tail_trim_seconds=float(sub_lock.get("tail_trim_seconds") or 0.04),
+                tail_trim_seconds=tail_trim,
                 inter_sentence_gap_seconds=bed_gap,
                 forbid_title=on_screen_title if forbid_title_in_sub else None,
             )
+            # Nuclear post-pass against the real VO bed — 话说完字幕必须消失
+            if voice_srt_body.strip() and Path(bed).is_file():
+                voice_srt_body = tighten_srt_to_voiceover(
+                    voice_srt_body,
+                    bed,
+                    tail_trim_seconds=tail_trim,
+                )
+            out["subtitle_tail_trim_sec"] = tail_trim
+            out["subtitle_aligned_to_voice"] = True
             # Display script without punctuation for sidecar clarity
             if strip_punct:
                 from engine.pack.text_sanitize import strip_all_punctuation
@@ -317,9 +420,16 @@ def prepare_narration_for_plan(
         if voice_lang == primary_lang and voice_srt_body.strip():
             primary_srt = voice_srt_body
         else:
+            use_short_cycle = False
             if primary_lang == "zh":
                 if voice_lang.startswith("zh") and out.get("script"):
                     primary_script = str(out["script"])
+                elif not str(voice_lang).startswith("zh"):
+                    # Foreign VO timing + zh captions: short curated lines (not duration-filled bed)
+                    primary_script = narration_script_for_lang(
+                        "zh", brand=brand_name, title_zh=on_screen_title, speak_title=False
+                    )
+                    use_short_cycle = True
                 else:
                     primary_script = narration_script_zh(
                         on_screen_title,
@@ -335,6 +445,7 @@ def prepare_narration_for_plan(
                 primary_script = narration_script_for_lang(
                     "zh-TW", brand=brand_name, title_zh=on_screen_title, speak_title=False
                 )
+                use_short_cycle = not str(voice_lang).startswith("zh")
             else:
                 primary_script = narration_script_for_lang(
                     primary_lang,
@@ -342,9 +453,25 @@ def prepare_narration_for_plan(
                     title_zh=on_screen_title,
                     speak_title=False,
                 )
-            primary_srt = srt_replace_cue_texts(
-                base_srt, _split_script_to_n(primary_script, n_cues or 1)
-            )
+                use_short_cycle = True
+            if use_short_cycle:
+                import re as _re
+
+                sentences = [
+                    p.strip()
+                    for p in _re.split(r"(?<=[。！？.!?…])\s*", primary_script)
+                    if p.strip()
+                ] or [primary_script]
+                n = n_cues or 1
+                if len(sentences) < n:
+                    parts = [sentences[i % len(sentences)] for i in range(n)]
+                else:
+                    parts = sentences[:n]
+                primary_srt = srt_replace_cue_texts(base_srt, parts)
+            else:
+                primary_srt = srt_replace_cue_texts(
+                    base_srt, _split_script_to_n(primary_script, n_cues or 1)
+                )
 
         final_srt = primary_srt
         if burn_mode == "burn_dual":
@@ -390,6 +517,18 @@ def prepare_narration_for_plan(
         srt_path.write_text(final_srt, encoding="utf-8")
         out["srt_path"] = str(srt_path)
         out["subtitle_burn"] = burn_mode
+
+    # HARD: inject emoji into subtitle SRT (display); never into VO
+    from engine.pack.emoji_stickers import inject_emojis_into_srt, text_has_emoji
+
+    srt_file = out.get("srt_path")
+    if srt_file and Path(srt_file).is_file() and out.get("emoji_cues"):
+        raw_srt = Path(srt_file).read_text(encoding="utf-8")
+        injected = inject_emojis_into_srt(raw_srt, list(out.get("emoji_cues") or []))
+        Path(srt_file).write_text(injected, encoding="utf-8")
+        out["subtitle_has_emoji"] = text_has_emoji(injected)
+        out["emoji_in_subtitle"] = True
+        out["title_stickers_disabled"] = True
 
     return out
 

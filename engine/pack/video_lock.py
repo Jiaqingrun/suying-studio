@@ -1,7 +1,8 @@
-"""Customer video lock — frozen template rules applied to every render.
+"""Product video lock — frozen template floors applied to every render.
 
-Authority for 北京始峰伟业 / 始峰五金 short-form montage after user lock (2026-07-25).
-Changes require explicit user approval.
+Product-neutral defaults (HARD_LOCKS). Per-customer reference cuts live only under
+configs/customers/<name>/brand/VIDEO_LOCK.json — never hard-coded in engine paths.
+Floor changes require explicit user approval.
 """
 
 from __future__ import annotations
@@ -12,27 +13,32 @@ from typing import Any
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# Hard defaults = reference cut montage_45 / 始峰五金-旁白贯穿.mp4
+# HARD (2026-07-26 用户)：标题 = 黄字黑描边（禁止红字黄描边）
+LOCKED_TITLE_COLOR = "#FFE600"
+LOCKED_TITLE_STROKE_COLOR = "#000000"
+LOCKED_TITLE_STROKE_WIDTH = 6
+# HARD (2026-07-26 用户)：标题整体下移 120px
+LOCKED_TITLE_OFFSET_Y_PX = 120
+
+# Product-neutral hard defaults (no customer disk paths in engine code)
 DEFAULT_LOCK: dict[str, Any] = {
     "locked": True,
-    "locked_at": "2026-07-25",
+    "locked_at": "2026-07-26",
     "do_not_change_without_user_approval": True,
-    "reference_title": "少等半天少跑几趟路",
-    "reference_outputs": [
-        "/Users/qr/Desktop/始峰五金-旁白贯穿.mp4",
-        "/Users/qr/QR-Volume/极空间团队文件同步/速影客户/北京始峰伟业/02-成片/ready/2026-07-25/montage_45_1116965198.mp4",
-    ],
+    "reference_title": "",
+    "reference_outputs": [],
     "strip_all_punctuation": True,
     "canvas": {"width": 1080, "height": 1920, "aspect": "9:16"},
     "title": {
         "font_size": 92,
-        "color": "#E10600",
-        "stroke_color": "#FFE600",
-        "stroke_width": 6,
+        "color": LOCKED_TITLE_COLOR,
+        "stroke_color": LOCKED_TITLE_STROKE_COLOR,
+        "stroke_width": LOCKED_TITLE_STROKE_WIDTH,
         "bar_opacity": 0.0,
         "bold": True,
         "layout": "dual_chip",
         "position": "top",
+        "offset_y_px": LOCKED_TITLE_OFFSET_Y_PX,
         "max_chars": 10,
         "max_lines": 2,
         "spoken": False,
@@ -49,36 +55,81 @@ DEFAULT_LOCK: dict[str, Any] = {
         "color": "#FFFFFF",
         "outline": "#000000",
         "bottom_padding_px": 400,
+        "side_margin_px": 48,
         "no_background_mask": True,
         "auto_dual_line": True,
         "horizontal": "center",
-        "tail_trim_seconds": 0.04,
-            "inter_sentence_gap_seconds": 0.15,
+        "forbid_edge_clip": True,
+        # HARD: cue end = speech end − trim; silence between sentences = blank (不得拖字)
+        "tail_trim_seconds": 0.12,
+        "inter_sentence_gap_seconds": 0.15,
+        "align_to_voice_mandatory": True,
+        "clear_during_silence": True,
         "forbid_title_content": True,
+        "force_burn_mono": True,
+        "emoji_in_subtitle": True,
     },
     "voice": {
         "provider": "edge",
         "voice": "zh-CN-XiaoxiaoNeural",
         "label": "晓晓",
         "rate": "-8%",
-        "pitch": "+20Hz",
+        "pitch": "+35Hz",
+        "volume": "+12%",
         "fill_video_duration": True,
         "forbid_theme_announce": True,
         "chars_per_sec_zh": 3.8,
+        "max_chars_per_breath": 18,
+        "emotion_boost": True,
     },
     "logo": {"enabled": False},
     "narration": {
         "rich_theme_script": True,
         "strip_punctuation": True,
+        "max_chars_per_breath": 18,
+        "require_sentence_breaks": True,
         "forbid_title_content": True,
+        "emotional_delivery": True,
         "forbid_interjections": ["嗨", "呀", "哦", "嗯", "呐", "啦", "嘿", "哈", "哇"],
         "forbid_tech_jargon": ["参数", "规格", "立方", "型号参数", "技术指标"],
-        "focus": ["配货效率", "发货效率", "配送服务"],
+        "focus": ["真实内容", "服务效率", "客户体验"],
+    },
+    "emoji": {
+        "locked": True,
+        "in_subtitle": True,
+        "forbid_title_stickers": True,
+        "forbid_spoken_emoji": True,
+        "require_burn_mono": True,
     },
     "compose": {
         "preferred_runtime": "ffmpeg",
         "keep_source_audio": False,
         "template_name": "default-vertical",
+    },
+    # QUALITY_LOCK — 虚焦模糊写死（2026-07-26 用户：全部写死）
+    "quality": {
+        "locked": True,
+        "do_not_change_without_user_approval": True,
+        "reject_blur": True,
+        "forbid_blur_ingest": True,
+        "forbid_blur_vectorize": True,
+        "forbid_blur_in_plan": True,
+        "forbid_unscored_vectorize": True,
+        "min_quality_score": 0.35,
+        "min_laplacian_var": 48.0,
+        "asset_blur_fail_ratio": 0.6,
+        "cliplet_reject_status": "rejected_blur",
+        "asset_reject_status": "rejected_blur",
+    },
+    # PAPER_SLIP — 纸片规则写死（每日最多 2 次）
+    "paper_slip": {
+        "locked": True,
+        "do_not_change_without_user_approval": True,
+        "max_daily_uses": 2,
+        "cliplet": True,
+        "phrase": True,
+        "count_on": "ready_only",
+        "timezone": "Asia/Shanghai",
     },
 }
 
@@ -121,19 +172,99 @@ def load_video_lock(
     if isinstance(profile, dict) and isinstance(profile.get("video_lock"), dict):
         _deep_merge(lock, profile["video_lock"])
     lock["locked"] = True
+    lock["do_not_change_without_user_approval"] = True
+    # 强制参考 HARD_LOCKS / READY_GATE：文件/profile 不得改回红字黄描边；标题下移写死
+    title = lock.get("title") if isinstance(lock.get("title"), dict) else {}
+    title["color"] = LOCKED_TITLE_COLOR
+    title["stroke_color"] = LOCKED_TITLE_STROKE_COLOR
+    title["stroke_width"] = max(int(title.get("stroke_width") or 0), LOCKED_TITLE_STROKE_WIDTH)
+    title["offset_y_px"] = LOCKED_TITLE_OFFSET_Y_PX
+    lock["title"] = title
+    # QUALITY_LOCK FROZEN: file/profile cannot soften code floors
+    from engine.ingest.quality import locked_quality_floors
+
+    floors = locked_quality_floors()
+    q = lock.get("quality") if isinstance(lock.get("quality"), dict) else {}
+    q["locked"] = True
+    q["do_not_change_without_user_approval"] = True
+    q["reject_blur"] = True
+    q["forbid_blur_ingest"] = True
+    q["forbid_blur_vectorize"] = True
+    q["forbid_blur_in_plan"] = True
+    q["forbid_unscored_vectorize"] = True
+    q["min_quality_score"] = max(float(q.get("min_quality_score") or 0), float(floors["min_quality_score"]))
+    q["min_laplacian_var"] = max(float(q.get("min_laplacian_var") or 0), float(floors["min_laplacian_var"]))
+    q["asset_blur_fail_ratio"] = min(
+        float(q.get("asset_blur_fail_ratio") or 1.0), float(floors["asset_blur_fail_ratio"])
+    )
+    q["cliplet_reject_status"] = "rejected_blur"
+    q["asset_reject_status"] = "rejected_blur"
+    lock["quality"] = q
+    # Subtitle / voice floors that were locked this sprint
+    sub = lock.get("subtitle") if isinstance(lock.get("subtitle"), dict) else {}
+    sub["side_margin_px"] = max(int(sub.get("side_margin_px") or 0), 48)
+    sub["forbid_edge_clip"] = True
+    sub["no_background_mask"] = True
+    sub["align_to_voice_mandatory"] = True
+    sub["clear_during_silence"] = True
+    sub["tail_trim_seconds"] = max(float(sub.get("tail_trim_seconds") or 0), 0.12)
+    sub["force_burn_mono"] = True
+    sub["emoji_in_subtitle"] = True
+    lock["subtitle"] = sub
+    voice = lock.get("voice") if isinstance(lock.get("voice"), dict) else {}
+    voice["rate"] = str(voice.get("rate") or "-8%")
+    # Emotion floors: pitch/volume only strengthen, never soften below defaults
+    voice["pitch"] = str(voice.get("pitch") or "+35Hz")
+    voice["volume"] = str(voice.get("volume") or "+12%")
+    voice["max_chars_per_breath"] = min(int(voice.get("max_chars_per_breath") or 18), 18)
+    voice["emotion_boost"] = True
+    lock["voice"] = voice
+    narr = lock.get("narration") if isinstance(lock.get("narration"), dict) else {}
+    narr["require_sentence_breaks"] = True
+    narr["max_chars_per_breath"] = min(int(narr.get("max_chars_per_breath") or 18), 18)
+    narr["emotional_delivery"] = True
+    lock["narration"] = narr
+    emoji = lock.get("emoji") if isinstance(lock.get("emoji"), dict) else {}
+    emoji["locked"] = True
+    emoji["in_subtitle"] = True
+    emoji["forbid_title_stickers"] = True
+    emoji["forbid_spoken_emoji"] = True
+    emoji["require_burn_mono"] = True
+    lock["emoji"] = emoji
+    # PAPER_SLIP FROZEN: max_daily_uses 只可加严（≤2），不可放宽
+    from engine.catalog.paper_slip import MAX_DAILY_USES
+
+    ps = lock.get("paper_slip") if isinstance(lock.get("paper_slip"), dict) else {}
+    ps["locked"] = True
+    ps["do_not_change_without_user_approval"] = True
+    ps["cliplet"] = True
+    ps["phrase"] = True
+    ps["count_on"] = "ready_only"
+    ps["timezone"] = "Asia/Shanghai"
+    try:
+        cfg_max = int(ps.get("max_daily_uses") or MAX_DAILY_USES)
+    except (TypeError, ValueError):
+        cfg_max = MAX_DAILY_USES
+    ps["max_daily_uses"] = min(cfg_max, MAX_DAILY_USES)
+    lock["paper_slip"] = ps
     return lock
 
 
 def apply_lock_to_title_style(base: dict[str, Any], lock: dict[str, Any]) -> dict[str, Any]:
+    """Apply VIDEO_LOCK title style — 黄字黑描边 + 下移 offset_y_px（强制参考）."""
     t = lock.get("title") if isinstance(lock.get("title"), dict) else {}
     out = dict(base or {})
     out.update(
         {
             "position": t.get("position", out.get("position", "top")),
             "font_size": int(t.get("font_size", out.get("font_size", 92))),
-            "color": t.get("color", out.get("color", "#E10600")),
-            "stroke_color": t.get("stroke_color", out.get("stroke_color", "#FFE600")),
-            "stroke_width": int(t.get("stroke_width", out.get("stroke_width", 6))),
+            "color": LOCKED_TITLE_COLOR,
+            "stroke_color": LOCKED_TITLE_STROKE_COLOR,
+            "stroke_width": max(
+                int(t.get("stroke_width", out.get("stroke_width", LOCKED_TITLE_STROKE_WIDTH))),
+                LOCKED_TITLE_STROKE_WIDTH,
+            ),
+            "offset_y_px": LOCKED_TITLE_OFFSET_Y_PX,
             "bar_opacity": float(t.get("bar_opacity", out.get("bar_opacity", 0.0))),
             "bold": bool(t.get("bold", out.get("bold", True))),
             "layout": t.get("layout", out.get("layout", "dual_chip")),
@@ -150,7 +281,7 @@ def apply_lock_to_settings_patch(lock: dict[str, Any]) -> dict[str, Any]:
         "tts_provider": str(v.get("provider") or "edge"),
         "tts_voice": str(v.get("voice") or "zh-CN-XiaoxiaoNeural"),
         "tts_rate": str(v.get("rate") or "-8%"),
-        "tts_pitch": str(v.get("pitch") or "+20Hz"),
+        "tts_pitch": str(v.get("pitch") or "+35Hz"),
         "tts_chars_per_sec_zh": float(v.get("chars_per_sec_zh") or 3.8),
     }
 
@@ -183,9 +314,14 @@ def _normalize_style_lock(data: dict[str, Any]) -> dict[str, Any]:
         stroke = title.get("stroke") if isinstance(title.get("stroke"), dict) else {}
         out["title"] = {
             "font_size": int(title.get("font_size_px") or title.get("font_size") or 92),
-            "color": title.get("color") or "#E10600",
-            "stroke_color": stroke.get("color") or "#FFE600",
-            "stroke_width": int(stroke.get("width_px") or 6),
+            "color": title.get("color") or LOCKED_TITLE_COLOR,
+            "stroke_color": stroke.get("color") or LOCKED_TITLE_STROKE_COLOR,
+            "stroke_width": int(stroke.get("width_px") or LOCKED_TITLE_STROKE_WIDTH),
+            "offset_y_px": int(
+                title.get("offset_y_px")
+                or title.get("top_padding_px")
+                or LOCKED_TITLE_OFFSET_Y_PX
+            ),
             "max_chars": int(title.get("max_chars") or 12),
             "max_lines": int(title.get("max_lines") or 2),
             "layout": title.get("layout") or "dual_chip",

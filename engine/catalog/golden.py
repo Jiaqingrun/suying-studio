@@ -14,51 +14,9 @@ from sqlalchemy.orm import Session
 from engine.catalog.db import GoldenSample
 from engine.config.settings import AppSettings
 
-# Frozen baseline from docs/GOLDEN_SAMPLES.md (2026-07-23 sign-off)
-FROZEN_BASELINE: list[dict[str, Any]] = [
-    {
-        "code": "G1",
-        "filename": "montage_13_1668448786.mp4",
-        "rel_path": "ready/2026-07-23/montage_13_1668448786.mp4",
-        "duration_sec": 21.8,
-        "title_text": "仓配一体，少跑几趟｜工地一站配齐",
-        "has_audio": True,
-        "look_score": 4.0,
-        "shippable": True,
-        "signed": True,
-        "signed_at": "2026-07-23",
-        "note": "Sprint A 有声复检基线 · job13",
-        "meta": {"job_hint": 13, "qc": "pass / -18.2dB"},
-    },
-    {
-        "code": "G2",
-        "filename": "montage_13_370395474.mp4",
-        "rel_path": "ready/2026-07-23/montage_13_370395474.mp4",
-        "duration_sec": 23.6,
-        "title_text": "工地采购，认准本地仓｜快速响应、高效服务",
-        "has_audio": True,
-        "look_score": 4.0,
-        "shippable": True,
-        "signed": True,
-        "signed_at": "2026-07-23",
-        "note": "Sprint A 有声复检基线 · job13",
-        "meta": {"job_hint": 13, "qc": "pass / -18.5dB"},
-    },
-    {
-        "code": "G3",
-        "filename": "montage_12_294258504.mp4",
-        "rel_path": "ready/2026-07-22/montage_12_294258504.mp4",
-        "duration_sec": None,
-        "title_text": "",
-        "has_audio": False,
-        "look_score": None,
-        "shippable": None,
-        "signed": False,
-        "signed_at": None,
-        "note": "画面/节奏参考；新片以 G1/G2 为准",
-        "meta": {"role": "visual_reference"},
-    },
-]
+# Product core ships no customer media references. Existing authority-DB rows
+# remain available; new golden baselines must come from the customer's ops flow.
+FROZEN_BASELINE: list[dict[str, Any]] = []
 
 
 def _probe_basic(path: Path) -> dict[str, Any]:

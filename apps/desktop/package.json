@@ -8,11 +8,13 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "package:mac": "bash scripts/package-macos.sh"
+    "package:mac": "bash scripts/package-macos.sh",
+    "package:product": "bash ../../scripts/package-product.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.7.2",
+    "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-opener": "^2",
     "framer-motion": "^12.42.2",
     "lucide-react": "^1.26.0",

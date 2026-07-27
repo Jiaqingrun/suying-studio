@@ -95,16 +95,28 @@ def require_publish_assets(
     if plat == "channels" and not final_title:
         raise PublishAssetsError("缺文案：视频号短标题为空，禁止发布")
 
+    from engine.reach.cover_templates import load_index, resolve_cover_store_for_settings, resolve_covers
+
+    # Cover templates live in per-customer 05-品牌/封面模板, not work-area data_root.
+    store = Path(data_root)
+    try:
+        preferred = resolve_cover_store_for_settings()
+        if preferred.is_dir():
+            store = preferred
+    except Exception:
+        pass
+    # Explicit store path (has index.json) wins — used by smoke / callers that pass the store.
+    if (Path(data_root) / "index.json").is_file():
+        store = Path(data_root)
+
     cover_meta = resolve_covers(
-        data_root,
+        store,
         platform=plat,
         pack_dir=pdir,
         template_id=template_id,
     )
     # App selected template is mandatory when present — never silently fall back to pack covers.
-    from engine.reach.cover_templates import load_index
-
-    selected = (load_index(data_root).get("selected_id") or "").strip() or None
+    selected = (load_index(store).get("selected_id") or "").strip() or None
     effective_tid = (template_id or selected or "").strip() or None
     if effective_tid:
         if cover_meta.get("source") != "template" or cover_meta.get("template_id") != effective_tid:

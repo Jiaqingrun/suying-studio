@@ -192,6 +192,15 @@ def maybe_run_daily_job(settings: AppSettings | None = None) -> dict[str, Any] |
     session = get_session()
     try:
         customer = require_active_customer(session, settings)
+        from engine.ops.keyword_stats import keyword_stats
+
+        kw = keyword_stats(
+            session,
+            customer_id=customer.id,
+            keyword_pack_path=getattr(customer, "keyword_pack_path", None),
+        )
+        if kw.get("empty"):
+            return {"skipped": True, "reason": "词库为空，已挡日更（请先导入词池）"}
         row = today_plan(session, customer.id, today)
         if not row:
             return {"skipped": True, "reason": "今日无日历计划"}

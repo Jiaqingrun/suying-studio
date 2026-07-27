@@ -1,0 +1,32 @@
+{
+  "locked": true,
+  "do_not_change_without_user_approval": true,
+  "canvas": {
+    "width": 1080,
+    "height": 1920,
+    "aspect": "9:16"
+  },
+  "title": {
+    "layout": "dual_chip",
+    "position": "top",
+    "font_size": 92,
+    "color": "#FFE600",
+    "stroke_color": "#000000",
+    "stroke_width": 6,
+    "max_chars": 10,
+    "max_lines": 2
+  },
+  "voice": {
+    "provider": "edge",
+    "voice": "zh-CN-XiaoxiaoNeural",
+    "rate": "-8%",
+    "pitch": "+35Hz"
+  },
+  "subtitle": {
+    "font_size": 64,
+    "bottom_padding_px": 400,
+    "side_margin_px": 48,
+    "align_to_voice_mandatory": true,
+    "forbid_edge_clip": true
+  }
+}

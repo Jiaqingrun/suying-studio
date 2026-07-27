@@ -89,6 +89,7 @@ def pick_keyword(
     *,
     customer_id: int | None = None,
     theme_fallbacks: list[str] | None = None,
+    exclude_phrases: set[str] | None = None,
 ) -> str:
     themes_try = [theme, *(theme_fallbacks or [])]
     # de-dupe preserve order
@@ -113,6 +114,8 @@ def pick_keyword(
     if not candidates:
         return pack.data_json.get("company_info", {}).get("positioning_one_liner", "品牌宣传")
 
+    from engine.catalog.paper_slip import phrase_is_blocked
+
     cutoff = datetime.now(timezone.utc) - timedelta(days=cooldown_days)
     stmt = select(KeywordUsage).where(KeywordUsage.used_at >= cutoff, KeywordUsage.theme == used_theme)
     if customer_id is not None:
@@ -120,12 +123,19 @@ def pick_keyword(
     recent = {row.keyword for row in session.scalars(stmt).all()}
 
     weighted: list[tuple[str, float]] = []
+    blocked = exclude_phrases or set()
     for item in candidates:
         text = item["text"] if isinstance(item, dict) else str(item)
+        if phrase_is_blocked(text, blocked):
+            continue  # PAPER_SLIP HARD — 禁止超发
         weight = float(item.get("weight", 1)) if isinstance(item, dict) else 1.0
         if text in recent:
             weight *= 0.1
         weighted.append((text, max(weight, 0.01)))
+
+    if not weighted:
+        # 无未超额词：仍返回 positioning，由上层 block_reasons 拦截
+        return pack.data_json.get("company_info", {}).get("positioning_one_liner", "品牌宣传")
 
     total = sum(w for _, w in weighted)
     r = seed_rng.random() * total
@@ -182,7 +192,8 @@ def list_title_pool(
 
     cats = pool.get("categories") if isinstance(pool.get("categories"), dict) else {}
     theme_key = (theme or "").strip()
-    preferred_cat_names = _theme_title_categories(theme_key)
+    bindings = pool.get("theme_category_bindings")
+    preferred_cat_names = _theme_title_categories(theme_key, bindings=bindings)
 
     themed: list[str] = []
     general: list[str] = []
@@ -226,22 +237,15 @@ def list_title_pool(
     return out
 
 
-def _theme_title_categories(theme: str) -> list[str]:
-    """Map job/pack theme → title_pool category names (prefer rich / on-theme)."""
+def _theme_title_categories(theme: str, *, bindings: Any = None) -> list[str]:
+    """Map theme → title categories using keyword-pack data, never product code."""
     t = (theme or "").strip().lower()
-    mapping: dict[str, list[str]] = {
-        "仓配": ["配货仓配", "发货装车", "长句丰富", "双行标题", "双行占满", "现货提货", "时效温和"],
-        "配送": ["发货装车", "配货仓配", "工地场景", "长句丰富", "双行标题", "双行占满", "时效温和"],
-        "门店": ["品牌开场", "现货提货", "价值表达", "长句丰富", "双行标题", "双行占满"],
-        "施工机械": ["品类轻提", "工地场景", "价值表达", "长句丰富", "双行占满"],
-        "产品": ["品类轻提", "价值表达", "品牌开场", "长句丰富", "双行占满"],
-        "服务": ["服务体验", "价值表达", "时效温和", "长句丰富", "双行占满"],
-    }
+    mapping = bindings if isinstance(bindings, dict) else {}
     for key, cats in mapping.items():
-        if key in t or t in key:
-            return cats
-    # Mix short + long + dual — layout chosen randomly at pick time
-    return ["配货仓配", "发货装车", "工地场景", "价值表达", "长句丰富", "双行标题", "双行占满", "服务体验"]
+        key_s = str(key).strip().lower()
+        if key_s and (key_s in t or t in key_s) and isinstance(cats, list):
+            return [str(c) for c in cats]
+    return []
 
 
 def normalize_title_layout(
@@ -349,14 +353,20 @@ def pick_title(
     pack: KeywordPack | None = None,
     max_chars_per_line: int = 12,
     theme: str | None = None,
+    exclude_phrases: set[str] | None = None,
 ) -> str | None:
     """Pick a compliant on-screen title; prefer theme-matched + richer unused lines."""
+    from engine.catalog.paper_slip import phrase_is_blocked
+
     # Re-list with theme bias when pack available
     if pack is not None and theme:
         themed = list_title_pool(pack, theme=theme, prefer_rich=True)
         if themed:
             titles = themed
     pool = [t for t in titles if t]
+    blocked = exclude_phrases or set()
+    if blocked:
+        pool = [t for t in pool if not phrase_is_blocked(t, blocked)]
     if exclude:
         filtered = [t for t in pool if t not in exclude]
         if filtered:
@@ -367,6 +377,8 @@ def pick_title(
     compliant: list[str] = []
     for t in pool:
         if pack and check_compliance(t, pack):
+            continue
+        if phrase_is_blocked(t, blocked):
             continue
         lines = [ln.strip() for ln in t.split("\n") if ln.strip()]
         if not lines or len(lines) > 2:
@@ -382,8 +394,8 @@ def pick_title(
             continue
         compliant.append("\n".join(lines))
     if not compliant:
-        t = seed_rng.choice(pool)
-        return normalize_title_layout(t, max_chars_per_line=max_chars_per_line)
+        # PAPER_SLIP / filter exhausted — 禁止静默回退到超额标题
+        return None
 
     # Random single vs dual when both exist; otherwise random from pool
     singles = [t for t in compliant if "\n" not in t]

@@ -12,13 +12,28 @@ export function outputCoverUrl(id: number, index: number, bust?: string | number
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
-    ...init,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+      ...init,
+    });
+  } catch (e) {
+    const detail = e instanceof Error && e.message ? e.message : String(e);
+    // Keep Chinese banner stable; include transport detail for sticky-error clear + debug.
+    throw new Error(`无法连接速影引擎，请确认引擎已启动（${detail}）`);
+  }
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || res.statusText);
+    let message = text || res.statusText;
+    try {
+      const body = JSON.parse(text) as { detail?: unknown };
+      if (typeof body.detail === "string" && body.detail.trim()) message = body.detail;
+    } catch {
+      // Keep non-JSON response text.
+    }
+    const prefix = res.status === 409 ? "当前路径或生产状态不可用" : `请求失败 (${res.status})`;
+    throw new Error(`${prefix}：${message}`);
   }
   return res.json() as Promise<T>;
 }
@@ -42,6 +57,9 @@ export type Health = {
   vectorization_enabled?: boolean;
   vectorization_enabled_at?: string | null;
   vectorization_mode?: string;
+  ollama_narration_enabled?: boolean;
+  ollama_narration_model?: string;
+  ollama_narration_burn_emoji?: boolean;
   onboarded?: boolean;
   setup_complete?: boolean;
   frames_root?: string;
@@ -52,6 +70,33 @@ export type Health = {
   worker_running?: boolean;
   scheduler_running?: boolean;
   watcher_running?: boolean;
+  ollama?: {
+    reachable?: boolean;
+    embed_ready?: boolean;
+    vision_ready?: boolean;
+    escalate_ready?: boolean | null;
+    ready?: boolean;
+    message?: string;
+    embed_model?: string;
+    vision_model?: string;
+    escalate_model?: string | null;
+    cascade?: boolean;
+    vision_timeout_sec?: number;
+    escalate_timeout_sec?: number;
+    install_url?: string;
+    host?: Record<string, unknown>;
+    recommended?: {
+      tier?: string;
+      embed_model?: string;
+      vision_model?: string;
+      escalate_model?: string | null;
+      cascade?: boolean;
+      vision_label?: string;
+      reason?: string;
+    };
+    setup_steps?: Array<{ id: string; title: string; ok: boolean; detail: string }>;
+    pull?: Record<string, unknown>;
+  };
 };
 
 export type Customer = {
@@ -94,6 +139,53 @@ export type ServicesStatus = {
 
 export const api = {
   health: () => request<Health>("/health"),
+  ollamaHealth: () =>
+    request<{
+      reachable: boolean;
+      install_url: string;
+      embed_model: string;
+      vision_model: string;
+      embed_ready: boolean;
+      vision_ready: boolean;
+      models: string[];
+      ready: boolean;
+      message: string;
+      pull_commands: string[];
+      pull?: Record<string, unknown>;
+      host?: Record<string, unknown>;
+      recommended?: {
+        tier?: string;
+        embed_model?: string;
+        vision_model?: string;
+        vision_label?: string;
+        reason?: string;
+        pull_order?: string[];
+      };
+      setup_steps?: Array<{ id: string; title: string; ok: boolean; detail: string }>;
+    }>("/health/ollama"),
+  setupStatus: () =>
+    request<{
+      host: Record<string, unknown>;
+      recommended: Record<string, unknown>;
+      ollama: Record<string, unknown>;
+      setup_steps: Array<{ id: string; title: string; ok: boolean; detail: string }>;
+      ready_for_vectorization: boolean;
+      install_url?: string;
+    }>("/setup/status"),
+  ollamaPull: (model: string) =>
+    request<{ ok: boolean; message: string; pull?: Record<string, unknown> }>(
+      `/ollama/pull?model=${encodeURIComponent(model)}`,
+      { method: "POST" },
+    ),
+  ollamaPullRecommended: () =>
+    request<{
+      ok: boolean;
+      message: string;
+      models?: string[];
+      tier?: string;
+      reason?: string;
+      pull?: Record<string, unknown>;
+    }>("/ollama/pull-recommended", { method: "POST" }),
   getSettings: () => request<Record<string, unknown>>("/settings"),
   updateSettings: (body: Record<string, unknown>) =>
     request("/settings", { method: "PUT", body: JSON.stringify(body) }),
@@ -222,6 +314,13 @@ export const api = {
       { method: "POST" },
     ),
   vectorizationStatus: () => request<Record<string, unknown>>("/assets/vectorization-status"),
+  captionsStatus: () =>
+    request<import("./types").SemanticBackfillStatus>("/index/captions/status"),
+  runCaptionsBatch: (limit = 10, useVision = true) =>
+    request<Record<string, unknown>>(
+      `/index/captions?limit=${limit}&use_vision=${useVision ? "true" : "false"}`,
+      { method: "POST" },
+    ),
   enableVectorization: async (kickReconcile = true, limit = 50) => {
     try {
       return await request<{
@@ -318,6 +417,16 @@ export const api = {
       subtitle_coverage: number;
       missing_voice: number;
       published_ready: number;
+      published_count?: number;
+      pending_ready?: number;
+      pending_publish?: number;
+      published_state_count?: number;
+      ready_today?: number;
+      published_today?: number;
+      fs_ready_files?: number;
+      fs_published_files?: number;
+      today_published_files?: number;
+      today_ready_files?: number;
       tts_noncompliant?: number;
       tts_say?: number;
       tts_edge_ok?: number;
@@ -326,7 +435,77 @@ export const api = {
       quota?: Record<string, unknown>;
       library_ok?: boolean;
       output_ok?: boolean;
+      db_ok?: boolean;
+      db_health?: Record<string, unknown>;
     }>("/reports/ops"),
+  carrierStatus: () =>
+    request<{
+      ok: boolean;
+      carrier_visible: boolean;
+      primary_root?: string | null;
+      latest?: { version?: string; force?: boolean; notes?: string } | null;
+      backup_count?: number;
+      bound_nas_ok?: boolean | null;
+      whitelist?: string[];
+    }>("/ops/carrier"),
+  keywordStats: () =>
+    request<{
+      ok: boolean;
+      total: number;
+      themes: Record<string, number>;
+      theme_count: number;
+      cooldown_records: number;
+      version?: number | string | null;
+      empty: boolean;
+      pack_path_exists?: boolean;
+    }>("/ops/keyword-stats"),
+  appUpdateCheck: () =>
+    request<{
+      ok: boolean;
+      update_available: boolean;
+      force?: boolean;
+      current_version: string;
+      remote_version?: string;
+      notes?: string;
+    }>("/ops/app-update"),
+  appUpdateInstall: (apply = false) =>
+    request<Record<string, unknown>>("/ops/app-update/install", {
+      method: "POST",
+      body: JSON.stringify({ apply }),
+    }),
+  carrierEnsure: () =>
+    request<{ ok: boolean; root: string; seed?: Record<string, unknown> }>("/ops/carrier/ensure", {
+      method: "POST",
+    }),
+  carrierRestore: (backup_path: string) =>
+    request<{ ok: boolean; path?: string; error?: string; keys?: string[] }>("/ops/carrier/restore", {
+      method: "POST",
+      body: JSON.stringify({ backup_path }),
+    }),
+  carrierInstallUpdateAgent: () =>
+    request<{ ok: boolean; stdout?: string; stderr?: string }>("/ops/carrier/install-update-agent", {
+      method: "POST",
+    }),
+  ollamaNarrationPreview: (params?: { theme?: string; brand?: string; hint?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.theme) q.set("theme", params.theme);
+    if (params?.brand) q.set("brand", params.brand);
+    if (params?.hint) q.set("hint", params.hint);
+    const qs = q.toString();
+    return request<{
+      ok?: boolean;
+      enabled?: boolean;
+      model?: string;
+      script?: string;
+      emoji_cues?: Array<Record<string, unknown>>;
+      error?: string;
+    }>(`/ops/ollama-narration/preview${qs ? `?${qs}` : ""}`, { method: "POST" });
+  },
+  carrierBackup: () =>
+    request<{ ok: boolean; path: string }>("/ops/carrier/backup", {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
   listEvents: () => request<Array<Record<string, unknown>>>("/logs/events"),
   reportSummary: () => request<ReportSummary>("/reports/summary"),
   reviewOutput: (id: number, status: string, note = "", opts?: { reason?: string; rerender?: boolean }) => {
@@ -591,6 +770,111 @@ export const api = {
       notices: Array<Record<string, unknown>>;
       auto_reply: boolean;
     }>("/reach/inbox"),
+  reachMessageAccounts: () =>
+    request<{ ok: boolean; accounts: import("./types").ReachMessageAccount[] }>(
+      "/reach/message-accounts",
+    ),
+  reachMessageAccountCreate: (body: {
+    platform: string;
+    profile_name: string;
+    display_name?: string;
+    cooldown_sec?: number;
+  }) =>
+    request<{ ok: boolean; account: import("./types").ReachMessageAccount }>(
+      "/reach/message-accounts",
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  reachMessageAccountUpdate: (
+    id: number,
+    body: { enabled?: boolean; display_name?: string; cooldown_sec?: number },
+  ) =>
+    request<{ ok: boolean; account: import("./types").ReachMessageAccount }>(
+      `/reach/message-accounts/${id}`,
+      { method: "PATCH", body: JSON.stringify(body) },
+    ),
+  reachMessages: () =>
+    request<{
+      ok: boolean;
+      messages: import("./types").ReachMessage[];
+    }>("/reach/messages"),
+  reachMessageScanStart: (accountId?: number, dryRun = false) =>
+    request<{ ok: boolean; task_id: string; queued: number; dry_run: boolean }>(
+      "/reach/messages/scan",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          account_id: accountId || null,
+          accept_risk: true,
+          dry_run: dryRun,
+        }),
+      },
+    ),
+  reachMessageScanStatus: () =>
+    request<{
+      ok: boolean;
+      worker: import("./types").ReachMessageScanStatus;
+      scans: Array<Record<string, unknown>>;
+    }>(
+      "/reach/messages/status",
+    ),
+  reachMessageScanCancel: () =>
+    request<{ ok: boolean; cancel_requested: boolean; discarded: number }>(
+      "/reach/messages/cancel",
+      { method: "POST" },
+    ),
+  reachMessageRead: (id: number) =>
+    request<{ ok: boolean; message: import("./types").ReachMessage }>(
+      `/reach/messages/${id}/read`,
+      { method: "POST" },
+    ),
+  reachMessageClaimNotifications: () =>
+    request<{
+      ok: boolean;
+      messages: import("./types").ReachMessage[];
+    }>("/reach/notifications/claim", { method: "POST" }),
+  reachNtfyConfig: () =>
+    request<{
+      ok: boolean;
+      config: import("./types").ReachNtfyConfig;
+    }>("/reach/notifications/ntfy"),
+  reachNtfySave: (body: {
+    enabled: boolean;
+    server_url: string;
+    topic: string;
+    auth_mode: "none" | "token" | "basic";
+    token?: string;
+    username?: string;
+    password?: string;
+  }) =>
+    request<{ ok: boolean; config: import("./types").ReachNtfyConfig }>(
+      "/reach/notifications/ntfy",
+      { method: "PUT", body: JSON.stringify(body) },
+    ),
+  reachNtfyTest: () =>
+    request<{ ok: boolean; sent: boolean; test: true }>(
+      "/reach/notifications/ntfy/test",
+      { method: "POST" },
+    ),
+  reachNotificationReport: (
+    messageId: number,
+    channel: "app" | "macos",
+    status: "sent" | "failed" | "permission_denied",
+    detail = "",
+  ) =>
+    request<{ ok: boolean }>("/reach/notifications/report", {
+      method: "POST",
+      body: JSON.stringify({
+        message_id: messageId,
+        channel,
+        status,
+        detail,
+      }),
+    }),
+  reachMessageOpen: (id: number) =>
+    request<{ ok: boolean; opened: Record<string, unknown>; auto_reply: false }>(
+      `/reach/messages/${id}/open`,
+      { method: "POST", body: JSON.stringify({ dry_run: false }) },
+    ),
   reachPlatforms: () =>
     request<{
       ok: boolean;
@@ -707,5 +991,57 @@ export const api = {
     }>("/ops/zspace-sync/ensure-customer", {
       method: "POST",
       body: JSON.stringify({ name, register }),
+    }),
+  zspaceListMediaRemoteFolders: (remote_base: string = "手机相册备份") =>
+    request<{ ok: boolean; remote_base: string; folders: string[] }>(
+      `/ops/zspace-sync/media-remote-folders?remote_base=${encodeURIComponent(remote_base)}`,
+    ),
+  zspaceSetMediaSource: (body: { customer_name: string; remote_person: string; remote_base?: string }) =>
+    request<Record<string, unknown>>("/ops/zspace-sync/media-set-source", {
+      method: "POST",
+      body: JSON.stringify({
+        customer_name: body.customer_name,
+        remote_person: body.remote_person,
+        remote_base: body.remote_base || "手机相册备份",
+      }),
+    }),
+  zspacePreviewMediaSource: (params: {
+    customer_name: string;
+    remote_person: string;
+    remote_base?: string;
+  }) => {
+    const q = new URLSearchParams({
+      customer_name: params.customer_name,
+      remote_person: params.remote_person,
+      remote_base: params.remote_base || "手机相册备份",
+    });
+    return request<Record<string, unknown>>(`/ops/zspace-sync/media-preview?${q}`);
+  },
+  zspaceSyncDryRun: (pullOnly = true) =>
+    request<Record<string, unknown>>(`/ops/zspace-sync/dry-run?pull_only=${pullOnly ? "true" : "false"}`, {
+      method: "POST",
+    }),
+  zspaceSyncReconcile: () => request<Record<string, unknown>>("/ops/zspace-sync/reconcile"),
+  carrierSeeds: () =>
+    request<{
+      ok: boolean;
+      seeds: Array<{
+        id: string;
+        name: string;
+        description?: string;
+        profile?: Record<string, unknown>;
+        files?: Array<{ source: string; target: string }>;
+      }>;
+    }>("/ops/carrier/seeds"),
+  importCarrierSeed: (seedId: string, overwrite = false) =>
+    request<{
+      ok: boolean;
+      seed_id: string;
+      copied: string[];
+      skipped: string[];
+      keyword_pack_path?: string;
+    }>("/ops/carrier/seeds/import", {
+      method: "POST",
+      body: JSON.stringify({ seed_id: seedId, overwrite }),
     }),
 };

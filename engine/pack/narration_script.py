@@ -8,71 +8,28 @@ from typing import Any
 # Soft spoken pace for Edge 晓晓 @ -8% (chars / sec). Used to size scripts to picture length.
 DEFAULT_SPOKEN_CPS_ZH = 3.8
 
-# Theme sentence banks — sweet, professional; no interjections / no tech jargon / no「本期主题」.
+# Product-neutral sentence bank. Industry-specific copy belongs in the active
+# industry/customer pack; visual descriptions and keyword packs add semantics.
 _THEME_LINES: dict[str, list[str]] = {
-    "仓配": [
-        "这里是本地五金仓配。",
-        "配货发货我们都帮您打理好。",
-        "仓库分拣又快又整齐。",
-        "常备现货好找好配。",
-        "按单配货少折腾。",
-        "装车发货也不耽误。",
-        "本地发出更省心。",
-        "工地用料跟得上进度。",
-        "效率看得见，服务更贴心。",
-        "用着更放心。",
-    ],
-    "配送": [
-        "本地发货更近更及时。",
-        "装车就走少耽搁。",
-        "车队勤跑工地线。",
-        "出库装车一条龙。",
-        "送到工地您手边。",
-        "补料加单也好配。",
-        "节奏稳，对接也顺畅。",
-        "少跑几趟，一次配齐。",
-        "服务贴心，用着放心。",
-    ],
-    "门店": [
-        "门店现货好挑选。",
-        "到店提货也方便。",
-        "常用料常备齐。",
-        "选型有人帮着看。",
-        "批发采购更从容。",
-        "配齐再走少返工。",
-        "本地仓近好取货。",
-        "合作好商量，用着更踏实。",
-    ],
-    "施工机械": [
-        "工地机具耗材常备。",
-        "钢筋机械有现货可看。",
-        "焊材配件一起配。",
-        "进场配套少缺料。",
-        "临时加单也能跟上。",
-        "装车发货不耽误。",
-        "现场要用，仓里好配。",
-        "服务跟得上，用着放心。",
+    "default": [
+        "这里是品牌真实记录。",
+        "每一个细节都来自现场。",
+        "过程清楚看得见。",
+        "认真做好每一个环节。",
+        "需要时能够及时响应。",
+        "服务用心更省心。",
+        "真实内容更值得信赖。",
+        "欢迎了解更多。",
     ],
     "产品": [
-        "工地常用五金机具齐。",
-        "耗材配件常备好选。",
-        "同等品质更好挑。",
-        "现货直发少周转。",
-        "配货清楚不糊涂。",
-        "批发批量更好谈。",
-        "本地实拍看得见。",
-        "买得省心，用得放心。",
-    ],
-    "default": [
-        "这里是本地五金仓配。",
-        "配货发货我们都帮您打理好。",
-        "仓库分拣又快又整齐。",
-        "装车发货也不耽误。",
-        "工地送到您手边。",
-        "效率看得见，服务更贴心。",
-        "少跑几趟路，一次配得齐。",
-        "本地实拍，现货好配。",
-        "用着更放心。",
+        "现货规格一目了然。",
+        "货架上陈列的就是能发的。",
+        "品类齐全一站配齐。",
+        "下单后分拣装车更省心。",
+        "现场急用也能及时响应。",
+        "品质稳定用着更放心。",
+        "本地快速发货更省心。",
+        "需要时马上对接发货。",
     ],
 }
 
@@ -139,7 +96,7 @@ def narration_script_zh(
     target = float(target_duration_sec) if target_duration_sec and target_duration_sec > 0 else 26.0
     target = max(16.0, min(target, 45.0))
     # Aim slightly under picture length so VO fills the cut without being truncated
-    need_chars = int(target * max(cps, 2.5) * 0.82)
+    need_chars = int(target * max(cps, 2.5) * 0.95)
     max_chars = int(target * max(cps, 2.5) * 0.92)
 
     lines: list[str] = []
@@ -220,18 +177,16 @@ def narration_script_zh(
         # remove from end of body (before last 2 closers)
         out.pop(-3)
 
-    script = "".join(out) if out else f"{brand_short}为您精选实拍仓配内容，配货发货更省心。"
+    script = "".join(out) if out else f"{brand_short}为您带来真实现场内容，服务更省心。"
     if not speak_title:
         script = scrub_title_from_spoken(script, title)
         if not script:
-            script = f"{brand_short}为您精选实拍仓配内容，配货发货更省心。"
+            script = f"{brand_short}为您带来真实现场内容，服务更省心。"
     return script
 
 def _short_brand(brand: str) -> str:
     b = (brand or "品牌").strip()
-    # Prefer短称呼 for speech
-    if "始峰五金" in b:
-        return "始峰五金"
+    # Prefer an explicit short name in full-width parentheses for any customer.
     if "（" in b and "）" in b:
         inner = b[b.find("（") + 1 : b.find("）")].strip()
         if inner:
@@ -325,7 +280,7 @@ def _clean_hint(raw: str) -> str:
         if han < 4:
             continue
         score = han * 2 + min(len(ch), 40)
-        if "画面" in ch or "现场" in ch or "工人" in ch or "货架" in ch or "装车" in ch or "仓库" in ch:
+        if any(token in ch for token in ("画面", "现场", "人物", "产品", "服务", "过程", "细节")):
             score += 12
         scored.append((score, ch))
 
@@ -343,32 +298,36 @@ def _clean_hint(raw: str) -> str:
     return scored[0][1][:48]
 
 
+def _srt_ts(sec: float) -> str:
+    if sec < 0:
+        sec = 0.0
+    h = int(sec // 3600)
+    m = int((sec % 3600) // 60)
+    s = int(sec % 60)
+    ms = int(round((sec - int(sec)) * 1000))
+    if ms >= 1000:
+        s += 1
+        ms = 0
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
 def srt_from_narration_segments(
     segments: list[Any],
     *,
     video_duration_sec: float | None = None,
     bottom_dual_line: bool = True,
     max_chars_per_line: int = 14,
-    tail_trim_seconds: float = 0.04,
+    tail_trim_seconds: float = 0.12,
     inter_sentence_gap_seconds: float = 0.08,
     forbid_title: str | None = None,
 ) -> str:
     """Build SRT from TTS segment timings (index/text/duration_sec).
 
-    Locked caption rules: cue end tracks spoken audio; optional dual-line wrap;
-    slight tail trim + gap so caption never outlives voice.
+    HARD RULE (旁白字幕锁):
+    - Cue end tracks **spoken** audio only — never the silence after speech.
+    - Prefer absolute ``start_sec``/``end_sec`` when present (oneshot bed).
+    - Inter-sentence gap is blank screen, not an extension of the previous cue.
     """
-    def _ts(sec: float) -> str:
-        if sec < 0:
-            sec = 0.0
-        h = int(sec // 3600)
-        m = int((sec % 3600) // 60)
-        s = int(sec % 60)
-        ms = int(round((sec - int(sec)) * 1000))
-        if ms >= 1000:
-            s += 1
-            ms = 0
-        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
     def _wrap_dual(text: str) -> str:
         t = text.replace("\n", "").strip()
@@ -384,30 +343,58 @@ def srt_from_narration_segments(
         line2 = t[break_at:].strip(" ，,、；;")
         return f"{line1}\n{line2}" if line2 else line1
 
-    lines: list[str] = []
-    t = 0.0
-    idx = 1
-    for seg in segments:
+    def _seg_fields(seg: Any) -> tuple[str, float, float | None, float | None]:
         if hasattr(seg, "text"):
             text = str(seg.text or "").strip()
             dur = float(getattr(seg, "duration_sec", 0) or 0)
+            st = getattr(seg, "start_sec", None)
+            en = getattr(seg, "end_sec", None)
         elif isinstance(seg, dict):
             text = str(seg.get("text") or "").strip()
             dur = float(seg.get("duration_sec") or 0)
+            st = seg.get("start_sec")
+            en = seg.get("end_sec")
         else:
-            continue
-        if not text or dur <= 0.05:
+            return "", 0.0, None, None
+        start_abs = float(st) if st is not None else None
+        end_abs = float(en) if en is not None else None
+        return text, dur, start_abs, end_abs
+
+    lines: list[str] = []
+    t = 0.0
+    idx = 1
+    trim = max(0.0, float(tail_trim_seconds))
+    gap = max(0.0, float(inter_sentence_gap_seconds))
+    for seg in segments:
+        text, dur, start_abs, end_abs = _seg_fields(seg)
+        if not text:
             continue
         if text.startswith("本期主题"):
-            t += dur + inter_sentence_gap_seconds
+            if start_abs is not None and end_abs is not None:
+                t = max(t, end_abs)
+            else:
+                t += max(dur, 0.0) + gap
             continue
         if forbid_title:
             text = scrub_title_from_spoken(text, forbid_title)
         if not text:
-            t += dur + inter_sentence_gap_seconds
+            if start_abs is not None and end_abs is not None:
+                t = max(t, end_abs)
+            else:
+                t += max(dur, 0.0) + gap
             continue
-        start = t
-        end = t + max(0.05, dur - tail_trim_seconds)
+
+        if start_abs is not None and end_abs is not None and end_abs > start_abs:
+            start = start_abs
+            end = max(start + 0.05, end_abs - trim)
+            advance_to = end_abs
+        else:
+            if dur <= 0.05:
+                continue
+            start = t
+            end = t + max(0.05, dur - trim)
+            advance_to = end + gap
+
         if video_duration_sec and start >= video_duration_sec:
             break
         if video_duration_sec:
@@ -415,19 +402,89 @@ def srt_from_narration_segments(
         display = _wrap_dual(text)
         from engine.pack.text_sanitize import subtitle_display_text
 
-        # CJK: strip punct/spaces (始峰 lock). Thai/Latin: keep spaces so glyphs stay readable.
+        # CJK: strip punctuation/spaces per lock. Thai/Latin keeps readable spaces.
         display = subtitle_display_text(display, keep_newlines=True)
         if not display:
-            t = end + inter_sentence_gap_seconds
+            t = advance_to
             continue
         lines.append(str(idx))
-        lines.append(f"{_ts(start)} --> {_ts(end)}")
+        lines.append(f"{_srt_ts(start)} --> {_srt_ts(end)}")
         lines.append(display)
         lines.append("")
-        t = end + inter_sentence_gap_seconds
+        t = advance_to
         idx += 1
     if not lines and video_duration_sec:
         from engine.pack.publish import build_subtitle_srt
 
         return build_subtitle_srt("精彩内容", duration_sec=min(6.0, video_duration_sec))
     return "\n".join(lines).strip() + ("\n" if lines else "")
+
+
+def tighten_srt_to_voiceover(
+    srt_body: str,
+    voiceover: Any,
+    *,
+    tail_trim_seconds: float = 0.12,
+    min_cue_sec: float = 0.35,
+) -> str:
+    """Post-pass: clamp each cue end to audible speech on the VO bed.
+
+    Guarantees the hard rule even when segment math drifts: after speech stops,
+    the caption must clear (句间静音 = 空屏，不得拖字).
+    """
+    from pathlib import Path
+
+    from engine.pack.tts import _speech_spans_by_silence, probe_audio_duration
+
+    wav = Path(voiceover)
+    if not srt_body.strip() or not wav.is_file():
+        return srt_body
+    spans = _speech_spans_by_silence(wav, min_silence=0.06)
+    if not spans:
+        return srt_body
+    vo_dur = probe_audio_duration(wav)
+    trim = max(0.0, float(tail_trim_seconds))
+
+    def _parse_ts(ts: str) -> float:
+        hh, mm, rest = ts.strip().split(":")
+        ss, ms = rest.split(",")
+        return int(hh) * 3600 + int(mm) * 60 + int(ss) + int(ms) / 1000.0
+
+    blocks = [c.strip() for c in srt_body.strip().split("\n\n") if c.strip()]
+    out: list[str] = []
+    for block in blocks:
+        blines = block.splitlines()
+        if len(blines) < 2 or "-->" not in blines[1]:
+            out.append(block)
+            continue
+        left, right = [p.strip() for p in blines[1].split("-->")]
+        start = _parse_ts(left)
+        end = _parse_ts(right)
+        overlapping = [(s, e) for s, e in spans if e > start + 0.02 and s < end + 0.25]
+        if overlapping:
+            speech_end = max(e for _, e in overlapping)
+            new_end = min(end, speech_end - trim)
+        else:
+            new_end = start + min_cue_sec
+        new_end = max(start + 0.05, new_end)
+        if vo_dur > 0:
+            new_end = min(new_end, max(0.05, vo_dur - 0.02))
+        blines[1] = f"{_srt_ts(start)} --> {_srt_ts(new_end)}"
+        out.append("\n".join(blines))
+
+    parsed: list[tuple[list[str], float, float]] = []
+    for block in out:
+        blines = block.splitlines()
+        if len(blines) < 2 or "-->" not in blines[1]:
+            parsed.append((blines, 0.0, 0.0))
+            continue
+        left, right = [p.strip() for p in blines[1].split("-->")]
+        parsed.append((blines, _parse_ts(left), _parse_ts(right)))
+    for i in range(len(parsed) - 1):
+        blines, start, end = parsed[i]
+        nstart = parsed[i + 1][1]
+        if nstart > 0 and end > nstart - 0.02:
+            end = max(start + 0.05, nstart - 0.02)
+            blines[1] = f"{_srt_ts(start)} --> {_srt_ts(end)}"
+            parsed[i] = (blines, start, end)
+    return "\n\n".join("\n".join(b[0]) for b in parsed).strip() + "\n"

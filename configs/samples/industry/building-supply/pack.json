@@ -110,11 +110,11 @@
     "单品介绍": {
       "template": "stable-product",
       "slots": {
-        "hook": {"prefer_scenes": ["产品特写"], "prefer_objects": ["五金工具", "钢筋机械"]},
-        "body": {"prefer_scenes": ["产品特写", "仓内货架"], "prefer_objects": ["五金工具", "钢筋机械", "货架"]},
-        "cta": {"prefer_scenes": ["仓内货架", "门店门头"], "prefer_objects": []}
+        "hook": {"prefer_scenes": ["产品特写", "仓内货架", "warehouse"], "prefer_objects": ["五金工具", "钢筋机械"]},
+        "body": {"prefer_scenes": ["产品特写", "仓内货架", "warehouse"], "prefer_objects": ["五金工具", "钢筋机械", "货架"]},
+        "cta": {"prefer_scenes": ["仓内货架", "门店门头", "warehouse"], "prefer_objects": []}
       },
-      "continuity": {"require_scene_or_object": true, "max_object_kinds": 3}
+      "continuity": {"require_scene_or_object": true, "max_object_kinds": 8}
     },
     "门店实力": {
       "template": "default-vertical",

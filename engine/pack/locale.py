@@ -10,97 +10,83 @@ from typing import Any
 
 from engine.pack.languages import get_language, is_cjk_lang, normalize_lang_code
 
-# Common building-supply / retail hooks → English (extend via pack_data)
+# Product-neutral glossary; industry terms come from pack_data.locale_glossary.
 DEFAULT_GLOSSARY: dict[str, str] = {
-    "仓配一体": "Warehouse + delivery in one",
-    "工地一站配齐": "One-stop jobsite supply",
-    "本地发货": "Ships from local stock",
-    "发货快": "Fast dispatch",
-    "今日达": "Same-day delivery",
-    "门店实拍": "Shot in our store",
-    "仓配": "Warehouse logistics",
-    "配送": "Delivery",
-    "门店": "Store",
-    "五金": "Hardware",
-    "批发": "Wholesale",
     "实拍": "Real footage",
+    "真实记录": "Real stories",
+    "用心服务": "Service with care",
+    "品质之选": "Quality choice",
     "欢迎咨询": "Inquire today",
 }
 
 # Curated VO templates — brand slot only; never speak on-screen title.
 _NARRATION: dict[str, str] = {
-    "zh": "这里是{brand}。本地仓配发货，现货更省心。实拍配货装车，用着更放心。",
-    "zh-TW": "這裡是{brand}。在地倉配出貨，現貨更省心。實拍配貨裝車，用著更放心。",
-    "en": "This is {brand}. Local stock and delivery, ready when you need it. Real warehouse footage you can trust.",
-    "ja": "こちらは{brand}です。現地在庫と配送で、必要なときにすぐ対応。倉庫の実写映像です。",
-    "ko": "여기는 {brand}입니다. 현지 재고와 배송으로 필요할 때 바로 대응합니다. 창고 실사 영상입니다.",
-    "es": "Esto es {brand}. Stock local y envíos listos cuando lo necesite. Imágenes reales de nuestro almacén.",
-    "pt": "Este é o {brand}. Estoque local e entrega pronta quando você precisar. Imagens reais do nosso depósito.",
-    "fr": "Voici {brand}. Stock local et livraison prêts quand vous en avez besoin. Images réelles de notre entrepôt.",
-    "de": "Das ist {brand}. Lokaler Bestand und Lieferung, bereit wenn Sie sie brauchen. Echte Lageraufnahmen.",
-    "it": "Questo è {brand}. Stock locale e consegna pronti quando ti servono. Riprese reali del magazzino.",
-    "ru": "Это {brand}. Местный склад и доставка — готовы, когда нужно. Реальные кадры со склада.",
-    "ar": "هذه {brand}. مخزون محلي وتوصيل جاهز عند الحاجة. لقطات حقيقية من مستودعنا.",
-    "hi": "यह {brand} है। लोकल स्टॉक और डिलीवरी, जब जरूरत हो तैयार। हमारे वेयरहाउस की असली फुटेज।",
-    "th": (
-        "นี่คือ {brand}. "
-        "เรามีสต็อกในพื้นที่และการจัดส่ง พร้อมเมื่อคุณต้องการ. "
-        "ภาพจริงจากคลังสินค้าของเรา. "
-        "จัดของและจัดส่งจริง บริการที่ไว้วางใจได้. "
-        "คัดของเร็ว ส่งไว ใช้งานมั่นใจ."
-    ),
-    "vi": "Đây là {brand}. Hàng sẵn tại kho và giao hàng khi bạn cần. Hình quay thật từ kho của chúng tôi.",
-    "id": "Ini {brand}. Stok lokal dan pengiriman siap saat Anda butuh. Cuplikan nyata dari gudang kami.",
-    "ms": "Ini {brand}. Stok tempatan dan penghantaran sedia bila anda perlukan. Rakaman sebenar dari gudang kami.",
-    "tr": "Bu {brand}. Yerel stok ve teslimat, ihtiyacınız olduğunda hazır. Depomuzdan gerçek görüntüler.",
-    "pl": "To {brand}. Lokalny magazyn i dostawa, gotowe gdy potrzebujesz. Prawdziwe ujęcia z naszego magazynu.",
-    "nl": "Dit is {brand}. Lokale voorraad en levering, klaar wanneer u wilt. Echte beelden uit ons magazijn.",
+    "zh": "这里是{brand}。真实现场认真记录，每一个细节都看得见。用心服务，更值得信赖。",
+    "zh-TW": "這裡是{brand}。真實現場認真記錄，每一個細節都看得見。用心服務，更值得信賴。",
+    "en": "This is {brand}. Real work, honestly documented. Every detail is visible, with service you can trust.",
+    "ja": "こちらは{brand}です。実際の現場を丁寧に記録し、細部までお見せします。信頼できるサービスです。",
+    "ko": "여기는 {brand}입니다. 실제 현장을 정성껏 기록하고 모든 세부를 보여드립니다. 믿을 수 있는 서비스입니다.",
+    "es": "Esto es {brand}. Mostramos trabajo real y cada detalle, con un servicio en el que puede confiar.",
+    "pt": "Este é o {brand}. Mostramos o trabalho real e cada detalhe, com um serviço de confiança.",
+    "fr": "Voici {brand}. Nous montrons le travail réel et chaque détail, avec un service de confiance.",
+    "de": "Das ist {brand}. Wir zeigen echte Arbeit und jedes Detail, mit einem Service, dem Sie vertrauen können.",
+    "it": "Questo è {brand}. Mostriamo il lavoro reale e ogni dettaglio, con un servizio affidabile.",
+    "ru": "Это {brand}. Мы показываем реальную работу и каждую деталь — сервису можно доверять.",
+    "ar": "هذه {brand}. نعرض العمل الحقيقي وكل التفاصيل، مع خدمة يمكنك الوثوق بها.",
+    "hi": "यह {brand} है। हम असली काम और हर विवरण दिखाते हैं, भरोसेमंद सेवा के साथ।",
+    "th": "นี่คือ {brand}. เรานำเสนอการทำงานจริงและทุกรายละเอียด พร้อมบริการที่ไว้วางใจได้.",
+    "vi": "Đây là {brand}. Chúng tôi ghi lại công việc thực tế và mọi chi tiết, với dịch vụ đáng tin cậy.",
+    "id": "Ini {brand}. Kami menampilkan pekerjaan nyata dan setiap detail, dengan layanan tepercaya.",
+    "ms": "Ini {brand}. Kami memaparkan kerja sebenar dan setiap perincian, dengan perkhidmatan yang dipercayai.",
+    "tr": "Bu {brand}. Gerçek çalışmayı ve her ayrıntıyı, güvenilir hizmetle gösteriyoruz.",
+    "pl": "To {brand}. Pokazujemy prawdziwą pracę i każdy szczegół, oferując godną zaufania obsługę.",
+    "nl": "Dit is {brand}. We tonen echt werk en elk detail, met service waarop u kunt vertrouwen.",
 }
 
 _HOOK: dict[str, str] = {
-    "zh": "本地仓配 · 发货更省心",
-    "zh-TW": "在地倉配 · 出貨更省心",
-    "en": "Local stock · Ready to ship",
-    "ja": "現地在庫 · すぐ発送",
-    "ko": "현지 재고 · 바로 출고",
-    "es": "Stock local · Listo para enviar",
-    "pt": "Estoque local · Pronto para enviar",
-    "fr": "Stock local · Prêt à expédier",
-    "de": "Lokaler Bestand · Versandbereit",
-    "it": "Stock locale · Pronto per la spedizione",
-    "ru": "Местный склад · Готово к отправке",
-    "ar": "مخزون محلي · جاهز للشحن",
-    "hi": "लोकल स्टॉक · भेजने को तैयार",
-    "th": "สต็อกท้องถิ่น · พร้อมส่ง",
-    "vi": "Hàng sẵn kho · Sẵn sàng giao",
-    "id": "Stok lokal · Siap kirim",
-    "ms": "Stok tempatan · Sedia hantar",
-    "tr": "Yerel stok · Gönderime hazır",
-    "pl": "Lokalny magazyn · Gotowe do wysyłki",
-    "nl": "Lokale voorraad · Klaar om te verzenden",
+    "zh": "真实记录 · 用心服务",
+    "zh-TW": "真實記錄 · 用心服務",
+    "en": "Real stories · Service with care",
+    "ja": "リアルな記録 · 心を込めたサービス",
+    "ko": "진솔한 기록 · 정성스러운 서비스",
+    "es": "Historias reales · Servicio con cuidado",
+    "pt": "Histórias reais · Serviço com cuidado",
+    "fr": "Histoires réelles · Service attentionné",
+    "de": "Echte Einblicke · Service mit Sorgfalt",
+    "it": "Storie vere · Servizio con cura",
+    "ru": "Реальные истории · Заботливый сервис",
+    "ar": "قصص حقيقية · خدمة باهتمام",
+    "hi": "असली कहानी · सेवा में पूरा ध्यान",
+    "th": "เรื่องราวจริง · บริการด้วยความใส่ใจ",
+    "vi": "Câu chuyện thật · Dịch vụ tận tâm",
+    "id": "Cerita nyata · Layanan penuh perhatian",
+    "ms": "Kisah sebenar · Perkhidmatan penuh perhatian",
+    "tr": "Gerçek hikâyeler · Özenli hizmet",
+    "pl": "Prawdziwe historie · Troskliwa obsługa",
+    "nl": "Echte verhalen · Zorgzame service",
 }
 
 _BODY: dict[str, str] = {
-    "zh": "仓库实拍配货发货，服务更踏实。",
-    "zh-TW": "倉庫實拍配貨出貨，服務更踏實。",
-    "en": "Real warehouse picking and dispatch. Service you can rely on.",
-    "ja": "倉庫の実写でピッキング・発送。安心してご利用ください。",
-    "ko": "창고 실사로 피킹·출고. 믿을 수 있는 서비스.",
-    "es": "Preparación y envío reales desde el almacén. Servicio de confianza.",
-    "pt": "Separação e envio reais do depósito. Serviço em que você confia.",
-    "fr": "Préparation et expédition réelles depuis l’entrepôt. Un service fiable.",
-    "de": "Echte Kommissionierung und Versand aus dem Lager. Service, dem Sie vertrauen.",
-    "it": "Picking e spedizione reali dal magazzino. Un servizio di cui fidarsi.",
-    "ru": "Реальная комплектация и отгрузка со склада. Сервис, которому можно доверять.",
-    "ar": "تجهيز وشحن حقيقيان من المستودع. خدمة يمكن الاعتماد عليها.",
-    "hi": "वेयरहाउस से असली पिकिंग और डिस्पैच। भरोसेमंद सेवा।",
-    "th": "จัดของและจัดส่งจริงจากคลัง บริการที่ไว้วางใจได้",
-    "vi": "Soạn hàng và xuất kho thật. Dịch vụ đáng tin cậy.",
-    "id": "Picking dan pengiriman nyata dari gudang. Layanan yang bisa dipercaya.",
-    "ms": "Pengumpulan dan penghantaran sebenar dari gudang. Perkhidmatan yang boleh dipercayai.",
-    "tr": "Depodan gerçek toplama ve sevkiyat. Güvenebileceğiniz hizmet.",
-    "pl": "Prawdziwa kompletacja i wysyłka z magazynu. Usługa, której możesz zaufać.",
-    "nl": "Echte picking en verzending uit het magazijn. Service waarop u kunt vertrouwen.",
+    "zh": "真实现场与细节记录，服务更踏实。",
+    "zh-TW": "真實現場與細節記錄，服務更踏實。",
+    "en": "Real work and visible details. Service you can rely on.",
+    "ja": "実際の仕事と細部をお見せします。信頼できるサービスです。",
+    "ko": "실제 작업과 세부를 보여드립니다. 믿을 수 있는 서비스입니다.",
+    "es": "Trabajo real y detalles visibles. Un servicio de confianza.",
+    "pt": "Trabalho real e detalhes visíveis. Um serviço de confiança.",
+    "fr": "Un travail réel et des détails visibles. Un service fiable.",
+    "de": "Echte Arbeit und sichtbare Details. Ein verlässlicher Service.",
+    "it": "Lavoro reale e dettagli visibili. Un servizio affidabile.",
+    "ru": "Реальная работа и видимые детали. Надёжный сервис.",
+    "ar": "عمل حقيقي وتفاصيل واضحة. خدمة موثوقة.",
+    "hi": "असली काम और साफ़ विवरण। भरोसेमंद सेवा।",
+    "th": "งานจริงและรายละเอียดที่มองเห็นได้ บริการที่ไว้วางใจได้",
+    "vi": "Công việc thực tế và chi tiết rõ ràng. Dịch vụ đáng tin cậy.",
+    "id": "Pekerjaan nyata dan detail yang terlihat. Layanan tepercaya.",
+    "ms": "Kerja sebenar dan perincian yang jelas. Perkhidmatan dipercayai.",
+    "tr": "Gerçek çalışma ve görünür ayrıntılar. Güvenilir hizmet.",
+    "pl": "Prawdziwa praca i widoczne szczegóły. Godna zaufania obsługa.",
+    "nl": "Echt werk en zichtbare details. Betrouwbare service.",
 }
 
 
@@ -150,26 +136,6 @@ def translate_phrase(text: str, glossary: dict[str, str] | None = None) -> str:
     return en or "Local supply highlight"
 
 
-# Latin / native spoken brand aliases (avoid feeding CJK into foreign TTS)
-_BRAND_SPOKEN: dict[str, dict[str, str]] = {
-    "始峰五金": {
-        "en": "Shifeng",
-        "th": "Shifeng",
-        "ja": "シーフェン",
-        "ko": "시펑",
-        "vi": "Shifeng",
-        "id": "Shifeng",
-        "ms": "Shifeng",
-        "default": "Shifeng",
-    },
-    "始峰": {
-        "en": "Shifeng",
-        "th": "Shifeng",
-        "default": "Shifeng",
-    },
-}
-
-
 def brand_for_spoken_lang(brand: str, lang: str) -> str:
     """Brand string safe to speak in ``lang`` (no CJK inside Thai/EN/… TTS)."""
     code = normalize_lang_code(lang)
@@ -181,16 +147,12 @@ def brand_for_spoken_lang(brand: str, lang: str) -> str:
             if inner:
                 return inner
         return raw
-    # Explicit aliases
-    for key, table in _BRAND_SPOKEN.items():
-        if key in raw:
-            return table.get(code) or table.get("default") or "Shifeng"
-    # Strip CJK; keep Latin leftovers
+    # Strip CJK; retain a customer-configured Latin/native alias when present.
     latin = re.sub(r"[\u4E00-\u9FFF]+", "", raw)
     latin = re.sub(r"[（）()\s]+", " ", latin).strip()
     if latin and not re.search(r"[\u4E00-\u9FFF]", latin):
         return latin
-    return "Shifeng"
+    return "Brand"
 
 
 def narration_script_for_lang(

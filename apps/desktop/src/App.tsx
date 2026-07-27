@@ -11,29 +11,64 @@ import {
   type CoverSlotSpec,
   type ReachPlatform,
 } from "./reachCatalog";
-import { BrandLogoPanel, brandFromProfile, type BrandLogoState } from "./BrandLogoPanel";
-import { ReachCoverSection } from "./ReachCoverSection";
-import { PublishDesk } from "./PublishDesk";
-import { AssistantChat } from "./AssistantChat";
-import { bindOutputFileDrag } from "./mediaDrag";
-import { previewCoverSrc, previewVideoSrc } from "./mediaPreview";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { brandFromProfile, type BrandLogoState } from "./BrandLogoPanel";
 import { CommandPalette, type CmdItem } from "./shell/CommandPalette";
 import { NextActionPill } from "./shell/NextAction";
-import { OverviewPipeline } from "./shell/OverviewPipeline";
 import { AppDialog } from "./shell/AppDialog";
-import { StageMotion } from "./shell/StageMotion";
-import { LangCombobox } from "./shell/LangCombobox";
-import { briefResult, dryRunSummary } from "./shell/briefResult";
-import { TAB_BLURB, TABS, type FlashKind, type Tab } from "./types";
+import { AppShell } from "./shell/AppShell";
+import { CarrierInstallWizard } from "./CarrierInstallWizard";
+import { AssistantChat } from "./AssistantChat";
+import {
+  ensureNotificationPermission,
+  getNotificationPermission,
+  notifyReachMessage,
+  playReachMessageSound,
+  type NotificationPermissionState,
+} from "./notifications";
+import {
+  TAB_BLURB,
+  TABS,
+  type FlashKind,
+  type LayoutDensityPref,
+  type OpsSection,
+  type ProduceWorkspace,
+  type PublishWorkspace,
+  type ReachMessage,
+  type ReachMessageAccount,
+  type ReachMessageScanStatus,
+  type ReachNtfyConfig,
+  type SemanticBackfillStatus,
+  type SettingsSection,
+  type Tab,
+} from "./types";
+import { useLayoutDensity } from "./hooks/useLayoutDensity";
+import {
+  OverviewPage,
+  ProductionPage,
+  ReviewPage,
+  PublishPage,
+  MessagesPage,
+  DataCenterPage,
+  OpsPage,
+  SettingsPage,
+} from "./pages";
+import type { ActivityItem } from "./shell/ActivityTicker";
+import {
+  settingsPasswordStatus,
+  settingsPasswordCreate,
+  settingsPasswordVerify,
+  settingsPasswordChange,
+  settingsPasswordLock,
+  type SettingsPasswordStatus,
+} from "./settingsLock";
 import {
   LayoutDashboard,
   Clapperboard,
-  FolderOpen,
   ScanSearch,
-  Package,
   Send,
-  Radio,
+  MessageCircle,
+  BarChart3,
+  Wrench,
   Settings2,
   Bot,
   type LucideIcon,
@@ -43,17 +78,38 @@ import "./App.css";
 const TAB_ICONS: Record<Tab, LucideIcon> = {
   overview: LayoutDashboard,
   produce: Clapperboard,
-  assets: FolderOpen,
   review: ScanSearch,
-  pack: Package,
   publish: Send,
-  reach: Radio,
-  ops: Settings2,
-  assistant: Bot,
+  messages: MessageCircle,
+  data: BarChart3,
+  ops: Wrench,
+  settings: Settings2,
 };
 
 function App() {
   const [tab, setTab] = useState<Tab>("overview");
+  const [produceWorkspace, setProduceWorkspace] = useState<ProduceWorkspace>("tasks");
+  const [publishWorkspace, setPublishWorkspace] = useState<PublishWorkspace>("desk");
+  const [opsSection, setOpsSection] = useState<OpsSection>("ai");
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("paths");
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [passwordStatus, setPasswordStatus] = useState<SettingsPasswordStatus>({
+    configured: false,
+    unlocked: false,
+    unlocked_remaining_sec: 0,
+    fail_cooldown_sec: 0,
+  });
+  const layout = useLayoutDensity();
+
+  const goTab = useCallback((t: Tab, opts?: { produce?: ProduceWorkspace; publish?: PublishWorkspace; settings?: SettingsSection; ops?: OpsSection }) => {
+    setTab(t);
+    if (opts?.produce) setProduceWorkspace(opts.produce);
+    if (opts?.publish) setPublishWorkspace(opts.publish);
+    if (opts?.settings) setSettingsSection(opts.settings);
+    if (opts?.ops) setOpsSection(opts.ops);
+    if (t !== "overview") setAssistantOpen(false);
+  }, []);
+
   const [health, setHealth] = useState<Health | null>(null);
   const [services, setServices] = useState<ServicesStatus | null>(null);
   const [engine, setEngine] = useState<EngineStatus | null>(null);
@@ -141,6 +197,14 @@ function App() {
     unread_count: number;
     notices: Array<Record<string, unknown>>;
   } | null>(null);
+  const [reachMessageAccounts, setReachMessageAccounts] = useState<ReachMessageAccount[]>([]);
+  const [reachMessages, setReachMessages] = useState<ReachMessage[]>([]);
+  const [reachMessageUnread, setReachMessageUnread] = useState(0);
+  const [reachMessageStatus, setReachMessageStatus] = useState<ReachMessageScanStatus | null>(null);
+  const [reachMessageBusy, setReachMessageBusy] = useState(false);
+  const [reachNtfyConfig, setReachNtfyConfig] = useState<ReachNtfyConfig | null>(null);
+  const [notificationPermission, setNotificationPermission] =
+    useState<NotificationPermissionState>("unavailable");
   const [reachQuota, setReachQuota] = useState<Record<string, unknown> | null>(null);
   const [quotaTotal, setQuotaTotal] = useState(5);
   const [quotaByPlatform, setQuotaByPlatform] = useState<Record<string, number>>({});
@@ -180,6 +244,38 @@ function App() {
   const [autoDaily, setAutoDaily] = useState(false);
   const [autoHour, setAutoHour] = useState(9);
   const [vectorization, setVectorization] = useState(false);
+  const [semanticStatus, setSemanticStatus] = useState<SemanticBackfillStatus | null>(null);
+  const semanticPollFastRef = useRef(false);
+  const [ollamaNarration, setOllamaNarration] = useState(false);
+  const [ollamaNarrationEmoji, setOllamaNarrationEmoji] = useState(true);
+  const [ollamaNarrationModel, setOllamaNarrationModel] = useState("");
+  const [ollamaInfo, setOllamaInfo] = useState<{
+    reachable?: boolean;
+    embed_ready?: boolean;
+    vision_ready?: boolean;
+    escalate_ready?: boolean | null;
+    ready?: boolean;
+    message?: string;
+    install_url?: string;
+    embed_model?: string;
+    vision_model?: string;
+    escalate_model?: string | null;
+    cascade?: boolean;
+    vision_timeout_sec?: number;
+    escalate_timeout_sec?: number;
+    pull?: Record<string, unknown>;
+    host?: Record<string, unknown>;
+    recommended?: {
+      tier?: string;
+      embed_model?: string;
+      vision_model?: string;
+      escalate_model?: string | null;
+      cascade?: boolean;
+      vision_label?: string;
+      reason?: string;
+    };
+    setup_steps?: Array<{ id: string; title: string; ok: boolean; detail: string }>;
+  } | null>(null);
   const [cursorApiKeyInput, setCursorApiKeyInput] = useState("");
   const [cursorKeyConfigured, setCursorKeyConfigured] = useState(false);
   const [cursorKeyHint, setCursorKeyHint] = useState("");
@@ -191,6 +287,13 @@ function App() {
   const [engineBusy, setEngineBusy] = useState(false);
   const [syncStatus, setSyncStatus] = useState<Record<string, unknown> | null>(null);
   const [newCustName, setNewCustName] = useState("");
+  const [remoteFolderOptions, setRemoteFolderOptions] = useState<string[]>([]);
+  const [remoteFolder, setRemoteFolder] = useState<string>("");
+  const [remoteFoldersBusy, setRemoteFoldersBusy] = useState(false);
+  const [editSourceCustomer, setEditSourceCustomer] = useState("");
+  const [editRemoteFolder, setEditRemoteFolder] = useState("");
+  const [syncDryRunBusy, setSyncDryRunBusy] = useState(false);
+  const [syncDryRunHint, setSyncDryRunHint] = useState("");
   /** Session-only dismiss so 5s health poll won't reopen the first-run wizard. */
   const wizardDismissedRef = useRef(false);
   /** When true, refreshHealth must not overwrite local editable form fields. */
@@ -202,13 +305,7 @@ function App() {
   const scheduleBaselineRef = useRef({ autoDaily: false, autoHour: 9 });
 
   const [cmdOpen, setCmdOpen] = useState(false);
-  const [density, setDensity] = useState<"command" | "compact">(() => {
-    try {
-      return localStorage.getItem("suying.density.v1") === "compact" ? "compact" : "command";
-    } catch {
-      return "command";
-    }
-  });
+  const density = layout.density === "compact" ? "compact" : "command";
   const [cinemaMode, setCinemaMode] = useState(false);
   const [reviewFocusId, setReviewFocusId] = useState<number | null>(null);
   const [dialog, setDialog] = useState<
@@ -340,6 +437,13 @@ function App() {
   }, [exprDirty, pathsDirty, scheduleDirty]);
 
   useEffect(() => {
+    void settingsPasswordStatus()
+      .then(setPasswordStatus)
+      .catch(() => undefined);
+  }, [tab, customerName]);
+
+
+  useEffect(() => {
     try {
       localStorage.setItem("suying.density.v1", density);
     } catch {
@@ -404,12 +508,20 @@ function App() {
       // Healthy poll: clear transport/connection sticky errors only — do not wipe action feedback.
       setError((prev) => {
         if (!prev) return prev;
-        return /Failed to fetch|NetworkError|ECONNREFUSED|引擎启动|fetch failed|Load failed/i.test(prev)
+        return /Failed to fetch|NetworkError|ECONNREFUSED|引擎启动|引擎已启动|无法连接速影引擎|fetch failed|Load failed|CORS/i.test(
+          prev,
+        )
           ? ""
           : prev;
       });
       setHealth(h);
       setVectorization(Boolean(h.vectorization_enabled));
+      setOllamaNarration(Boolean(h.ollama_narration_enabled));
+      setOllamaNarrationEmoji(h.ollama_narration_burn_emoji !== false);
+      setOllamaNarrationModel(String(h.ollama_narration_model || ""));
+      if (h.ollama) {
+        setOllamaInfo((prev) => ({ ...(prev || {}), ...h.ollama }));
+      }
       setCursorKeyConfigured(Boolean(h.cursor_api_key_configured));
       setCursorKeyHint(String(h.cursor_api_key_hint || ""));
       if (!formSyncPausedRef.current) {
@@ -572,6 +684,87 @@ function App() {
     }
   }, []);
 
+  const refreshReachMessages = useCallback(async (claimNotifications = false) => {
+    try {
+      const [accounts, messages, status] = await Promise.all([
+        api.reachMessageAccounts(),
+        api.reachMessages(),
+        api.reachMessageScanStatus(),
+      ]);
+      const messageRows = messages.messages || [];
+      setReachMessageAccounts(accounts.accounts || []);
+      setReachMessages(messageRows);
+      setReachMessageUnread(messageRows.filter((message) => message.unread).length);
+      setReachMessageStatus(status.worker || null);
+      setReachMessageBusy(Boolean(status.worker?.active));
+      try {
+        const ntfy = await api.reachNtfyConfig();
+        setReachNtfyConfig(ntfy.config);
+      } catch {
+        setReachNtfyConfig(null);
+      }
+      if (claimNotifications) {
+        const claimed = await api.reachMessageClaimNotifications();
+        for (const message of claimed.messages || []) {
+          notify(
+            `${message.platform} · ${message.notification_sender || "新消息"}：${message.notification_summary || "请进入速影查看"} · ${message.reply_url}`,
+            "info",
+          );
+          const appSound = playReachMessageSound();
+          await api.reachNotificationReport(
+            message.id,
+            "app",
+            appSound ? "sent" : "failed",
+            appSound ? "" : "应用内提示音不可用",
+          ).catch(() => undefined);
+          const nativeSent = await notifyReachMessage(
+            `${message.platform} · ${message.notification_sender || "新消息"}`,
+            `${message.notification_summary || "有新的平台消息，请进入速影查看。"}\n${message.reply_url}`,
+          );
+          await api.reachNotificationReport(
+            message.id,
+            "macos",
+            nativeSent ? "sent" : "permission_denied",
+          ).catch(() => undefined);
+        }
+      }
+    } catch {
+      // Older engines do not expose G7 message APIs.
+    }
+  }, [notify]);
+
+  const refreshSemanticStatus = useCallback(async () => {
+    try {
+      const st = await api.captionsStatus();
+      setSemanticStatus(st);
+      semanticPollFastRef.current = st.remaining > 0 || st.claimed > 0;
+      return st;
+    } catch {
+      setSemanticStatus(null);
+      semanticPollFastRef.current = false;
+      return null;
+    }
+  }, []);
+
+  const runSemanticBatch = useCallback(
+    async (limit: number) => {
+      setActionBusy("captions");
+      try {
+        const r = await api.runCaptionsBatch(limit, true);
+        const passed = Number(r.passed ?? 0);
+        const rejected = Number(r.rejected ?? 0);
+        notify(`语义批次完成：通过 ${passed}，拒绝 ${rejected}`, passed > 0 ? "ok" : "info");
+        semanticPollFastRef.current = true;
+        await refreshSemanticStatus();
+      } catch (e) {
+        notify(String(e), "err");
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [notify, refreshSemanticStatus],
+  );
+
   const refreshAll = useCallback(async () => {
     await refreshHealth();
     try {
@@ -598,10 +791,12 @@ function App() {
         setTodayPlan(null);
       }
       await refreshReach();
+      await refreshReachMessages();
+      await refreshSemanticStatus();
     } catch (e) {
       notify(String(e), "err");
     }
-  }, [refreshHealth, refreshReach, notify]);
+  }, [refreshHealth, refreshReach, refreshReachMessages, refreshSemanticStatus, notify]);
 
   useEffect(() => {
     let cancelled = false;
@@ -633,6 +828,47 @@ function App() {
       clearInterval(t);
     };
   }, [refreshAll, refreshEngine, refreshHealth]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      if (!cancelled) {
+        await refreshReachMessages(true);
+      }
+    };
+    const timer = window.setInterval(() => void tick(), 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [refreshReachMessages]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer = 0;
+    const tick = async () => {
+      if (cancelled || !engine?.healthy) return;
+      await refreshSemanticStatus();
+      if (!cancelled) {
+        timer = window.setTimeout(tick, semanticPollFastRef.current ? 3000 : 15000);
+      }
+    };
+    void tick();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [engine?.healthy, refreshSemanticStatus]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getNotificationPermission().then((state) => {
+      if (!cancelled) setNotificationPermission(state);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -732,12 +968,34 @@ function App() {
   }
 
   async function enableVectorization() {
+    let ollama = ollamaInfo;
+    try {
+      ollama = await api.ollamaHealth();
+      setOllamaInfo(ollama);
+    } catch {
+      /* keep cached */
+    }
+    if (!ollama?.embed_ready) {
+      const goOps = await askConfirm({
+        title: "本地 AI 未就绪",
+        body:
+          (ollama?.message || "未检测到向量模型。") +
+          "\n\n请先在「运维」→「本地 AI」安装 Ollama 并拉取向量模型，再开启向量化。\n" +
+          "仍要强制开启？（将使用弱质量 hash 降级）",
+        confirmLabel: "仍要开启",
+        danger: true,
+      });
+      if (!goOps) {
+        goTab("settings", { settings: "paths" });
+        return;
+      }
+    }
     const ok = await askConfirm({
       title: "开启向量化",
       body:
         "开启增量向量化：已有向量会保留，只补齐尚未索引的素材。\n" +
         "新片库会自然跑完全部缺口；老片库不会整库重算。\n" +
-        "需要本机 Ollama。确定开启？",
+        "需要本机 Ollama 与向量模型。确定开启？",
       confirmLabel: "开启",
     });
     if (!ok) return;
@@ -752,6 +1010,66 @@ function App() {
           : " 后台正在增量补齐缺口。";
       notify(`${r.message}${gapPart}`, "ok");
       await refreshHealth();
+    } catch (e) {
+      notify(String(e), "err");
+    } finally {
+      setActionBusy(null);
+    }
+  }
+
+  async function refreshOllamaDetail() {
+    setActionBusy("ollama");
+    try {
+      const r = await api.ollamaHealth();
+      setOllamaInfo(r);
+      notify(r.message || "本地 AI 状态已刷新", r.ready ? "ok" : "warn");
+    } catch (e) {
+      notify(String(e), "err");
+    } finally {
+      setActionBusy(null);
+    }
+  }
+
+  async function pullOllamaModel(model: string) {
+    setActionBusy("ollamaPull");
+    try {
+      const r = await api.ollamaPull(model);
+      notify(r.message, r.ok ? "ok" : "warn");
+      for (let i = 0; i < 24; i++) {
+        await new Promise((res) => setTimeout(res, 2500));
+        const st = await api.ollamaHealth();
+        setOllamaInfo(st);
+        if (!st.pull?.running) break;
+      }
+    } catch (e) {
+      notify(String(e), "err");
+    } finally {
+      setActionBusy(null);
+    }
+  }
+
+  async function pullRecommendedModels() {
+    const ok = await askConfirm({
+      title: "按本机配置安装模型",
+      body:
+        (ollamaInfo?.recommended?.reason || "将按内存档位选择向量与视觉模型。") +
+        "\n\n会依次下载，可能需要数分钟到十几分钟，期间请保持网络畅通。",
+      confirmLabel: "开始安装",
+    });
+    if (!ok) return;
+    setActionBusy("ollamaPull");
+    try {
+      const r = await api.ollamaPullRecommended();
+      notify(r.message, r.ok ? "ok" : "warn");
+      for (let i = 0; i < 60; i++) {
+        await new Promise((res) => setTimeout(res, 3000));
+        const st = await api.ollamaHealth();
+        setOllamaInfo(st);
+        if (!st.pull?.running) {
+          notify(String(st.pull?.message || st.message || "安装结束"), st.ready ? "ok" : "warn");
+          break;
+        }
+      }
     } catch (e) {
       notify(String(e), "err");
     } finally {
@@ -850,12 +1168,25 @@ function App() {
     }
   }
 
-  async function finishWizard(enableVec: boolean) {
+  async function finishWizard(enableVec: boolean, seedId?: string) {
     if (!wizName.trim()) {
       notify("请填写客户名", "err");
       return;
     }
-    // 标准外置盘布局：自动建目录 + 登记同步映射
+    try {
+      const st = await api.zspaceSyncStatus();
+      if (!st.zspace_match) {
+        notify(
+          `未绑定匹配的 T2S，不可完成安装：${String(st.zspace_reason || "请先登录极空间并绑定")}`,
+          "err",
+        );
+        return;
+      }
+    } catch (e) {
+      notify(`无法校验极空间绑定: ${e}`, "err");
+      return;
+    }
+    // 标准外置盘布局：自动建目录（片库仍在本机；默认同步仅载体）
     let lib = wizLib.trim();
     let out = wizOut.trim();
     let kw = wizKw.trim();
@@ -886,6 +1217,21 @@ function App() {
       keyword_pack_path: kw || undefined,
     });
     await api.activateCustomer(c.name);
+    if (seedId) {
+      try {
+        const seeded = await api.importCarrierSeed(seedId, false);
+        if (seeded.keyword_pack_path) {
+          kw = seeded.keyword_pack_path;
+          setWizKw(kw);
+        }
+        notify(
+          `已导入客户配置种子：${seeded.copied.length} 项，跳过已有 ${seeded.skipped.length} 项`,
+          "ok",
+        );
+      } catch (e) {
+        notify(`客户已创建，但配置种子导入失败：${e}`, "warn");
+      }
+    }
     if (kw) {
       await api.updateCustomer(c.id, { keyword_pack_path: kw });
       try {
@@ -893,6 +1239,16 @@ function App() {
       } catch (e) {
         notify(`词池导入失败: ${e}`, "err");
       }
+    }
+    try {
+      await api.carrierEnsure();
+    } catch {
+      /* optional */
+    }
+    try {
+      await api.carrierInstallUpdateAgent();
+    } catch {
+      /* optional — 运维页可重装 */
     }
     await api.updateSettings({
       onboarded: true,
@@ -912,7 +1268,7 @@ function App() {
         notify(`配置已保存，但开启向量化失败: ${e}`, "warn");
       }
     } else {
-      notify(`客户「${c.name}」已就绪`, "ok");
+      notify(`客户「${c.name}」已就绪（T2S 仅载体；片库在本机）`, "ok");
     }
     await refreshAll();
   }
@@ -946,6 +1302,7 @@ function App() {
       coverBusy ||
       queueBusy ||
       autoUploadBusy ||
+      reachMessageBusy ||
       engineBusy
     ) {
       notify("有操作进行中，请稍后再切换客户", "warn");
@@ -968,7 +1325,18 @@ function App() {
       setOutputs([]);
       setAssets([]);
       setJobs([]);
+      setReachMessageAccounts([]);
+      setReachMessages([]);
+      setReachMessageUnread(0);
+      setReachNtfyConfig(null);
+      setReachMessageStatus(null);
       setMediaEpoch((n) => n + 1);
+      try {
+        const locked = await settingsPasswordLock();
+        setPasswordStatus(locked);
+      } catch {
+        /* ignore */
+      }
       const act = await api.activateCustomer(name);
       setCustomerName(act.active_customer || name);
       if (act.active_customer_id) setActiveCustomerId(act.active_customer_id);
@@ -1237,6 +1605,95 @@ function App() {
     }
   }
 
+  async function reachMessageScanStart() {
+    setReachMessageBusy(true);
+    try {
+      const res = await api.reachMessageScanStart();
+      setReachMessageStatus({
+        active: res.queued > 0,
+        phase: res.queued > 0 ? "queued" : "idle",
+        message: res.queued > 0 ? `已排队 ${res.queued} 个账号` : "没有新增待检查账号",
+      });
+      notify("已启动本人账号后台串行消息检查", "info");
+      window.setTimeout(() => void refreshReachMessages(true), 1500);
+    } catch (e) {
+      setReachMessageBusy(false);
+      notify(String(e), "err");
+    }
+  }
+
+  async function reachMessageScanCancel() {
+    try {
+      await api.reachMessageScanCancel();
+      notify("已请求停止消息检查", "info");
+      await refreshReachMessages(false);
+    } catch (e) {
+      notify(String(e), "err");
+    }
+  }
+
+  async function reachMessageOpen(message: ReachMessage) {
+    try {
+      const res = await api.reachMessageOpen(message.id);
+      notify(
+        res.opened?.opened ? "已用绑定账号打开官方消息页" : "已请求打开官方消息页",
+        "ok",
+      );
+    } catch (e) {
+      notify(String(e), "err");
+    }
+  }
+
+  async function reachMessageRead(message: ReachMessage) {
+    try {
+      await api.reachMessageRead(message.id);
+      await refreshReachMessages(false);
+    } catch (e) {
+      notify(String(e), "err");
+    }
+  }
+
+  async function reachMessageToggleAccount(account: ReachMessageAccount) {
+    try {
+      await api.reachMessageAccountUpdate(account.id, { enabled: !account.enabled });
+      await refreshReachMessages(false);
+    } catch (e) {
+      notify(String(e), "err");
+    }
+  }
+
+  async function enableReachNotifications() {
+    const state = await ensureNotificationPermission();
+    setNotificationPermission(state);
+    if (state === "granted") {
+      notify("平台消息系统提醒已开启", "ok");
+      await refreshReachMessages(true);
+    } else if (state === "denied") {
+      notify("系统通知权限被拒绝，请到系统设置中开启", "warn");
+    } else {
+      notify("浏览器预览模式不支持系统通知", "info");
+    }
+  }
+
+  async function saveReachNtfy(body: {
+    enabled: boolean;
+    server_url: string;
+    topic: string;
+    auth_mode: "none" | "token" | "basic";
+    token?: string;
+    username?: string;
+    password?: string;
+  }) {
+    const result = await api.reachNtfySave(body);
+    setReachNtfyConfig(result.config);
+    notify("ntfy 推送配置已安全保存", "ok");
+  }
+
+  async function testReachNtfy() {
+    await api.reachNtfyTest();
+    notify("ntfy 测试通知已发送", "ok");
+  }
+
   async function saveReachQuota() {
     const total = Math.max(0, Math.min(500, Math.floor(Number(quotaTotal) || 0)));
     const plats: Record<string, number> = {};
@@ -1323,6 +1780,29 @@ function App() {
       await api.reachChromeSelect(chromeSelected, plat);
       const res = await api.reachChromeOpen(chromeSelected, plat, false);
       setReachMsg(res.disclaimer || `已用「${chromeSelected}」打开 ${res.platform || plat} 官方页`);
+    } catch (e) {
+      notify(String(e), "err");
+    } finally {
+      setChromeBusy(false);
+    }
+  }
+
+  async function reachBindMessageAccount() {
+    if (!chromeSelected) {
+      notify("请先选择 Chrome 本地配置", "err");
+      return;
+    }
+    const platform = chromeProfilePlatform(chromeSelected) || chromeCreatePlatform;
+    setChromeBusy(true);
+    try {
+      await api.reachMessageAccountCreate({
+        platform,
+        profile_name: chromeSelected,
+        display_name: chromeSelected,
+        cooldown_sec: 1800,
+      });
+      notify(`已将「${chromeSelected}」加入后台消息巡检`, "ok");
+      await refreshReachMessages(false);
     } catch (e) {
       notify(String(e), "err");
     } finally {
@@ -1553,13 +2033,16 @@ function App() {
   const engineHint = engineBusy
     ? "处理中…"
     : engineOn
-      ? "运行中 · :8766"
+      ? engine?.bundled
+        ? "一体包 · :8766"
+        : "运行中 · :8766"
       : engine?.running
         ? "启动中…"
         : "已停止";
   const statusSummary = !engineOn
     ? "引擎离线"
     : [
+        engine?.bundled ? "一体包" : null,
         services?.watcher ? "监视" : null,
         services?.worker ? "Worker" : null,
         services?.scheduler ? "调度" : null,
@@ -1583,9 +2066,19 @@ function App() {
     const s = String(j.status || "");
     return s === "running" || s === "queued" || s === "pending";
   }).length;
+  const semanticAnalyzing = Boolean(
+    semanticStatus && (semanticStatus.remaining > 0 || semanticStatus.claimed > 0 || actionBusy === "captions"),
+  );
+  const semanticPct = semanticStatus
+    ? Math.min(
+        100,
+        Math.round(
+          (semanticStatus.processed / Math.max(semanticStatus.eligible, semanticStatus.processed, 1)) * 100,
+        ),
+      )
+    : 0;
   const pathBlocked = Boolean(health && health.path_health && !health.path_health.ok);
   const pipelineNodes = [
-    { id: "assets" as Tab, label: "素材", count: Number(report?.assets ?? assets.length) },
     { id: "produce" as Tab, label: "生产", count: runningJobs, warn: runningJobs > 0 },
     {
       id: "review" as Tab,
@@ -1594,17 +2087,41 @@ function App() {
       warn: ttsBadCount > 0,
       blocked: ttsBadCount > 0,
     },
-    { id: "pack" as Tab, label: "物料", count: readyCount },
-    { id: "publish" as Tab, label: "发布", count: readyCount },
     {
-      id: "reach" as Tab,
-      label: "触达",
-      count: Number(reachInbox?.unread_count ?? 0),
+      id: "publish" as Tab,
+      label: "发布",
+      count: readyCount + Number(reachInbox?.unread_count ?? 0),
       warn: Number(reachInbox?.unread_count ?? 0) > 0,
     },
   ];
 
+  const activityItems: ActivityItem[] = useMemo(() => {
+    const items: ActivityItem[] = [];
+    if (!engineOn) items.push({ id: "eng", text: "引擎离线 — 点击启动后开始日更", kind: "err", tab: "overview" });
+    if (pathBlocked) items.push({ id: "path", text: "路径异常，请到设置修复片库/成片目录", kind: "warn", tab: "settings" });
+    if (runningJobs > 0) items.push({ id: "jobs", text: `生产中：${runningJobs} 个任务进行中`, kind: "info", tab: "produce" });
+    if (pendingReviewCount > 0) items.push({ id: "rev", text: `待审片 ${pendingReviewCount} 条，可前往审片`, kind: "info", tab: "review" });
+    if (ttsBadCount > 0) items.push({ id: "tts", text: `音色违规 ${ttsBadCount} 条，需批量修复`, kind: "warn", tab: "review" });
+    if (reachMessageUnread > 0) items.push({ id: "msg", text: `平台消息未读 ${reachMessageUnread}`, kind: "warn", tab: "messages" });
+    if (readyCount > 0 && pendingReviewCount === 0) items.push({ id: "ready", text: `待发 Ready ${readyCount}，可去发布`, kind: "ok", tab: "publish" });
+    if (semanticStatus && semanticStatus.remaining > 0) {
+      items.push({
+        id: "sem",
+        text: `语义分析剩余 ${semanticStatus.remaining}（进度 ${semanticPct}%）`,
+        kind: "info",
+        tab: "produce",
+      });
+    }
+    if (!items.length) items.push({ id: "idle", text: "产线空闲 · 可从生产开跑或检查日历", kind: "ok", tab: "produce" });
+    return items;
+  }, [engineOn, pathBlocked, runningJobs, pendingReviewCount, ttsBadCount, reachMessageUnread, readyCount, semanticStatus, semanticPct]);
+
   const cmdExtra: CmdItem[] = [
+    {
+      id: "assistant-open",
+      label: "打开助手",
+      run: () => setAssistantOpen(true),
+    },
     {
       id: "engine-toggle",
       label: engineOn ? "停止引擎" : "启动引擎",
@@ -1621,8 +2138,12 @@ function App() {
     },
     {
       id: "density",
-      label: density === "command" ? "切换到批处理密度" : "切换到指挥密度",
-      run: () => setDensity((d) => (d === "command" ? "compact" : "command")),
+      label: layout.pref === "compact" ? "布局：舒适" : layout.pref === "comfort" ? "布局：自动" : "布局：紧凑",
+      run: () => {
+        const order: LayoutDensityPref[] = ["auto", "comfort", "compact"];
+        const i = order.indexOf(layout.pref);
+        layout.setPref(order[(i + 1) % order.length]!);
+      },
     },
     {
       id: "shortcuts",
@@ -1633,7 +2154,7 @@ function App() {
           title: "快捷键",
           body:
             "⌘/Ctrl+K  命令面板\n" +
-            "1–9       切换九个页签\n" +
+            "1–7       切换七个页签\n" +
             "审片页：J/K 上下条 · A 通过 · R 重渲 · F 影院\n" +
             "?         打开本说明",
           confirmLabel: "知道了",
@@ -1659,7 +2180,7 @@ function App() {
             title: "快捷键",
             body:
               "⌘/Ctrl+K  命令面板\n" +
-              "1–9       切换九个页签\n" +
+              "1–7       切换七个页签\n" +
               "审片页：J/K 上下条 · A 通过 · R 重渲 · F 影院\n" +
               "?         打开本说明",
             confirmLabel: "知道了",
@@ -1675,11 +2196,11 @@ function App() {
         tag === "SELECT" ||
         (e.target as HTMLElement)?.isContentEditable;
       if (typing || cmdOpen || dialog) return;
-      if (e.key >= "1" && e.key <= "9") {
+      if (e.key >= "1" && e.key <= "7") {
         const idx = Number(e.key) - 1;
         if (TABS[idx]) {
           e.preventDefault();
-          setTab(TABS[idx][0]);
+          goTab(TABS[idx][0]);
         }
       }
       if (tab === "review" && readyOutputs.length) {
@@ -1712,40 +2233,28 @@ function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [cmdOpen, dialog, tab, readyOutputs, reviewFocusId]);
 
+  const advancedUnlocked = passwordStatus.unlocked;
+  const passwordConfigured = passwordStatus.configured;
+
   return (
-    <div className={`app${density === "compact" ? " density-compact" : ""}`}>
-      <aside className="rail">
-        <div className="brand">
-          <div className="brand-mark">
-            <h1 className="brand-name">速影</h1>
-            <span className="brand-ver">SUYING</span>
-          </div>
-          <p className="brand-tag">LOCAL AI MONTAGE</p>
+    <>
+    <AppShell
+      tab={tab}
+      onSetTab={goTab}
+      density={layout.density}
+      tabIcons={TAB_ICONS}
+      badges={{
+        review: pendingReviewCount,
+        publish: Number(reachInbox?.unread_count ?? 0),
+        messages: reachMessageUnread,
+      }}
+      brandSlot={
+        <div className="brand-mark">
+          <h1 className="brand-name">速影</h1>
+          <span className="brand-ver">SUYING</span>
         </div>
-        <nav className="nav">
-          {TABS.map(([t, label, idx]) => {
-            const Icon = TAB_ICONS[t];
-            const badge =
-              t === "reach" && Number(reachInbox?.unread_count ?? 0) > 0
-                ? Number(reachInbox?.unread_count ?? 0)
-                : t === "review" && pendingReviewCount > 0
-                  ? pendingReviewCount
-                  : 0;
-            return (
-              <button
-                key={t}
-                type="button"
-                className={`nav-btn${tab === t ? " active" : ""}`}
-                onClick={() => setTab(t)}
-              >
-                <span className="nav-idx">{idx}</span>
-                <Icon className="nav-icon" size={16} aria-hidden />
-                <span className="nav-label">{label}</span>
-                {badge > 0 ? <em className="nav-badge">{badge > 99 ? "99+" : badge}</em> : null}
-              </button>
-            );
-          })}
-        </nav>
+      }
+      railFoot={
         <div className="rail-foot">
           <div className="rail-power">
             <button
@@ -1754,11 +2263,7 @@ function App() {
               role="switch"
               aria-checked={engineOn}
               disabled={engineBusy}
-              title={
-                engineOn
-                  ? "停止引擎（关 App 不会杀引擎）"
-                  : `启动本地混剪引擎\n${engineDetail}`
-              }
+              title={engineOn ? "停止引擎（关 App 不会杀引擎）" : `启动本地混剪引擎\n${engineDetail}`}
               onClick={() => onEngineToggle().catch((e) => notify(String(e), "err"))}
             >
               <span className="toggle-track" aria-hidden="true">
@@ -1779,49 +2284,57 @@ function App() {
               <span className={`health-dot ${engineOn ? "ok" : engineBusy || engine?.running ? "warn" : "err"}`} />
               引擎 {engineOn ? "在线" : engineBusy || engine?.running ? "启动中" : "离线"}
             </div>
-            {engineOn && (
+            {engineOn && !layout.isCompact ? (
               <>
                 <div className="rail-health-row">
                   <span className={`health-dot ${services?.watcher ? "ok" : "warn"}`} />
-                  片库监视 {services?.watcher ? "运行" : "已停"}
+                  监视 {services?.watcher ? "开" : "停"}
                 </div>
                 <div className="rail-health-row">
                   <span className={`health-dot ${services?.worker ? "ok" : "warn"}`} />
-                  Worker {services?.worker ? "运行" : "已停"}
-                </div>
-                <div className="rail-health-row">
-                  <span className={`health-dot ${services?.scheduler ? "ok" : "warn"}`} />
-                  调度器 {services?.scheduler ? "运行" : "已停"}
+                  Worker {services?.worker ? "开" : "停"}
                 </div>
                 <div className="rail-health-row">
                   <span className={`health-dot ${vectorization ? "ok" : "warn"}`} />
-                  向量化 {vectorization ? "已开" : "关闭"}
+                  向量化 {vectorization ? "开" : "关"}
                 </div>
               </>
-            )}
+            ) : null}
           </div>
           <div className="rail-port" title={engine?.python || ""}>
             :8766 · LOCAL
           </div>
         </div>
-      </aside>
-
-      <header className="topbar">
-        <div className="topbar-title">
+      }
+      topbarTitle={
+        <>
           <h2>{tabLabel}</h2>
           <span>
-            {TAB_BLURB[tab]} · {customerName || "未选择客户"} · {vectorization ? "向量化开" : "向量化关"}
+            {TAB_BLURB[tab]} · {customerName || "未选择客户"} · 布局{" "}
+            {layout.pref === "auto" ? "自动" : layout.pref === "comfort" ? "舒适" : "紧凑"}
           </span>
-        </div>
-        <div className="topbar-actions">
+        </>
+      }
+      topbarActions={
+        <>
           <div className="pulse-bar" aria-label="实时脉冲">
-            <button type="button" className="pulse-chip" onClick={() => setTab("pack")}>
+            <button type="button" className="pulse-chip" onClick={() => goTab("publish", { publish: "desk" })}>
               Ready {readyCount}
             </button>
-            <button type="button" className="pulse-chip" onClick={() => setTab("produce")}>
+            <button type="button" className="pulse-chip" onClick={() => goTab("produce")}>
               任务 {runningJobs}
             </button>
-            <button type="button" className="pulse-chip" onClick={() => setTab("review")}>
+            {semanticStatus && semanticStatus.eligible > 0 ? (
+              <button
+                type="button"
+                className={`pulse-chip${semanticAnalyzing ? " pulse-chip--live" : ""}`}
+                onClick={() => goTab("produce", { produce: "assets" })}
+                title={`语义分析 ${semanticPct}%`}
+              >
+                分析 {semanticPct}%
+              </button>
+            ) : null}
+            <button type="button" className="pulse-chip" onClick={() => goTab("review")}>
               TTS {ttsBadCount}
             </button>
           </div>
@@ -1838,21 +2351,24 @@ function App() {
             onStartEngine={() => {
               void onEngineToggle();
             }}
-            onSetTab={setTab}
+            onSetTab={goTab}
           />
-          <button
-            type="button"
-            title="命令面板 ⌘K"
-            onClick={() => setCmdOpen(true)}
-          >
+          <button type="button" title="助手" onClick={() => setAssistantOpen(true)}>
+            <Bot size={16} aria-hidden /> 助手
+          </button>
+          <button type="button" title="命令面板 ⌘K" onClick={() => setCmdOpen(true)}>
             ⌘K
           </button>
           <button
             type="button"
-            title="密度"
-            onClick={() => setDensity((d) => (d === "command" ? "compact" : "command"))}
+            title="布局密度"
+            onClick={() => {
+              const order: LayoutDensityPref[] = ["auto", "comfort", "compact"];
+              const i = order.indexOf(layout.pref);
+              layout.setPref(order[(i + 1) % order.length]!);
+            }}
           >
-            {density === "command" ? "指挥档" : "批处理档"}
+            {layout.pref === "auto" ? "自动" : layout.pref === "comfort" ? "舒适" : "紧凑"}
           </button>
           <label className="field-inline">
             客户
@@ -1868,1287 +2384,436 @@ function App() {
               ))}
             </select>
           </label>
-        </div>
-      </header>
-
-      <div className={`workspace${tab === "assistant" ? " workspace--assistant" : ""}`}>
-        {(flash || error) && (
-          <div
-            className={`banner ${flash ? (flash.kind === "err" ? "error" : flash.kind) : "error"}`}
-            role="status"
-            aria-live="polite"
-          >
-            <span className="banner-text">{flash?.text || error}</span>
-            {flash?.actionLabel && flash.actionTab ? (
-              <button
-                type="button"
-                className="banner-action"
-                onClick={() => {
-                  setTab(flash.actionTab!);
-                  setFlash(null);
-                }}
-              >
-                {flash.actionLabel}
-              </button>
-            ) : null}
+        </>
+      }
+    >
+      {(flash || error) && (
+        <div
+          className={`banner ${flash ? (flash.kind === "err" ? "error" : flash.kind) : "error"}`}
+          role="status"
+          aria-live="polite"
+        >
+          <span className="banner-text">{flash?.text || error}</span>
+          {flash?.actionLabel && flash.actionTab ? (
             <button
               type="button"
-              className="banner-dismiss"
-              aria-label="关闭提示"
+              className="banner-action"
               onClick={() => {
+                goTab(flash.actionTab!);
                 setFlash(null);
-                if (!flash) setError("");
-                else if (flash.kind === "err") setError("");
               }}
             >
-              ×
+              {flash.actionLabel}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="banner-dismiss"
+            aria-label="关闭提示"
+            onClick={() => {
+              setFlash(null);
+              if (!flash) setError("");
+              else if (flash.kind === "err") setError("");
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+      {!vectorization && health && (
+        <div className="banner warn">
+          向量化尚未开启。入库只会做规范化；语义检索与自动增量补索引需在「运维」手动开启（不会整库重算）。
+        </div>
+      )}
+      {!engineOn && !engineBusy && (
+        <div className="banner warn engine-offline-banner">
+          <span>引擎离线 — 生产、扫描与审片同步需先启动引擎。</span>
+          <button type="button" className="primary" onClick={() => void onEngineToggle()}>
+            启动引擎
+          </button>
+        </div>
+      )}
+
+      {showWizard && (
+        <CarrierInstallWizard
+          wizName={wizName}
+          setWizName={setWizName}
+          wizLib={wizLib}
+          setWizLib={setWizLib}
+          wizOut={wizOut}
+          setWizOut={setWizOut}
+          wizKw={wizKw}
+          setWizKw={setWizKw}
+          onFinish={finishWizard}
+          applyStandardLayout={applyStandardLayout}
+          pickDir={pickDir}
+          pickFile={pickFile}
+          notify={notify}
+          onDismiss={() => {
+            wizardDismissedRef.current = true;
+            setShowWizard(false);
+            if (customers.some((c) => c.library_root && c.output_root)) {
+              api.updateSettings({ onboarded: true }).catch(() => undefined);
+            }
+          }}
+        />
+      )}
+
+      <main className="panel">
+        {tab === "overview" && (
+          <OverviewPage
+            pipelineNodes={pipelineNodes}
+            pathBlocked={pathBlocked}
+            setTab={goTab}
+            refreshAll={refreshAll}
+            report={report}
+            opsReport={opsReport}
+            assets={assets}
+            reachQuota={reachQuota}
+            health={health}
+            services={services}
+            todayPlan={todayPlan}
+            actionBusy={actionBusy}
+            setActionBusy={setActionBusy}
+            notify={notify}
+            autoDaily={autoDaily}
+            autoHour={autoHour}
+            setShowWizard={setShowWizard}
+            activityItems={activityItems}
+          />
+        )}
+        {tab === "produce" && (
+          <ProductionPage
+            workspace={produceWorkspace}
+            onWorkspaceChange={setProduceWorkspace}
+            setTab={goTab}
+            customerName={customerName}
+            brandLogo={brandLogo}
+            brandBusy={brandBusy}
+            saveBrandLogo={saveBrandLogo}
+            notify={notify}
+            theme={theme}
+            setTheme={setTheme}
+            category={category}
+            setCategory={setCategory}
+            targetCount={targetCount}
+            setTargetCount={setTargetCount}
+            actionBusy={actionBusy}
+            setActionBusy={setActionBusy}
+            runDryRun={runDryRun}
+            createJob={createJob}
+            dryResult={dryResult}
+            jobs={jobs}
+            refreshAll={refreshAll}
+            calDay={calDay}
+            setCalDay={setCalDay}
+            calTheme={calTheme}
+            setCalTheme={setCalTheme}
+            calQuota={calQuota}
+            setCalQuota={setCalQuota}
+            calNote={calNote}
+            setCalNote={setCalNote}
+            saveCalendarDay={saveCalendarDay}
+            askConfirm={askConfirm}
+            calendar={calendar}
+            semanticStatus={semanticStatus}
+            runSemanticBatch={runSemanticBatch}
+            assets={assets}
+            vectorization={vectorization}
+          />
+        )}
+        {tab === "review" && (
+          <ReviewPage
+            setTab={goTab}
+            readyOutputs={readyOutputs}
+            cinemaMode={cinemaMode}
+            setCinemaMode={setCinemaMode}
+            reviewFilter={reviewFilter}
+            setReviewFilter={setReviewFilter}
+            missingVoiceCount={missingVoiceCount}
+            ttsBadCount={ttsBadCount}
+            batchBusy={batchBusy}
+            setBatchBusy={setBatchBusy}
+            notify={notify}
+            refreshAll={refreshAll}
+            setMediaEpoch={setMediaEpoch}
+            reviewReason={reviewReason}
+            setReviewReason={setReviewReason}
+            reviewReasons={reviewReasons}
+            reviewNote={reviewNote}
+            setReviewNote={setReviewNote}
+            reviewFocusId={reviewFocusId}
+            setReviewFocusId={setReviewFocusId}
+            mediaEpoch={mediaEpoch}
+            activeCustomerId={activeCustomerId}
+            reviewBusyId={reviewBusyId}
+            decideReview={decideReview}
+            rerenderOnly={rerenderOnly}
+          />
+        )}
+        {tab === "publish" && (
+          <PublishPage
+            workspace={publishWorkspace}
+            onWorkspaceChange={setPublishWorkspace}
+            setTab={goTab}
+            notify={notify}
+            refreshAll={refreshAll}
+            outputs={outputs}
+            mediaEpoch={mediaEpoch}
+            voiceLang={voiceLang}
+            setVoiceLang={setVoiceLang}
+            subtitleLang={subtitleLang}
+            setSubtitleLang={setSubtitleLang}
+            subtitleBurn={subtitleBurn}
+            setSubtitleBurn={setSubtitleBurn}
+            dualSecondaryLang={dualSecondaryLang}
+            setDualSecondaryLang={setDualSecondaryLang}
+            langCatalog={langCatalog}
+            exprSaveBusy={exprSaveBusy}
+            exprDirty={exprDirty}
+            activeCustomerId={activeCustomerId}
+            saveExpressionPrefs={saveExpressionPrefs}
+            packLast={packLast}
+            packBusyId={packBusyId}
+            exportPack={exportPack}
+            reachMessageUnread={reachMessageUnread}
+            reachInbox={reachInbox}
+            reachItems={reachItems}
+            reachMessageAccounts={reachMessageAccounts}
+            reachQuota={reachQuota}
+            quotaTotal={quotaTotal}
+            setQuotaTotal={setQuotaTotal}
+            quotaSplit={quotaSplit}
+            setQuotaSplit={setQuotaSplit}
+            quotaByPlatform={quotaByPlatform}
+            setQuotaByPlatform={setQuotaByPlatform}
+            quotaBusy={quotaBusy}
+            reachPlatforms={reachPlatforms}
+            saveReachQuota={saveReachQuota}
+            coverTemplates={coverTemplates}
+            coverEditId={coverEditId}
+            coverSelectedId={coverSelectedId}
+            coverNewName={coverNewName}
+            coverSlotCounts={coverSlotCounts}
+            coverSlotSpecs={coverSlotSpecs}
+            coverPreviewPlat={coverPreviewPlat}
+            coverPreviewMsg={coverPreviewMsg}
+            coverBusy={coverBusy}
+            setCoverNewName={setCoverNewName}
+            setCoverEditId={setCoverEditId}
+            setCoverPreviewPlat={setCoverPreviewPlat}
+            coverCreateTemplate={coverCreateTemplate}
+            coverSeedFromPack={coverSeedFromPack}
+            coverSelectTemplate={coverSelectTemplate}
+            coverDeleteTemplate={coverDeleteTemplate}
+            coverSetSlot={coverSetSlot}
+            coverPreviewResolve={coverPreviewResolve}
+            chromeCreatePlatform={chromeCreatePlatform}
+            setChromeCreatePlatform={setChromeCreatePlatform}
+            chromeCreateCount={chromeCreateCount}
+            setChromeCreateCount={setChromeCreateCount}
+            chromeBusy={chromeBusy}
+            reachCreateChromeProfiles={reachCreateChromeProfiles}
+            chromeSelected={chromeSelected}
+            reachSelectChromeProfile={reachSelectChromeProfile}
+            chromeProfiles={chromeProfiles}
+            chromeInstalled={chromeInstalled}
+            reachOpenChromeProfile={reachOpenChromeProfile}
+            reachBindMessageAccount={reachBindMessageAccount}
+            autoUploadBusy={autoUploadBusy}
+            reachStartAutoUpload={reachStartAutoUpload}
+            reachCancelAutoUpload={reachCancelAutoUpload}
+            refreshReach={refreshReach}
+            chromeRoot={chromeRoot}
+            autoUploadPhase={autoUploadPhase}
+            autoUploadMsg={autoUploadMsg}
+            reachPackDir={reachPackDir}
+            setReachPackDir={setReachPackDir}
+            queueBusy={queueBusy}
+            reachEnqueueFromPack={reachEnqueueFromPack}
+            reachMsg={reachMsg}
+            reachOpenItem={reachOpenItem}
+            reachMarkPublished={reachMarkPublished}
+          />
+        )}
+        {tab === "messages" && (
+          <MessagesPage
+            setTab={goTab}
+            accounts={reachMessageAccounts}
+            messages={reachMessages}
+            unreadCount={reachMessageUnread}
+            status={reachMessageStatus}
+            notificationPermission={notificationPermission}
+            ntfyConfig={reachNtfyConfig}
+            busy={reachMessageBusy}
+            onScan={reachMessageScanStart}
+            onCancel={reachMessageScanCancel}
+            onOpen={reachMessageOpen}
+            onRead={reachMessageRead}
+            onToggleAccount={reachMessageToggleAccount}
+            onEnableNotifications={enableReachNotifications}
+            onSaveNtfy={saveReachNtfy}
+            onTestNtfy={testReachNtfy}
+          />
+        )}
+        {tab === "data" && (
+          <DataCenterPage
+            setTab={goTab}
+            report={report}
+            opsReport={opsReport}
+            assets={assets}
+            reachQuota={reachQuota}
+            semanticStatus={semanticStatus}
+            titlePoolSummary={titlePoolSummary}
+            events={events}
+            notify={notify}
+            refreshAll={refreshAll}
+            activeCustomerId={activeCustomerId}
+            setTitlePoolSummary={setTitlePoolSummary}
+          />
+        )}
+        {tab === "ops" && (
+          <OpsPage
+            section={opsSection}
+            onSectionChange={setOpsSection}
+            setTab={goTab}
+            notify={notify}
+            refreshAll={refreshAll}
+            actionBusy={actionBusy}
+            setActionBusy={setActionBusy}
+            ollamaInfo={ollamaInfo}
+            refreshOllamaDetail={refreshOllamaDetail}
+            pullRecommendedModels={pullRecommendedModels}
+            pullOllamaModel={pullOllamaModel}
+            ollamaNarration={ollamaNarration}
+            setOllamaNarration={setOllamaNarration}
+            ollamaNarrationEmoji={ollamaNarrationEmoji}
+            setOllamaNarrationEmoji={setOllamaNarrationEmoji}
+            ollamaNarrationModel={ollamaNarrationModel}
+            setOllamaNarrationModel={setOllamaNarrationModel}
+            vectorization={vectorization}
+            enableVectorization={enableVectorization}
+            disableVectorization={disableVectorization}
+            health={health}
+            semanticStatus={semanticStatus}
+            runSemanticBatch={runSemanticBatch}
+            syncStatus={syncStatus}
+            setSyncStatus={setSyncStatus}
+            syncDryRunBusy={syncDryRunBusy}
+            setSyncDryRunBusy={setSyncDryRunBusy}
+            syncDryRunHint={syncDryRunHint}
+            setSyncDryRunHint={setSyncDryRunHint}
+            services={services}
+            setServices={setServices}
+            events={events}
+          />
+        )}
+        {tab === "settings" && (
+          <SettingsPage
+            section={settingsSection}
+            onSectionChange={setSettingsSection}
+            setTab={goTab}
+            notify={notify}
+            askConfirm={askConfirm}
+            refreshAll={refreshAll}
+            actionBusy={actionBusy}
+            setActionBusy={setActionBusy}
+            cursorApiKeyInput={cursorApiKeyInput}
+            setCursorApiKeyInput={setCursorApiKeyInput}
+            cursorKeyConfigured={cursorKeyConfigured}
+            cursorKeyHint={cursorKeyHint}
+            saveCursorApiKey={saveCursorApiKey}
+            verifyCursorApiKey={verifyCursorApiKey}
+            clearCursorApiKey={clearCursorApiKey}
+            autoDaily={autoDaily}
+            setAutoDaily={setAutoDaily}
+            autoHour={autoHour}
+            setAutoHour={setAutoHour}
+            libraryRoot={libraryRoot}
+            setLibraryRoot={setLibraryRoot}
+            libraryRootsText={libraryRootsText}
+            setLibraryRootsText={setLibraryRootsText}
+            outputRoot={outputRoot}
+            setOutputRoot={setOutputRoot}
+            keywordPackPath={keywordPackPath}
+            setKeywordPackPath={setKeywordPackPath}
+            pickDir={pickDir}
+            pickFile={pickFile}
+            activeCustomerId={activeCustomerId}
+            titlePoolSummary={titlePoolSummary}
+            setTitlePoolSummary={setTitlePoolSummary}
+            savePaths={savePaths}
+            customerName={customerName}
+            customers={customers}
+            newCustName={newCustName}
+            setNewCustName={setNewCustName}
+            remoteFolder={remoteFolder}
+            setRemoteFolder={setRemoteFolder}
+            remoteFolderOptions={remoteFolderOptions}
+            setRemoteFolderOptions={setRemoteFolderOptions}
+            remoteFoldersBusy={remoteFoldersBusy}
+            setRemoteFoldersBusy={setRemoteFoldersBusy}
+            syncStatus={syncStatus}
+            setSyncStatus={setSyncStatus}
+            editSourceCustomer={editSourceCustomer}
+            setEditSourceCustomer={setEditSourceCustomer}
+            editRemoteFolder={editRemoteFolder}
+            setEditRemoteFolder={setEditRemoteFolder}
+            layoutPref={layout.pref}
+            setLayoutPref={layout.setPref}
+            cacheRoot={cacheRoot}
+            setCacheRoot={setCacheRoot}
+            renderRoot={renderRoot}
+            setRenderRoot={setRenderRoot}
+            dataRoot={dataRoot}
+            setDataRoot={setDataRoot}
+            vectorDbPath={vectorDbPath}
+            advancedUnlocked={advancedUnlocked}
+            passwordConfigured={passwordConfigured}
+            passwordStatusRemaining={passwordStatus.unlocked_remaining_sec}
+            onUnlock={async (password) => {
+              const next = await settingsPasswordVerify(password);
+              setPasswordStatus(next);
+              notify("高级配置已解锁", "ok");
+            }}
+            onLock={async () => {
+              const next = await settingsPasswordLock();
+              setPasswordStatus(next);
+              notify("高级配置已锁定", "ok");
+            }}
+            onCreatePassword={async (password) => {
+              const next = await settingsPasswordCreate(password);
+              setPasswordStatus(next);
+              notify("高级密码已创建并解锁", "ok");
+            }}
+            onChangePassword={async (oldPassword, newPassword) => {
+              const next = await settingsPasswordChange(oldPassword, newPassword);
+              setPasswordStatus(next);
+              notify("高级密码已修改", "ok");
+            }}
+          />
+        )}
+      </main>
+    </AppShell>
+
+    {assistantOpen ? (
+      <>
+        <div className="assistant-drawer-backdrop" onClick={() => setAssistantOpen(false)} />
+        <div className="assistant-drawer" role="dialog" aria-label="助手">
+          <div className="panel-head" style={{ padding: "12px 14px" }}>
+            <h2>助手</h2>
+            <button type="button" onClick={() => setAssistantOpen(false)}>
+              关闭
             </button>
           </div>
-        )}
-        {!vectorization && health && (
-          <div className="banner warn">
-            向量化尚未开启。入库只会做规范化；语义检索与自动增量补索引需在「运维」手动开启（不会整库重算）。
-          </div>
-        )}
-        {!engineOn && !engineBusy && (
-          <div className="banner warn engine-offline-banner">
-            <span>引擎离线 — 生产、扫描与审片同步需先启动引擎。</span>
-            <button type="button" className="primary" onClick={() => void onEngineToggle()}>
-              启动引擎
-            </button>
-          </div>
-        )}
-
-        {showWizard && (
-          <div className="panel wizard">
-            <div className="panel-head">
-              <h2>欢迎使用速影</h2>
-            </div>
-            <p className="wizard-lead">
-              填写客户名后可一键生成外置盘标准目录（片库/成片/词池）并登记极空间同步。亦可手选路径。向量化默认关闭。
-            </p>
-            <div className="actions" style={{ marginBottom: 12 }}>
-              <button type="button" className="primary" onClick={() => applyStandardLayout()}>
-                使用标准外置盘布局
-              </button>
-              <span className="hint">需已挂载 QR 外置盘（~/QR-Volume）</span>
-            </div>
-            <div className="grid2">
-              <label>
-                客户名称
-                <input value={wizName} onChange={(e) => setWizName(e.target.value)} placeholder="例如：我的门店" />
-              </label>
-              <label>
-                词池文件（json/md）
-                <div className="path-row">
-                  <input value={wizKw} onChange={(e) => setWizKw(e.target.value)} />
-                  <button type="button" onClick={() => pickFile().then((p) => p && setWizKw(p))}>
-                    选择
-                  </button>
-                </div>
-              </label>
-              <label>
-                片库目录
-                <div className="path-row">
-                  <input value={wizLib} onChange={(e) => setWizLib(e.target.value)} />
-                  <button type="button" onClick={() => pickDir().then((p) => p && setWizLib(p))}>
-                    选择
-                  </button>
-                </div>
-              </label>
-              <label>
-                输出目录
-                <div className="path-row">
-                  <input value={wizOut} onChange={(e) => setWizOut(e.target.value)} />
-                  <button type="button" onClick={() => pickDir().then((p) => p && setWizOut(p))}>
-                    选择
-                  </button>
-                </div>
-              </label>
-            </div>
-            <div className="actions">
-              <button type="button" onClick={() => finishWizard(false).catch((e) => notify(String(e), "err"))}>
-                完成（稍后开启向量化）
-              </button>
-              <button
-                type="button"
-                className="primary"
-                onClick={() => finishWizard(true).catch((e) => notify(String(e), "err"))}
-              >
-                完成并开启向量化
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  wizardDismissedRef.current = true;
-                  setShowWizard(false);
-                  // Persist so the wizard never returns once paths already exist
-                  if (customers.some((c) => c.library_root && c.output_root)) {
-                    api.updateSettings({ onboarded: true }).catch(() => undefined);
-                  }
-                }}
-              >
-                稍后再说
-              </button>
-            </div>
-          </div>
-        )}
-
-        <main className={tab === "assistant" ? "assistant-shell" : "panel"}>
-          <StageMotion tabKey={tab}>
-          {tab === "overview" && (
-            <section>
-              <div className="panel-head">
-                <h2>总览</h2>
-                <button type="button" onClick={refreshAll}>
-                  刷新
-                </button>
-              </div>
-              <OverviewPipeline nodes={pipelineNodes} onJump={setTab} pathBlocked={pathBlocked} />
-              <div className="stat-grid">
-                <div className="stat">
-                  <div className="stat-label">素材</div>
-                  <div className="stat-value">{report?.assets ?? assets.length}</div>
-                </div>
-                <div className="stat">
-                  <div className="stat-label">Cliplet</div>
-                  <div className="stat-value">
-                    {report ? `${report.cliplets_indexed}/${report.cliplets}` : "—"}
-                  </div>
-                </div>
-                <div className="stat">
-                  <div className="stat-label">Ready 成片</div>
-                  <div className="stat-value">{opsReport?.ready ?? report?.ready ?? 0}</div>
-                </div>
-                <div className="stat">
-                  <div className="stat-label">失败率</div>
-                  <div className="stat-value">
-                    {opsReport
-                      ? `${(opsReport.failure_rate * 100).toFixed(1)}%`
-                      : report
-                        ? `${(report.failure_rate * 100).toFixed(1)}%`
-                        : "—"}
-                  </div>
-                </div>
-                <div className="stat">
-                  <div className="stat-label">旁白覆盖</div>
-                  <div className="stat-value" style={{ fontSize: "1rem" }}>
-                    {opsReport ? `${(opsReport.voice_coverage * 100).toFixed(0)}%` : "—"}
-                  </div>
-                </div>
-              </div>
-              <div className="ops-bar">
-                <span>
-                  Ready 率{" "}
-                  {opsReport ? `${(opsReport.ready_rate * 100).toFixed(0)}%` : "—"}
-                  {" · "}
-                  缺旁白 {opsReport?.missing_voice ?? "—"}
-                  {" · "}
-                  <span
-                    className={
-                      opsReport && (opsReport.tts_noncompliant ?? 0) > 0 ? "health-line is-warn" : undefined
-                    }
-                  >
-                    音色违规 {opsReport?.tts_noncompliant ?? "—"}
-                    {opsReport?.tts_say != null ? ` (say ${opsReport.tts_say})` : ""}
-                  </span>
-                  {" · "}
-                  已发 {opsReport?.published_ready ?? "—"}
-                  {" · "}
-                  触达配额{" "}
-                  {opsReport?.quota
-                    ? `${String(opsReport.quota.used_total ?? opsReport.quota.used_today ?? 0)}/${String(opsReport.quota.daily_quota ?? "—")}`
-                    : reachQuota
-                      ? `${String(reachQuota.used_total ?? reachQuota.used_today ?? 0)}/${String(reachQuota.daily_quota ?? "—")}`
-                      : "—"}
-                </span>
-                <span className={`health-line${opsReport && (!opsReport.library_ok || !opsReport.output_ok || (opsReport.tts_noncompliant ?? 0) > 0) ? " is-warn" : ""}`}>
-                  {opsReport?.health_line ||
-                    (health
-                      ? `引擎正常 · 磁盘 ${health.path_health.free_disk_gb.toFixed(0)} GB`
-                      : "引擎状态未知")}
-                </span>
-              </div>
-              {todayPlan ? (
-                <div className="banner-ok">
-                  今日计划 {String(todayPlan.day)} · {String(todayPlan.theme)} · 配额{" "}
-                  {String(todayPlan.quota)}
-                </div>
-              ) : (
-                <div className="banner error">今日无日历计划</div>
-              )}
-              {health && !health.path_health.ok && (
-                <div className="banner error">
-                  路径异常，禁止生产：{(health.path_health.errors || []).join("；") || "请检查片库/成片目录"}
-                </div>
-              )}
-              <div className="actions">
-                <button
-                  type="button"
-                  className={`primary${actionBusy === "calJob" ? " is-busy" : ""}`}
-                  disabled={actionBusy === "calJob" || (health ? !health.path_health.ok : false)}
-                  onClick={() => {
-                    setActionBusy("calJob");
-                    api
-                      .createJobFromCalendar()
-                      .then(() => {
-                        notify("已按今日日历创建生产任务", "ok");
-                        return refreshAll();
-                      })
-                      .catch((e) => notify(String(e), "err"))
-                      .finally(() => setActionBusy(null));
-                  }}
-                >
-                  {actionBusy === "calJob" ? "创建中…" : "按今日日历开跑"}
-                </button>
-                <button type="button" onClick={() => setTab("produce")}>
-                  去生产
-                </button>
-                <button type="button" onClick={() => setTab("publish")}>
-                  去发布台
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowWizard(false);
-                    setTab("ops");
-                  }}
-                >
-                  修改路径（运维）
-                </button>
-              </div>
-              <ul className="meta">
-                <li>
-                  监视 {services?.watcher || health?.watcher_running ? "开" : "关"} · Worker{" "}
-                  {services?.worker || health?.worker_running ? "开" : "关"} · 调度{" "}
-                  {services?.scheduler || health?.scheduler_running ? "开" : "关"} · 每日自动{" "}
-                  {autoDaily ? `开 @${autoHour}:00` : "关"}
-                </li>
-              </ul>
-            </section>
-          )}
-
-          {tab === "produce" && (
-            <section>
-              <div className="panel-head">
-                <h2>生产</h2>
-              </div>
-              <BrandLogoPanel
-                customerName={customerName}
-                state={brandLogo}
-                busy={brandBusy}
-                onChange={(patch) => saveBrandLogo(patch).catch((e) => notify(String(e), "err"))}
-              />
-              <h3 className="section-title">手动任务</h3>
-              <div className="grid3">
-                <label>
-                  主题
-                  <input value={theme} onChange={(e) => setTheme(e.target.value)} />
-                </label>
-                <label>
-                  分类
-                  <input value={category} onChange={(e) => setCategory(e.target.value)} />
-                </label>
-                <label>
-                  目标条数
-                  <input
-                    type="number"
-                    value={targetCount}
-                    onChange={(e) => setTargetCount(Number(e.target.value))}
-                  />
-                </label>
-              </div>
-              <div className="actions">
-                <button
-                  type="button"
-                  onClick={() => runDryRun()}
-                  disabled={actionBusy === "dryRun"}
-                  className={actionBusy === "dryRun" ? "is-busy" : undefined}
-                >
-                  {actionBusy === "dryRun" ? "试跑中…" : "Dry-run"}
-                </button>
-                <button
-                  type="button"
-                  className={`primary${actionBusy === "createJob" ? " is-busy" : ""}`}
-                  onClick={() => createJob()}
-                  disabled={actionBusy === "createJob"}
-                >
-                  {actionBusy === "createJob" ? "创建中…" : "创建任务"}
-                </button>
-              </div>
-              {dryResult && (() => {
-                const s = dryRunSummary(dryResult);
-                return (
-                  <div className="dry-card">
-                    <div className="dry-card-head">
-                      <strong>Dry-run 结果</strong>
-                      <span className="dry-count">{s.count} 条候选</span>
-                    </div>
-                    <p className="hint">
-                      主题 {s.theme} · 分类 {s.category}
-                    </p>
-                    {s.samples.length > 0 ? (
-                      <ul className="dry-samples">
-                        {s.samples.map((t, i) => (
-                          <li key={`${i}-${t}`}>{t}</li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="hint">无候选样本</p>
-                    )}
-                    <details>
-                      <summary>原始 JSON</summary>
-                      <pre className="dry-raw">{JSON.stringify(dryResult, null, 2)}</pre>
-                    </details>
-                  </div>
-                );
-              })()}
-              <table>
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>状态</th>
-                    <th>已产出</th>
-                    <th>主题</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {jobs.map((j) => (
-                    <tr key={String(j.id)}>
-                      <td>{String(j.id)}</td>
-                      <td>{String(j.status)}</td>
-                      <td>{String(j.produced_count)}</td>
-                      <td>{String(j.theme)}</td>
-                      <td className="actions-inline">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            api
-                              .pauseJob(Number(j.id))
-                              .then(() => {
-                                notify(`任务 #${j.id} 已暂停`, "ok");
-                                return refreshAll();
-                              })
-                              .catch((e) => notify(String(e), "err"))
-                          }
-                        >
-                          暂停
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            api
-                              .resumeJob(Number(j.id))
-                              .then(() => {
-                                notify(`任务 #${j.id} 已恢复`, "ok");
-                                return refreshAll();
-                              })
-                              .catch((e) => notify(String(e), "err"))
-                          }
-                        >
-                          恢复
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <h3 className="section-title">内容日历</h3>
-              <div className="grid3">
-                <label>
-                  日期
-                  <input type="date" value={calDay} onChange={(e) => setCalDay(e.target.value)} />
-                </label>
-                <label>
-                  主题
-                  <input value={calTheme} onChange={(e) => setCalTheme(e.target.value)} />
-                </label>
-                <label>
-                  配额
-                  <input
-                    type="number"
-                    value={calQuota}
-                    onChange={(e) => setCalQuota(Number(e.target.value))}
-                  />
-                </label>
-              </div>
-              <label>
-                备注
-                <input value={calNote} onChange={(e) => setCalNote(e.target.value)} />
-              </label>
-              <div className="actions">
-                <button
-                  type="button"
-                  disabled={actionBusy === "calSave"}
-                  className={actionBusy === "calSave" ? "is-busy" : undefined}
-                  onClick={() => saveCalendarDay()}
-                >
-                  {actionBusy === "calSave" ? "保存中…" : "保存该日"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void (async () => {
-                      const ok = await askConfirm({
-                        title: "删除日历日",
-                        body: `删除 ${calDay} 的日历计划？此操作不可撤销。`,
-                        confirmLabel: "删除",
-                        danger: true,
-                      });
-                      if (!ok) return;
-                      try {
-                        await api.deleteCalendar(calDay);
-                        notify(`已删除日历日：${calDay}`, "ok");
-                        await refreshAll();
-                      } catch (e) {
-                        notify(String(e), "err");
-                      }
-                    })();
-                  }}
-                >
-                  删除该日
-                </button>
-              </div>
-              <table>
-                <thead>
-                  <tr>
-                    <th>日期</th>
-                    <th>主题</th>
-                    <th>配额</th>
-                    <th>备注</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {calendar.map((c) => (
-                    <tr
-                      key={String(c.day)}
-                      style={{ cursor: "pointer" }}
-                      onClick={() => {
-                        setCalDay(String(c.day));
-                        setCalTheme(String(c.theme || "default"));
-                        setCalQuota(Number(c.quota || 5));
-                        setCalNote(String(c.note || ""));
-                      }}
-                    >
-                      <td>{String(c.day)}</td>
-                      <td>{String(c.theme)}</td>
-                      <td>{String(c.quota)}</td>
-                      <td>{String(c.note || "")}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
-          )}
-
-          {tab === "assets" && (
-            <section>
-              <div className="panel-head">
-                <h2>素材库</h2>
-                <span className="count">{assets.length} ASSETS</span>
-              </div>
-              <div className="actions">
-                <button
-                  type="button"
-                  disabled={actionBusy === "scanFull"}
-                  className={actionBusy === "scanFull" ? "is-busy" : undefined}
-                  onClick={() => {
-                    setActionBusy("scanFull");
-                    api
-                      .scanAssets(0)
-                      .then((r) => {
-                        notify(briefResult("全量扫描已触发", r), "ok");
-                        return refreshAll();
-                      })
-                      .catch((e) => notify(String(e), "err"))
-                      .finally(() => setActionBusy(null));
-                  }}
-                >
-                  {actionBusy === "scanFull" ? "扫描中…" : "全量扫描"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    api
-                      .scanStatus()
-                      .then((r) => notify(briefResult("扫描状态", r), "info"))
-                      .catch((e) => notify(String(e), "err"))
-                  }
-                >
-                  扫描进度
-                </button>
-                <button
-                  type="button"
-                  className="primary"
-                  disabled={!vectorization || actionBusy === "reconcile"}
-                  title={vectorization ? "" : "请先在运维页开启向量化"}
-                  onClick={() => {
-                    setActionBusy("reconcile");
-                    api
-                      .reconcileAssets(50, "incremental")
-                      .then((r) => {
-                        const gaps = (r.gaps_after || r.gaps_before || {}) as Record<string, unknown>;
-                        notify(
-                          `增量补齐: 处理 ${r.processed ?? 0}，新建片段 ${r.created_cliplets ?? 0}，新向量 ${r.indexed ?? 0}，保留已有 ${r.embeddings_kept ?? 0}；剩余缺口素材 ${gaps.gap_assets ?? "?"}`,
-                          "ok",
-                        );
-                        return refreshAll();
-                      })
-                      .catch((e) => notify(String(e), "err"))
-                      .finally(() => setActionBusy(null));
-                  }}
-                >
-                  {actionBusy === "reconcile" ? "补齐中…" : "增量补齐向量"}
-                </button>
-              </div>
-              <table>
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>分类</th>
-                    <th>时长</th>
-                    <th>分辨率</th>
-                    <th>状态</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {assets.map((a) => (
-                    <tr key={String(a.id)}>
-                      <td>{String(a.id)}</td>
-                      <td>{String(a.category)}</td>
-                      <td>{String(a.duration_sec ?? "-")}s</td>
-                      <td>
-                        {String(a.width)}x{String(a.height)}
-                      </td>
-                      <td>{String(a.status)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
-          )}
-
-          {tab === "review" && (
-            <section>
-              <div className="panel-head">
-                <h2>成片抽检</h2>
-                <span className="count">{readyOutputs.length} PENDING</span>
-              </div>
-              <p className="hint">
-                新渲成片默认含旁白+烧录字幕。旧片显示「无旁白/无烧录字幕」时，用「仅重渲」或下方批量补齐后再过审。通过后默认留在本页便于连续审片；快捷键：J/K 上下、A 通过、R 重渲、F 影院。
-              </p>
-              <div className="cinema-bar">
-                <button type="button" className={cinemaMode ? "primary" : undefined} onClick={() => setCinemaMode((v) => !v)}>
-                  {cinemaMode ? "退出影院" : "影院模式"}
-                </button>
-                <button type="button" onClick={() => setTab("publish")}>
-                  去发布台
-                </button>
-              </div>
-              <div className="actions-inline" style={{ marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
-                <label>
-                  筛选
-                  <select
-                    value={reviewFilter}
-                    onChange={(e) => setReviewFilter(e.target.value as typeof reviewFilter)}
-                  >
-                    <option value="all">全部待抽检</option>
-                    <option value="missing_voice">仅无旁白（{missingVoiceCount}）</option>
-                    <option value="missing_sub">仅无烧录字幕</option>
-                    <option value="tts_bad">音色违规 say（{ttsBadCount}）</option>
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  className={`primary${batchBusy ? " is-busy" : ""}`}
-                  disabled={batchBusy || missingVoiceCount === 0}
-                  onClick={async () => {
-                    setBatchBusy(true);
-                    try {
-                      const r = await api.batchRerender({
-                        missing_voice: true,
-                        missing_subtitle: true,
-                        limit: 20,
-                        reason: "ops_voice_subtitle",
-                      });
-                      notify(
-                        `已排队重渲 ${r.count} 条${r.errors.length ? `，失败 ${r.errors.length}` : ""}`,
-                        r.count ? "ok" : "warn",
-                      );
-                      await refreshAll();
-                      setMediaEpoch((n) => n + 1);
-                    } catch (e) {
-                      notify(String(e), "err");
-                    } finally {
-                      setBatchBusy(false);
-                    }
-                  }}
-                >
-                  {batchBusy ? "排队中…" : `批量补旁白/字幕（≤20）`}
-                </button>
-                <button
-                  type="button"
-                  className={`${batchBusy ? "is-busy" : ""}`}
-                  disabled={batchBusy || ttsBadCount === 0}
-                  onClick={async () => {
-                    setBatchBusy(true);
-                    try {
-                      const r = await api.batchRerender({
-                        noncompliant_tts: true,
-                        missing_voice: false,
-                        missing_subtitle: false,
-                        limit: 20,
-                        reason: "ops_tts_noncompliant",
-                      });
-                      notify(
-                        `音色违规已排队 Edge 重渲 ${r.count} 条${r.errors.length ? `，失败 ${r.errors.length}` : ""}`,
-                        r.count ? "ok" : "warn",
-                      );
-                      await refreshAll();
-                      setMediaEpoch((n) => n + 1);
-                    } catch (e) {
-                      notify(String(e), "err");
-                    } finally {
-                      setBatchBusy(false);
-                    }
-                  }}
-                >
-                  {batchBusy ? "排队中…" : `批量重渲音色违规→Edge（≤20）`}
-                </button>
-              </div>
-              <p className="review-note-hint">以下打回原因与批注应用于下一次通过/打回/重渲操作（全页共享，非每卡独立）。</p>
-              <label>
-                打回原因
-                <select value={reviewReason} onChange={(e) => setReviewReason(e.target.value)}>
-                  {reviewReasons.map((r) => (
-                    <option key={r.code} value={r.code}>
-                      {r.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                批注
-                <input value={reviewNote} onChange={(e) => setReviewNote(e.target.value)} />
-              </label>
-              <div className={cinemaMode ? "review-list review-layout-cinema" : "review-list"}>
-                {readyOutputs.map((o) => {
-                  const covers = (o.covers as string[]) || [];
-                  const oid = Number(o.id);
-                  const videoPath = String(o.output_path || "");
-                  const mediaOk = o.media_ok !== false && Boolean(videoPath);
-                  const focused =
-                    reviewFocusId === oid ||
-                    (reviewFocusId == null &&
-                      readyOutputs[0] != null &&
-                      Number(readyOutputs[0].id) === oid);
-                  return (
-                    <article
-                      key={String(o.id)}
-                      className={`review-card${focused ? " is-focus" : ""}`}
-                      onClick={() => setReviewFocusId(oid)}
-                    >
-                      <div className="review-meta">
-                        <strong>#{String(o.id)}</strong>
-                        <span>{String(o.state)}</span>
-                        <span>{String(o.title || "(无标题)")}</span>
-                        {o.has_voice ? <em className="badge-ok">旁白</em> : <em className="badge-mute">无旁白</em>}
-                        {o.subtitle_burned ? (
-                          <em className="badge-ok">字幕</em>
-                        ) : (
-                          <em className="badge-mute">无烧录字幕</em>
-                        )}
-                        {o.published || (Array.isArray(o.publish_trail) && o.publish_trail.length > 0) ? (
-                          <em className="badge-ok">
-                            已发
-                            {Array.isArray(o.publish_trail) && o.publish_trail[0]
-                              ? ` ${(o.publish_trail[0] as { platform?: string }).platform || ""}`
-                              : ""}
-                          </em>
-                        ) : null}
-                        {(o.tts_noncompliant || o.tts_compliant === false) && (
-                          <em className="badge-warn">
-                            音色违规 {String(o.tts_provider || o.tts_noncompliant || "say")}
-                          </em>
-                        )}
-                        {!mediaOk && <span className="badge-warn">文件缺失</span>}
-                      </div>
-                      <div className="review-preview">
-                        {mediaOk ? (
-                          <div className="review-media-col">
-                            <video
-                              key={`v-${mediaEpoch}-${oid}`}
-                              className="review-video"
-                              controls
-                              preload="metadata"
-                              playsInline
-                              src={previewVideoSrc(
-                                oid,
-                                videoPath,
-                                `${activeCustomerId ?? 0}-${mediaEpoch}`,
-                              )}
-                              draggable
-                              onDragStart={(e) =>
-                                bindOutputFileDrag(e, { id: oid, path: videoPath, mediaOk })
-                              }
-                              onError={() =>
-                                notify(
-                                  `成片 #${oid} 预览失败：可点「访达中显示」直接打开文件；若持续失败请重启 App`,
-                                  "warn",
-                                )
-                              }
-                            />
-                            <div
-                              className="publish-drag-zone"
-                              draggable
-                              onDragStart={(e) =>
-                                bindOutputFileDrag(e, { id: oid, path: videoPath, mediaOk })
-                              }
-                              title="拖到浏览器上传框；无效时用「访达中显示」再拖文件"
-                            >
-                              <strong>拖拽成片</strong>
-                              <span>按住拖向网页上传框；推荐访达中拖文件</span>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="review-video missing">
-                            <p>成片文件不在磁盘</p>
-                            <p className="hint">路径失效或未同步，无法预览；可重渲生成</p>
-                          </div>
-                        )}
-                        {covers.length > 0 && mediaOk && (
-                          <div className="cover-row">
-                            {covers.map((coverPath, i) => (
-                              <img
-                                key={`${mediaEpoch}-${oid}-cover-${i}`}
-                                src={previewCoverSrc(
-                                  oid,
-                                  i,
-                                  typeof coverPath === "string" ? coverPath : null,
-                                  `${activeCustomerId ?? 0}-${mediaEpoch}`,
-                                )}
-                                alt=""
-                                className="cover-thumb"
-                              />
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <p className="path">{videoPath}</p>
-                      <div className="actions-inline">
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            if (!videoPath) {
-                              notify("无本地路径", "err");
-                              return;
-                            }
-                            try {
-                              if (isTauri()) {
-                                await revealItemInDir(videoPath);
-                                notify("已在访达中显示，可拖到网页上传", "ok");
-                              } else {
-                                notify(`本地路径：${videoPath}`, "info");
-                              }
-                            } catch (e) {
-                              notify(String(e), "err");
-                            }
-                          }}
-                          disabled={!mediaOk}
-                        >
-                          访达中显示
-                        </button>
-                        <button
-                          type="button"
-                          className={`primary${reviewBusyId === oid ? " is-busy" : ""}`}
-                          onClick={() => decideReview(oid, "approved")}
-                          disabled={!mediaOk || reviewBusyId === oid}
-                          title={!mediaOk ? "成片文件缺失，无法通过" : undefined}
-                        >
-                          {reviewBusyId === oid ? "处理中…" : "通过"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => decideReview(oid, "rejected")}
-                          disabled={reviewBusyId === oid}
-                          className={reviewBusyId === oid ? "is-busy" : undefined}
-                        >
-                          打回
-                        </button>
-                        <button
-                          type="button"
-                          className={`primary${reviewBusyId === oid ? " is-busy" : ""}`}
-                          onClick={() => decideReview(oid, "rejected", true)}
-                          disabled={reviewBusyId === oid}
-                        >
-                          打回并重渲
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => rerenderOnly(oid)}
-                          disabled={reviewBusyId === oid}
-                          className={reviewBusyId === oid ? "is-busy" : undefined}
-                        >
-                          仅重渲
-                        </button>
-                      </div>
-                    </article>
-                  );
-                })}
-                {readyOutputs.length === 0 && (
-                  <div className="empty">
-                    <p>暂无待抽检成片</p>
-                    <button type="button" className="primary" onClick={() => setTab("produce")}>
-                      去生产
-                    </button>
-                  </div>
-                )}
-              </div>
-            </section>
-          )}
-
-          {tab === "pack" && (
-            <section>
-              <div className="panel-head">
-                <h2>发布物料</h2>
-                <span className="count">
-                  {outputs.filter((o) => o.state === "ready").length} READY
-                </span>
-              </div>
-              <p className="hint">
-                为 ready 成片生成 publish_pack（视频、封面、四平台文案、字幕、禁词扫描）。人在回路，不自动发布。
-                下方「旁白语言 / 字幕语言 / 字幕方式」会写入客户档案，并在「生产 / 重渲」时决定成片旁白与是否烧录字幕；导出物料包也会沿用同一套设置。
-              </p>
-              <div className="actions-inline" style={{ marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.75rem" }}>
-                <label>
-                  旁白语言
-                  <LangCombobox
-                    value={voiceLang}
-                    onChange={setVoiceLang}
-                    languages={langCatalog}
-                    includeNone
-                  />
-                </label>
-                <label>
-                  字幕语言
-                  <LangCombobox
-                    value={subtitleLang}
-                    onChange={setSubtitleLang}
-                    languages={langCatalog}
-                    includeNone
-                  />
-                </label>
-                <label>
-                  字幕方式
-                  <select value={subtitleBurn} onChange={(e) => setSubtitleBurn(e.target.value)}>
-                    <option value="external">外挂 SRT（不烧录）</option>
-                    <option value="burn_mono">单语烧录</option>
-                    <option value="burn_dual">双语烧录</option>
-                  </select>
-                </label>
-                {subtitleBurn === "burn_dual" ? (
-                  <label>
-                    双语副语言
-                    <LangCombobox
-                      value={dualSecondaryLang}
-                      onChange={setDualSecondaryLang}
-                      languages={langCatalog}
-                    />
-                  </label>
-                ) : null}
-                <button
-                  type="button"
-                  className="primary"
-                  disabled={exprSaveBusy || !activeCustomerId}
-                  onClick={() => void saveExpressionPrefs()}
-                >
-                  {exprSaveBusy ? "保存中…" : "保存表达设置"}
-                  {exprDirty ? <span className="dirty-dot" title="未保存" /> : null}
-                </button>
-              </div>
-              {exprDirty ? (
-                <p className="expr-dirty-hint">表达设置已修改未保存；导出物料包前会再次确认。</p>
-              ) : null}
-              <p className="hint" style={{ marginTop: "-0.35rem" }}>
-                旁白语言 = 成片语音；字幕语言 = 主字幕文案；双语烧录时「双语副语言」为第二行。共{" "}
-                {Math.max(0, langCatalog.filter((l) => l.code !== "none").length)}{" "}
-                种语言可选。改完请点「保存表达设置」，再去生产/重渲才会进成片。
-              </p>
-              {packLast && <p className="path">{packLast}</p>}
-              <div className="review-list">
-                {outputs
-                  .filter((o) => o.state === "ready")
-                  .map((o) => (
-                    <article key={String(o.id)} className="review-card">
-                      <div className="review-meta">
-                        <strong>#{String(o.id)}</strong>
-                        <span>{String(o.title || "(无标题)")}</span>
-                        {o.has_voice ? <em className="badge-ok">旁白</em> : <em className="badge-mute">无旁白</em>}
-                        {o.subtitle_burned ? (
-                          <em className="badge-ok">字幕</em>
-                        ) : (
-                          <em className="badge-mute">无烧录字幕</em>
-                        )}
-                      </div>
-                      <p className="path">{String(o.output_path)}</p>
-                      <div className="actions-inline">
-                        <button
-                          type="button"
-                          className={`primary${packBusyId === Number(o.id) ? " is-busy" : ""}`}
-                          disabled={packBusyId === Number(o.id)}
-                          onClick={() => exportPack(Number(o.id))}
-                        >
-                          {packBusyId === Number(o.id) ? "导出中…" : "导出物料包"}
-                        </button>
-                        <button type="button" onClick={() => setTab("publish")}>
-                          去发布台
-                        </button>
-                      </div>
-                    </article>
-                  ))}
-                {outputs.filter((o) => o.state === "ready").length === 0 && (
-                  <div className="empty">
-                    <p>暂无 ready 成片</p>
-                    <button type="button" className="primary" onClick={() => setTab("produce")}>
-                      去生产
-                    </button>
-                  </div>
-                )}
-              </div>
-            </section>
-          )}
-
-          {tab === "publish" && (
-            <PublishDesk
-              outputs={outputs}
-              onNotify={notify}
-              onRefresh={refreshAll}
-              onGoReach={() => setTab("reach")}
-              mediaEpoch={mediaEpoch}
-            />
-          )}
-
-          {tab === "reach" && (
-            <section>
-              <div className="panel-head">
-                <h2>触达助手</h2>
-                <span className="count">
-                  未读 {reachInbox?.unread_count ?? 0} · 队列 {reachItems.length}
-                </span>
-              </div>
-              <p className="hint">
-                默认人点发布 · 选手台+数量按需建 Chrome 配置 · 封面模板多套按平台槽位 · 文案+封面齐套才允许自动点发 ·
-                抖音可自动上传 / 其它平台开页或 CDP · 不提供绕检测 / Cookie 池 / 矩阵养号。详见 docs/REACH_NON_GOALS.md
-                复制文案请先到「发布」台。
-              </p>
-              <div className="actions-inline" style={{ marginBottom: 12 }}>
-                <button type="button" className="primary" onClick={() => setTab("publish")}>
-                  去发布台复制文案
-                </button>
-              </div>
-              {reachQuota && (
-                <p className="path">
-                  今日配额 {String(reachQuota.used_total ?? reachQuota.used_today)}/
-                  {String(reachQuota.daily_quota)}
-                  {reachQuota.blocked ? " · 已阻塞" : ""}
-                </p>
-              )}
-
-              <div className="reach-quota panel-block">
-                <h3>每日配额</h3>
-                <p className="hint">
-                  先设日总额，再按平台分配；各平台相加不能超过总额。关闭「按平台分配」时只限制总额。
-                </p>
-                <div className="actions-inline" style={{ marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
-                  <label className="field-inline">
-                    日总额
-                    <input
-                      type="number"
-                      min={0}
-                      max={500}
-                      value={quotaTotal}
-                      disabled={quotaBusy}
-                      onChange={(e) => setQuotaTotal(Number(e.target.value) || 0)}
-                      style={{ width: 72 }}
-                    />
-                  </label>
-                  <label className="field-inline" style={{ gap: 6 }}>
-                    <input
-                      type="checkbox"
-                      checked={quotaSplit}
-                      disabled={quotaBusy}
-                      onChange={(e) => {
-                        const on = e.target.checked;
-                        setQuotaSplit(on);
-                        if (on) {
-                          const cur = Object.values(quotaByPlatform).reduce((a, b) => a + b, 0);
-                          if (cur === 0 && reachPlatforms.length) {
-                            const n = reachPlatforms.length;
-                            const base = Math.floor(quotaTotal / n);
-                            let rem = Math.max(0, quotaTotal - base * n);
-                            const next: Record<string, number> = {};
-                            for (const p of reachPlatforms) {
-                              next[p.id] = base + (rem > 0 ? 1 : 0);
-                              if (rem > 0) rem -= 1;
-                            }
-                            setQuotaByPlatform(next);
-                          }
-                        }
-                      }}
-                    />
-                    按平台分配
-                  </label>
-                  <span className="hint">
-                    {quotaSplit
-                      ? `已分配 ${Object.values(quotaByPlatform).reduce((a, b) => a + b, 0)} / ${quotaTotal}`
-                      : "仅限制总额"}
-                  </span>
-                </div>
-                {quotaSplit && (
-                  <div className="quota-plat-grid">
-                    {reachPlatforms.map((p) => {
-                      const usedRow = (
-                        (reachQuota?.platforms as Array<Record<string, unknown>> | undefined) || []
-                      ).find((r) => r.id === p.id);
-                      const used = Number(usedRow?.used_today ?? 0);
-                      return (
-                        <label key={p.id} className="quota-plat-cell">
-                          <span className="quota-plat-name">{p.short || p.label}</span>
-                          <input
-                            type="number"
-                            min={0}
-                            max={500}
-                            value={quotaByPlatform[p.id] ?? 0}
-                            disabled={quotaBusy}
-                            onChange={(e) =>
-                              setQuotaByPlatform((prev) => ({
-                                ...prev,
-                                [p.id]: Number(e.target.value) || 0,
-                              }))
-                            }
-                          />
-                          <span className="hint">今日已用 {used}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                )}
-                {quotaSplit &&
-                  Object.values(quotaByPlatform).reduce((a, b) => a + b, 0) > quotaTotal && (
-                    <p className="hint" style={{ color: "var(--danger)" }}>
-                      平台合计已超过日总额，请调整后再保存
-                    </p>
-                  )}
-                <div className="actions-inline" style={{ marginTop: 10 }}>
-                  <button
-                    type="button"
-                    className={`primary${quotaBusy ? " is-busy" : ""}`}
-                    disabled={
-                      quotaBusy ||
-                      (quotaSplit &&
-                        Object.values(quotaByPlatform).reduce((a, b) => a + b, 0) > quotaTotal)
-                    }
-                    onClick={() => saveReachQuota()}
-                  >
-                    {quotaBusy ? "保存中…" : "保存配额"}
-                  </button>
-                </div>
-              </div>
-
-              <ReachCoverSection
-                platforms={reachPlatforms}
-                templates={coverTemplates}
-                editId={coverEditId}
-                selectedId={coverSelectedId}
-                newName={coverNewName}
-                slotCounts={coverSlotCounts}
-                slotSpecs={coverSlotSpecs}
-                previewPlat={coverPreviewPlat}
-                previewMsg={coverPreviewMsg}
-                busy={coverBusy}
-                onNewName={setCoverNewName}
-                onEditId={setCoverEditId}
-                onPreviewPlat={setCoverPreviewPlat}
-                onCreate={coverCreateTemplate}
-                onSeed={coverSeedFromPack}
-                onSelect={coverSelectTemplate}
-                onDelete={coverDeleteTemplate}
-                onSetSlot={coverSetSlot}
-                onPreview={coverPreviewResolve}
-              />
-
-              <div className="reach-chrome panel-block">
-                <h3>Chrome 配置</h3>
-              <div className="actions-inline" style={{ marginBottom: 12, gap: 8, flexWrap: "wrap" }}>
-                <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  <span>平台</span>
-                  <select
-                    value={chromeCreatePlatform}
-                    onChange={(e) => setChromeCreatePlatform(e.target.value)}
-                    disabled={chromeBusy}
-                    style={{ minWidth: 120 }}
-                  >
-                    {reachPlatforms.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.short || p.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  <span>数量</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={10}
-                    value={chromeCreateCount}
-                    onChange={(e) => setChromeCreateCount(Number(e.target.value) || 1)}
-                    disabled={chromeBusy}
-                    style={{ width: 64 }}
-                  />
-                </label>
-                <button type="button" className="primary" disabled={chromeBusy} onClick={reachCreateChromeProfiles}>
-                  创建配置
-                </button>
-              </div>
-              <div className="actions-inline" style={{ marginBottom: 12, gap: 8, flexWrap: "wrap" }}>
-                <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  <span>当前配置</span>
-                  <select
-                    value={chromeSelected}
-                    onChange={(e) => reachSelectChromeProfile(e.target.value)}
-                    disabled={chromeBusy || chromeProfiles.length === 0}
-                    style={{ minWidth: 160 }}
-                  >
-                    {chromeProfiles.length === 0 && <option value="">暂无本地配置</option>}
-                    {chromeProfiles.map((p) => (
-                      <option key={p.name} value={p.name}>
-                        {p.platform ? `${p.name}（${p.platform}）` : p.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  className="primary"
-                  disabled={chromeBusy || !chromeSelected || !chromeInstalled}
-                  onClick={reachOpenChromeProfile}
-                >
-                  打开官方页
-                </button>
-                <button
-                  type="button"
-                  className="primary"
-                  disabled={chromeBusy || autoUploadBusy || !chromeSelected || !chromeInstalled}
-                  onClick={() => reachStartAutoUpload()}
-                >
-                  {autoUploadBusy ? "等待登录/上传中…" : "等待登录后自动上传"}
-                </button>
-                {autoUploadBusy ? (
-                  <button type="button" onClick={reachCancelAutoUpload}>
-                    取消自动上传
-                  </button>
-                ) : null}
-                <button type="button" onClick={() => refreshReach()}>
-                  刷新
-                </button>
-              </div>
-              <p className="hint reach-risk-hint">
-                自动上传会用本机 Chrome 打开官方页并代填；平台风控与账号安全由你自行承担（accept_risk）。
-              </p>
-              {chromeRoot ? (
-                <p className="path">
-                  配置目录 {chromeRoot}
-                  {chromeInstalled ? "" : " · 未检测到 Google Chrome"}
-                  {chromeSelected ? ` · 当前 ${chromeSelected}` : ""}
-                </p>
-              ) : null}
-              {(autoUploadPhase || autoUploadMsg) && (
-                <p className="path">
-                  自动上传 {autoUploadPhase || "—"}: {autoUploadMsg || ""}
-                </p>
-              )}
-              </div>
-              <div className="actions-inline" style={{ marginBottom: 12, gap: 8, flexWrap: "wrap" }}>
-                <input
-                  value={reachPackDir}
-                  onChange={(e) => setReachPackDir(e.target.value)}
-                  placeholder="publish_pack 目录路径"
-                  style={{ minWidth: 280, flex: 1 }}
-                />
-                <button type="button" className="primary" disabled={queueBusy} onClick={reachEnqueueFromPack}>
-                  {queueBusy ? "处理中…" : "从物料包入队"}
-                </button>
-              </div>
-              {reachMsg && <p className="path">{reachMsg}</p>}
-              {(reachInbox?.notices || []).length > 0 && (
-                <div className="review-list" style={{ marginBottom: 16 }}>
-                  <h3>提醒</h3>
-                  {(reachInbox?.notices || []).slice(0, 8).map((n) => (
-                    <article key={String(n.id)} className="review-card">
-                      <div className="review-meta">
-                        <strong>{String(n.kind)}</strong>
-                        <span>{String(n.summary)}</span>
-                      </div>
-                      {n.deep_link && typeof n.deep_link === "object" ? (
-                        <p className="path">{String((n.deep_link as Record<string, unknown>).url || "")}</p>
-                      ) : null}
-                    </article>
-                  ))}
-                </div>
-              )}
-              <div className="review-list">
-                {reachItems.map((it) => (
-                  <article key={String(it.id)} className="review-card">
-                    <div className="review-meta">
-                      <strong>
-                        #{String(it.id)} · {String(it.platform)}
-                      </strong>
-                      <span>{String(it.status)}</span>
-                    </div>
-                    <p>{String(it.title || "")}</p>
-                    <p className="path">{String(it.video_path || "")}</p>
-                    <div className="actions-inline">
-                      <button
-                        type="button"
-                        className="primary"
-                        disabled={queueBusy || it.status === "published" || it.status === "cancelled"}
-                        onClick={() => reachOpenItem(Number(it.id))}
-                      >
-                        打开官方入口
-                      </button>
-                      <button
-                        type="button"
-                        disabled={
-                          autoUploadBusy ||
-                          !chromeSelected ||
-                          !chromeInstalled ||
-                          it.status === "published" ||
-                          it.status === "cancelled"
-                        }
-                        onClick={() => reachStartAutoUpload(Number(it.id))}
-                      >
-                        此条自动上传
-                      </button>
-                      {it.status === "awaiting_human" && (
-                        <button type="button" onClick={() => reachMarkPublished(Number(it.id))}>
-                          我已发布
-                        </button>
-                      )}
-                    </div>
-                  </article>
-                ))}
-                {reachItems.length === 0 && <p className="empty">暂无触达队列项</p>}
-              </div>
-            </section>
-          )}
-
-          {tab === "assistant" && (
+          <div style={{ flex: 1, minHeight: 0 }}>
             <AssistantChat
               notify={notify}
               keyConfigured={cursorKeyConfigured}
-              onGoOps={() => setTab("ops")}
+              onGoOps={() => {
+                setAssistantOpen(false);
+                goTab("settings", { settings: "customer" });
+              }}
               onConfirmReset={() =>
                 askConfirm({
                   title: "开启新对话",
@@ -3158,523 +2823,15 @@ function App() {
                 })
               }
             />
-          )}
+          </div>
+        </div>
+      </>
+    ) : null}
 
-          {tab === "ops" && (
-            <section>
-              <div className="panel-head">
-                <h2>运维与设置</h2>
-              </div>
-
-              <h3 className="section-title">向量化</h3>
-              <div className="actions">
-                {vectorization ? (
-                  <button type="button" onClick={() => disableVectorization().catch((e) => notify(String(e), "err"))}>
-                    关闭向量化
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="primary"
-                    onClick={() => enableVectorization()}
-                  >
-                    手动开启向量化
-                  </button>
-                )}
-                <span className="hint">
-                  {vectorization
-                    ? `增量模式已开${health?.vectorization_enabled_at ? ` · ${health.vectorization_enabled_at}` : ""}`
-                    : "默认关闭；开启后仅增量补缺口，不整库重算"}
-                </span>
-              </div>
-
-              <h3 className="section-title">Cursor API Key</h3>
-              <p className="hint" style={{ marginBottom: 10 }}>
-                用于速影内调用 Cursor Agent（auto 模型）。在{" "}
-                <a href="https://cursor.com/dashboard/api" target="_blank" rel="noreferrer">
-                  cursor.com/dashboard/api
-                </a>{" "}
-                创建 User API Key，粘贴后保存或验证即可。密钥保存在本机工作区，不会进同步目录。
-              </p>
-              <label>
-                API Key
-                <input
-                  type="password"
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={cursorApiKeyInput}
-                  onChange={(e) => setCursorApiKeyInput(e.target.value)}
-                  placeholder={
-                    cursorKeyConfigured
-                      ? `已保存 ${cursorKeyHint || "••••"} · 输入新密钥可覆盖`
-                      : "粘贴 cursor_… 或 crsr_… 密钥"
-                  }
-                />
-              </label>
-              <div className="actions" style={{ marginTop: 8 }}>
-                <button
-                  type="button"
-                  className="primary"
-                  disabled={actionBusy === "cursorKey" || actionBusy === "cursorVerify"}
-                  onClick={() => saveCursorApiKey()}
-                >
-                  {actionBusy === "cursorKey" ? "保存中…" : "保存"}
-                </button>
-                <button
-                  type="button"
-                  disabled={actionBusy === "cursorKey" || actionBusy === "cursorVerify"}
-                  onClick={() => verifyCursorApiKey()}
-                >
-                  {actionBusy === "cursorVerify" ? "验证中…" : "验证并启用"}
-                </button>
-                {cursorKeyConfigured ? (
-                  <button
-                    type="button"
-                    disabled={actionBusy === "cursorClear"}
-                    onClick={() => clearCursorApiKey()}
-                  >
-                    清除
-                  </button>
-                ) : null}
-                <span className="hint">
-                  {cursorKeyConfigured
-                    ? `状态：已配置 ${cursorKeyHint || ""}`
-                    : "状态：未配置"}
-                </span>
-              </div>
-
-              <h3 className="section-title">极空间同步（预设置）</h3>
-              <p className="hint" style={{ marginBottom: 10 }}>
-                先绑定要同步的极空间账号+设备；客户端登录其他账号时同步会自动跳过，避免多台设备串数据。
-              </p>
-              <div className="actions">
-                <button
-                  type="button"
-                  onClick={() =>
-                    api
-                      .zspaceSyncStatus()
-                      .then((r) => {
-                        setSyncStatus(r);
-                        notify("同步状态已刷新", "ok");
-                      })
-                      .catch((e) => notify(String(e), "err"))
-                  }
-                >
-                  刷新同步状态
-                </button>
-                <button
-                  type="button"
-                  className="primary"
-                  onClick={() =>
-                    api
-                      .zspaceSyncInstall()
-                      .then((r) => {
-                        notify(briefResult("同步服务已安装", r), "ok");
-                        return api.zspaceSyncStatus().then(setSyncStatus);
-                      })
-                      .catch((e) => notify(String(e), "err"))
-                  }
-                >
-                  安装 / 重装同步服务
-                </button>
-              </div>
-              {syncStatus && (
-                <div className="hint" style={{ margin: "8px 0 12px", whiteSpace: "pre-wrap" }}>
-                  {[
-                    `脚本: ${syncStatus.scripts_installed ? "已装" : "未装"}`,
-                    `LaunchAgent: ${syncStatus.launchd_loaded ? `已加载(${syncStatus.launchd_state})` : "未加载"}`,
-                    `外置盘同步根: ${syncStatus.local_root_exists ? "OK" : "未挂载"} · ${syncStatus.local_root}`,
-                    `工作区: ${syncStatus.work_root_exists ? "OK" : "无"} · ${syncStatus.work_root}`,
-                    `极空间代理: ${syncStatus.zspace_proxy_ok ? `OK :${syncStatus.zspace_proxy_port}` : "未通"}`,
-                    `账号绑定: ${
-                      syncStatus.zspace_match
-                        ? "匹配"
-                        : syncStatus.zspace_bound_ok
-                          ? `未匹配 — ${syncStatus.zspace_reason || ""}`
-                          : "未绑定"
-                    }`,
-                    (() => {
-                      const b = syncStatus.zspace_bound as Record<string, string> | undefined;
-                      return b?.username
-                        ? `已绑定: ${b.username} / ${b.nas_id} (${b.nas_name || "—"})`
-                        : "已绑定: —";
-                    })(),
-                    (() => {
-                      const a = syncStatus.zspace_active as Record<string, string> | undefined;
-                      return a?.username
-                        ? `当前登录: ${a.username} / ${a.nas_id} (${a.nas_name || "—"})`
-                        : "当前登录: 无";
-                    })(),
-                    `客户: ${Array.isArray(syncStatus.customers) ? (syncStatus.customers as string[]).join("、") || "—" : "—"}`,
-                  ].join("\n")}
-                </div>
-              )}
-              {Array.isArray(syncStatus?.zspace_accounts) && (syncStatus.zspace_accounts as unknown[]).length > 0 && (
-                <div style={{ marginBottom: 16 }}>
-                  <div className="hint" style={{ marginBottom: 6 }}>
-                    选择绑定账号（来自极空间客户端历史 / 当前登录）
-                  </div>
-                  <div className="actions" style={{ flexWrap: "wrap" }}>
-                    {(syncStatus.zspace_accounts as Array<Record<string, unknown>>).map((acc) => {
-                      const username = String(acc.username || "");
-                      const nasId = String(acc.nas_id || "");
-                      const nasName = String(acc.nas_name || "");
-                      const label = `${username} · ${nasName || nasId}${acc.active ? "（当前）" : ""}`;
-                      return (
-                        <button
-                          key={`${username}-${nasId}`}
-                          type="button"
-                          onClick={() =>
-                            api
-                              .zspaceSyncBind({ username, nas_id: nasId, nas_name: nasName })
-                              .then((r) => {
-                                notify(
-                                  r.active_matches
-                                    ? `已绑定且与当前登录一致: ${username} / ${nasId}`
-                                    : `已绑定 ${username} / ${nasId}。${r.hint || "请切换客户端登录该账号后再同步。"}`,
-                                  r.active_matches ? "ok" : "warn",
-                                );
-                                return api.zspaceSyncStatus().then(setSyncStatus);
-                              })
-                              .catch((e) => notify(String(e), "err"))
-                          }
-                        >
-                          绑定 {label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              <div className="grid2" style={{ marginBottom: 16 }}>
-                <label>
-                  新建客户（标准布局）
-                  <div className="path-row">
-                    <input
-                      value={newCustName}
-                      onChange={(e) => setNewCustName(e.target.value)}
-                      placeholder="客户全称"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!newCustName.trim()) {
-                          notify("请填写客户名", "err");
-                          return;
-                        }
-                        api
-                          .zspaceEnsureCustomer(newCustName.trim(), true)
-                          .then(async (ensured) => {
-                            const p = ensured.paths || {};
-                            const c = await api.createCustomer({
-                              name: newCustName.trim(),
-                              library_root: String(p.library_root || ""),
-                              output_root: String(p.output_root || ""),
-                              keyword_pack_path: String(p.keyword_pack_path || "") || undefined,
-                            });
-                            await api.activateCustomer(c.name);
-                            setNewCustName("");
-                            notify(`已建客户并登记同步: ${c.name}`, "ok");
-                            await refreshAll();
-                            return api.zspaceSyncStatus().then(setSyncStatus);
-                          })
-                          .catch((e) => notify(String(e), "err"));
-                      }}
-                    >
-                      创建并登记
-                    </button>
-                  </div>
-                </label>
-              </div>
-
-              <h3 className="section-title">服务开关</h3>              <div className="actions">
-                {(
-                  [
-                    ["watcher", "片库监视"],
-                    ["worker", "任务 Worker"],
-                    ["scheduler", "调度器"],
-                  ] as const
-                ).map(([name, label]) => {
-                  const on =
-                    name === "watcher"
-                      ? services?.watcher
-                      : name === "worker"
-                        ? services?.worker
-                        : services?.scheduler;
-                  return (
-                    <button
-                      key={name}
-                      type="button"
-                      onClick={() =>
-                        api
-                          .serviceControl(name, on ? "stop" : "start")
-                          .then(() => api.servicesStatus().then(setServices))
-                          .catch((e) => notify(String(e), "err"))
-                      }
-                    >
-                      {label}: {on ? "运行中 → 停止" : "已停 → 启动"}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <h3 className="section-title">每日自动开跑</h3>
-              <div className="grid3">
-                <label>
-                  开关
-                  <select value={autoDaily ? "1" : "0"} onChange={(e) => setAutoDaily(e.target.value === "1")}>
-                    <option value="0">关闭</option>
-                    <option value="1">开启</option>
-                  </select>
-                </label>
-                <label>
-                  整点
-                  <input
-                    type="number"
-                    min={0}
-                    max={23}
-                    value={autoHour}
-                    onChange={(e) => setAutoHour(Number(e.target.value))}
-                  />
-                </label>
-              </div>
-
-              <h3 className="section-title">路径与词池</h3>
-              <p className="hint" style={{ marginBottom: 10 }}>
-                首次配置完成后会记住；只需在变更片库/输出/词池时在此修改并保存。
-              </p>
-              <div className="grid2">
-                <label>
-                  主片库
-                  <div className="path-row">
-                    <input value={libraryRoot} onChange={(e) => setLibraryRoot(e.target.value)} />
-                    <button type="button" onClick={() => pickDir().then((p) => p && setLibraryRoot(p))}>
-                      选择
-                    </button>
-                  </div>
-                </label>
-                <label>
-                  输出目录
-                  <div className="path-row">
-                    <input value={outputRoot} onChange={(e) => setOutputRoot(e.target.value)} />
-                    <button type="button" onClick={() => pickDir().then((p) => p && setOutputRoot(p))}>
-                      选择
-                    </button>
-                  </div>
-                </label>
-              </div>
-              <label>
-                追加片库（每行一个）
-                <textarea rows={2} value={libraryRootsText} onChange={(e) => setLibraryRootsText(e.target.value)} />
-              </label>
-              <label>
-                缓存目录（抽帧 / 代理 / 规范化）
-                <div className="path-row">
-                  <input
-                    value={cacheRoot}
-                    onChange={(e) => setCacheRoot(e.target.value)}
-                    placeholder="/Users/…/速影工作区/cache"
-                  />
-                  <button type="button" onClick={() => pickDir().then((p) => p && setCacheRoot(p))}>
-                    选择
-                  </button>
-                </div>
-              </label>
-              <label>
-                渲染临时目录（不同步）
-                <div className="path-row">
-                  <input
-                    value={renderRoot}
-                    onChange={(e) => setRenderRoot(e.target.value)}
-                    placeholder="/Users/…/速影工作区/render"
-                  />
-                  <button type="button" onClick={() => pickDir().then((p) => p && setRenderRoot(p))}>
-                    选择
-                  </button>
-                </div>
-              </label>
-              <label>
-                SQLite 数据目录（montage.db）
-                <div className="path-row">
-                  <input
-                    value={dataRoot}
-                    onChange={(e) => setDataRoot(e.target.value)}
-                    placeholder="/Users/…/速影工作区/db"
-                  />
-                  <button type="button" onClick={() => pickDir().then((p) => p && setDataRoot(p))}>
-                    选择
-                  </button>
-                </div>
-              </label>
-              <p className="hint" style={{ margin: "6px 0 12px" }}>
-                当前库文件：{vectorDbPath || "…/montage.db"}（工作区在外置盘、不进极空间同步；外置盘请先挂载再开引擎）
-              </p>
-              <label>
-                词池路径
-                <div className="path-row">
-                  <input value={keywordPackPath} onChange={(e) => setKeywordPackPath(e.target.value)} />
-                  <button type="button" onClick={() => pickFile().then((p) => p && setKeywordPackPath(p))}>
-                    选择
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      api
-                        .reloadKeywordsFromPath(activeCustomerId ?? undefined)
-                        .then(async (r) => {
-                          notify(briefResult("词池已重载", r), "ok");
-                          try {
-                            const s = await api.keywordsActiveSummary(activeCustomerId ?? undefined);
-                            setTitlePoolSummary({
-                              loaded: s.loaded,
-                              title_pool_count: s.title_pool_count,
-                              title_pool_sample: s.title_pool_sample || [],
-                              hooks_count: s.hooks_count,
-                              max_chars_per_line: s.max_chars_per_line,
-                              version: s.version,
-                            });
-                          } catch {
-                            /* ignore */
-                          }
-                        })
-                        .catch((e) => notify(String(e), "err"))
-                    }
-                  >
-                    从路径重载
-                  </button>
-                </div>
-              </label>
-              {titlePoolSummary ? (
-                <div className="hint" style={{ margin: "8px 0 12px" }}>
-                  <div style={{ marginBottom: 6 }}>
-                    片上标题语库：{titlePoolSummary.loaded ? titlePoolSummary.title_pool_count : 0} 条
-                    {titlePoolSummary.max_chars_per_line
-                      ? `（单句≤${titlePoolSummary.max_chars_per_line}字）`
-                      : ""}
-                    {titlePoolSummary.version != null ? ` · 词池 v${titlePoolSummary.version}` : ""}
-                    {` · hooks ${titlePoolSummary.hooks_count}`}
-                    <button
-                      type="button"
-                      style={{ marginLeft: 8 }}
-                      onClick={() =>
-                        api
-                          .keywordsActiveSummary(activeCustomerId ?? undefined)
-                          .then((s) =>
-                            setTitlePoolSummary({
-                              loaded: s.loaded,
-                              title_pool_count: s.title_pool_count,
-                              title_pool_sample: s.title_pool_sample || [],
-                              hooks_count: s.hooks_count,
-                              max_chars_per_line: s.max_chars_per_line,
-                              version: s.version,
-                            }),
-                          )
-                          .catch((e) => notify(String(e), "err"))
-                      }
-                    >
-                      刷新预览
-                    </button>
-                  </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {(titlePoolSummary.title_pool_sample || []).slice(0, 24).map((t) => (
-                      <span
-                        key={t}
-                        style={{
-                          border: "1px solid var(--border, #ccc)",
-                          borderRadius: 4,
-                          padding: "2px 6px",
-                          whiteSpace: "pre-line",
-                          fontSize: 12,
-                        }}
-                      >
-                        {t}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-              <div className="actions">
-                <button
-                  type="button"
-                  className={`primary${actionBusy === "savePaths" ? " is-busy" : ""}`}
-                  disabled={actionBusy === "savePaths"}
-                  onClick={() => savePaths()}
-                >
-                  {actionBusy === "savePaths" ? "保存中…" : "保存设置"}
-                </button>
-                <button
-                  type="button"
-                  disabled={actionBusy === "cleanCache"}
-                  className={actionBusy === "cleanCache" ? "is-busy" : undefined}
-                  onClick={() => {
-                    setActionBusy("cleanCache");
-                    api
-                      .cleanCache(24)
-                      .then((r) => notify(`清理缓存: ${r.removed_files} 文件 / ${r.freed_mb} MB`, "ok"))
-                      .catch((e) => notify(String(e), "err"))
-                      .finally(() => setActionBusy(null));
-                  }}
-                >
-                  {actionBusy === "cleanCache" ? "清理中…" : "清理缓存"}
-                </button>
-                <button
-                  type="button"
-                  disabled={actionBusy === "scheduler"}
-                  className={actionBusy === "scheduler" ? "is-busy" : undefined}
-                  onClick={() => {
-                    setActionBusy("scheduler");
-                    api
-                      .schedulerRunNow(true)
-                      .then((r) => notify(briefResult("调度已触发", r), "ok"))
-                      .catch((e) => notify(String(e), "err"))
-                      .finally(() => setActionBusy(null));
-                  }}
-                >
-                  立即按日历开跑
-                </button>
-              </div>
-
-              <h3 className="section-title">日志</h3>
-              <div className="actions">
-                <button type="button" onClick={() => api.exportEvents()}>
-                  导出事件 CSV
-                </button>
-                <button type="button" onClick={() => api.exportRenders()}>
-                  导出成片 CSV
-                </button>
-                <button type="button" onClick={refreshAll}>
-                  刷新
-                </button>
-              </div>
-              <table>
-                <thead>
-                  <tr>
-                    <th>时间</th>
-                    <th>Job</th>
-                    <th>级别</th>
-                    <th>消息</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {events.slice(0, 40).map((e) => (
-                    <tr key={String(e.id)}>
-                      <td>{String(e.created_at)}</td>
-                      <td>{String(e.job_id)}</td>
-                      <td>{String(e.level)}</td>
-                      <td>{String(e.message)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
-          )}
-          </StageMotion>
-        </main>
-      </div>
       <CommandPalette
         open={cmdOpen}
         onClose={() => setCmdOpen(false)}
-        onSetTab={setTab}
+        onSetTab={goTab}
         extra={cmdExtra}
       />
       {dialog?.mode === "confirm" ? (
@@ -3715,7 +2872,7 @@ function App() {
           }}
         />
       ) : null}
-    </div>
+    </>
   );
 }
 

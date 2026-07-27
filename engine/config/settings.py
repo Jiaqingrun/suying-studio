@@ -121,12 +121,12 @@ class AppSettings(BaseSettings):
     tts_provider: str = "edge"
     tts_voice: str = "zh-CN-XiaoxiaoNeural"
     tts_rate: str = "-8%"
-    tts_pitch: str = "+20Hz"
+    tts_pitch: str = "+35Hz"
     tts_chars_per_sec_zh: float = 3.8
     tts_chars_per_sec_en: float = 13.0
     # G4 mix: narration leads; BGM bed ducks under voice
     narration_gain: float = 1.0
-    bgm_bed_gain: float = 0.2
+    bgm_bed_gain: float = 0.48
     # G5 Reach limits (per customer / calendar day)
     reach_daily_quota: int = 5
     # Per-platform caps; empty = only total applies. When set, sum(values) must be <= reach_daily_quota.
@@ -141,6 +141,16 @@ class AppSettings(BaseSettings):
     # First-run wizard completed
     onboarded: bool = False
     product_name: str = "速影"
+    # Local AI models (Ollama). Empty → host-tier recommendation at runtime.
+    ollama_embed_model: str = "nomic-embed-text"
+    ollama_vision_model: str = ""
+    # Cascade: primary (fast screen) → escalate on gate/timeout/schema. Empty escalate → tier default.
+    ollama_vision_escalate_model: str = ""
+    ollama_vision_cascade: bool = True
+    # Ops toggle: Ollama rewrites visual hints → spoken copy + theme emoji stickers before burn
+    ollama_narration_enabled: bool = False
+    ollama_narration_model: str = ""  # empty → vision model or qwen2.5:7b
+    ollama_narration_burn_emoji: bool = True
     # Cursor Agent SDK / Cloud Agents — stored in workspace settings (never sync tree)
     cursor_api_key: str = ""
 
@@ -185,6 +195,18 @@ def load_settings() -> AppSettings:
     from engine.ops.cursor_key import apply_cursor_api_key_env
 
     apply_cursor_api_key_env(settings.cursor_api_key)
+    # Prefer install-runtime.sh hint when vision model not chosen yet
+    if not (settings.ollama_vision_model or "").strip():
+        hint_path = settings.paths.data_root / "recommended_models.json"
+        if hint_path.exists():
+            try:
+                hint = json.loads(hint_path.read_text(encoding="utf-8"))
+                if hint.get("ollama_embed_model"):
+                    settings.ollama_embed_model = str(hint["ollama_embed_model"])
+                if hint.get("ollama_vision_model"):
+                    settings.ollama_vision_model = str(hint["ollama_vision_model"])
+            except Exception:
+                pass
     return settings
 
 

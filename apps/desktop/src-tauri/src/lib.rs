@@ -1,3 +1,5 @@
+mod settings_lock;
+
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,9 +12,68 @@ struct EngineState {
     child: Option<Child>,
 }
 
+/// macOS: …/速影.app/Contents/Resources when running from a bundled App.
+fn bundle_resources_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let macos_dir = exe.parent()?;
+    if macos_dir.file_name()?.to_str()? != "MacOS" {
+        return None;
+    }
+    let contents = macos_dir.parent()?;
+    let resources = contents.join("Resources");
+    if resources.is_dir() {
+        Some(resources)
+    } else {
+        None
+    }
+}
+
+fn bundled_studio_root() -> Option<PathBuf> {
+    let resources = bundle_resources_dir()?;
+    let studio = resources.join("runtime").join("studio");
+    if studio.join("engine").join("main.py").exists() {
+        Some(studio)
+    } else {
+        None
+    }
+}
+
+fn bundled_creative_root() -> Option<PathBuf> {
+    let resources = bundle_resources_dir()?;
+    let creative = resources.join("runtime").join("creative");
+    if creative.is_dir() {
+        Some(creative)
+    } else {
+        None
+    }
+}
+
+fn bundled_python() -> Option<PathBuf> {
+    let resources = bundle_resources_dir()?;
+    let candidates = [
+        resources.join("runtime/python/bin/python3"),
+        resources.join("runtime/python/bin/python"),
+    ];
+    for c in candidates {
+        if c.exists() && python_has_uvicorn(&c) {
+            return Some(c);
+        }
+    }
+    // Present but missing deps — still return so resolve_python can error clearly.
+    let raw = resources.join("runtime/python/bin/python3");
+    if raw.exists() {
+        return Some(raw);
+    }
+    None
+}
+
 fn repo_root() -> PathBuf {
     if let Ok(p) = std::env::var("SUYING_ROOT").or_else(|_| std::env::var("MONTAGE_ROOT")) {
         return PathBuf::from(p);
+    }
+    // Packaged App: engine lives inside the bundle (scheme A).
+    if let Some(studio) = bundled_studio_root() {
+        return studio;
     }
     let home = dirs_next::home_dir().unwrap_or_else(|| PathBuf::from("."));
     // Customer/runtime first, then developer checkout.
@@ -44,7 +105,10 @@ fn repo_root() -> PathBuf {
             return ancestor.to_path_buf();
         }
         if ancestor.join("../engine/main.py").exists() {
-            return ancestor.join("..").canonicalize().unwrap_or(ancestor.to_path_buf());
+            return ancestor
+                .join("..")
+                .canonicalize()
+                .unwrap_or(ancestor.to_path_buf());
         }
     }
     home.join("Suying/montage-studio")
@@ -90,8 +154,8 @@ fn python_has_uvicorn(python: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// GUI apps get a minimal PATH (often /usr/bin first). Prefer conda / brew /
-/// explicit env so we don't hit Apple CLT python without deps.
+/// GUI apps get a minimal PATH (often /usr/bin first). Prefer bundle /
+/// conda / brew / explicit env so we don't hit Apple CLT python without deps.
 fn resolve_python() -> Result<PathBuf, String> {
     if let Ok(p) = std::env::var("SUYING_PYTHON").or_else(|_| std::env::var("MONTAGE_PYTHON")) {
         let path = PathBuf::from(&p);
@@ -106,8 +170,21 @@ fn resolve_python() -> Result<PathBuf, String> {
         return Err(format!("SUYING_PYTHON/MONTAGE_PYTHON 不存在: {p}"));
     }
 
+    if let Some(bundled) = bundled_python() {
+        if python_has_uvicorn(&bundled) {
+            return Ok(bundled);
+        }
+        return Err(format!(
+            "App 内嵌 Python 缺少 uvicorn（{}）。请重新运行打包脚本 embed-app-runtime。",
+            bundled.display()
+        ));
+    }
+
     let home = dirs_next::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    let studio = repo_root();
     let candidates = [
+        studio.join(".venv/bin/python3"),
+        studio.join(".venv/bin/python"),
         home.join("QR/dev/montage-studio/.venv/bin/python3"),
         home.join("QR/dev/montage-studio/.venv/bin/python"),
         PathBuf::from("/opt/anaconda3/bin/python3"),
@@ -132,14 +209,15 @@ fn resolve_python() -> Result<PathBuf, String> {
                     return Ok(path);
                 }
                 return Err(format!(
-                    "找到的 python3（{p}）没有安装 uvicorn。请用 Anaconda/Homebrew 的 Python，或设置 SUYING_PYTHON=/opt/anaconda3/bin/python3"
+                    "找到的 python3（{p}）没有安装 uvicorn。请用内嵌运行时重新打包，或设置 SUYING_PYTHON。"
                 ));
             }
         }
     }
 
     Err(
-        "找不到可用的 Python（需已安装 uvicorn）。请安装依赖或设置环境变量 SUYING_PYTHON。".into(),
+        "找不到可用的 Python（需已安装 uvicorn）。一体包请用 scripts/embed-app-runtime.sh 打包；开发机可设置 SUYING_PYTHON。"
+            .into(),
     )
 }
 
@@ -162,6 +240,7 @@ struct EngineStatus {
     repo: String,
     python: String,
     message: Option<String>,
+    bundled: bool,
 }
 
 fn status_inner(state: &Mutex<EngineState>, message: Option<String>) -> EngineStatus {
@@ -205,6 +284,7 @@ fn status_inner(state: &Mutex<EngineState>, message: Option<String>) -> EngineSt
         repo: repo_root().display().to_string(),
         python,
         message,
+        bundled: bundled_studio_root().is_some(),
     }
 }
 
@@ -221,7 +301,10 @@ fn engine_start(state: tauri::State<'_, Mutex<EngineState>>) -> Result<EngineSta
 
     let root = repo_root();
     if !root.join("engine/main.py").exists() {
-        return Err(format!("找不到引擎目录: {}", root.display()));
+        return Err(format!(
+            "找不到引擎目录: {}。一体包应含 Contents/Resources/runtime/studio；开发机请设置 SUYING_ROOT。",
+            root.display()
+        ));
     }
     let python = resolve_python()?;
 
@@ -255,10 +338,11 @@ fn engine_start(state: tauri::State<'_, Mutex<EngineState>>) -> Result<EngineSta
         use std::io::Write;
         let _ = writeln!(
             marker,
-            "\n==== engine_start {} python={} cwd={} ====",
+            "\n==== engine_start {} python={} cwd={} bundled={} ====",
             chrono_lite_now(),
             python.display(),
-            root.display()
+            root.display(),
+            bundled_studio_root().is_some()
         );
     }
 
@@ -275,15 +359,48 @@ fn engine_start(state: tauri::State<'_, Mutex<EngineState>>) -> Result<EngineSta
         .current_dir(&root)
         .env("PYTHONPATH", &root)
         .env("PYTHONUNBUFFERED", "1")
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .env("SUYING_ROOT", &root)
+        .env("MONTAGE_ROOT", &root)
         .stdin(Stdio::null())
         .stdout(Stdio::from(log_file_handle))
         .stderr(Stdio::from(err_file));
 
-    // Ensure child can find conda libs / sibling tools
+    if let Some(creative) = bundled_creative_root() {
+        cmd.env("SUYING_CREATIVE_ROOT", &creative);
+        cmd.env("OPENMONTAGE_ROOT", &creative);
+    } else {
+        let home = dirs_next::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        let fallback = home.join("Suying/creative");
+        if fallback.is_dir() {
+            cmd.env("SUYING_CREATIVE_ROOT", &fallback);
+            cmd.env("OPENMONTAGE_ROOT", &fallback);
+        }
+    }
+
+    // Ensure child can find conda libs / sibling tools / bundled bin / Homebrew
+    // GUI apps often get PATH=/usr/bin:/bin only — ffmpeg/ollama live under Homebrew.
+    let mut path_prepend: Vec<String> = Vec::new();
     if let Some(bin) = python.parent() {
-        let path = std::env::var("PATH").unwrap_or_default();
-        let prepend = bin.display().to_string();
-        cmd.env("PATH", format!("{prepend}:{path}"));
+        path_prepend.push(bin.display().to_string());
+    }
+    if let Some(resources) = bundle_resources_dir() {
+        let ffmpeg_bin = resources.join("runtime/ffmpeg");
+        if ffmpeg_bin.is_dir() {
+            path_prepend.push(ffmpeg_bin.display().to_string());
+        }
+    }
+    for brew in ["/opt/homebrew/bin", "/usr/local/bin", "/opt/homebrew/sbin", "/usr/local/sbin"] {
+        let p = PathBuf::from(brew);
+        if p.is_dir() {
+            path_prepend.push(brew.to_string());
+        }
+    }
+    let base_path = std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".into());
+    if !path_prepend.is_empty() {
+        cmd.env("PATH", format!("{}:{}", path_prepend.join(":"), base_path));
+    } else {
+        cmd.env("PATH", base_path);
     }
 
     let child = cmd
@@ -353,13 +470,80 @@ fn engine_stop(state: tauri::State<'_, Mutex<EngineState>>) -> Result<EngineStat
     Ok(status_inner(&state, Some("引擎已停止".into())))
 }
 
+#[tauri::command]
+fn settings_password_status(
+    lock: tauri::State<'_, settings_lock::SettingsLockState>,
+) -> Result<settings_lock::SettingsPasswordStatus, String> {
+    settings_lock::status(&lock)
+}
+
+#[tauri::command]
+fn settings_password_create(
+    lock: tauri::State<'_, settings_lock::SettingsLockState>,
+    password: String,
+) -> Result<settings_lock::SettingsPasswordStatus, String> {
+    settings_lock::create_password(&lock, password)
+}
+
+#[tauri::command]
+fn settings_password_verify(
+    lock: tauri::State<'_, settings_lock::SettingsLockState>,
+    password: String,
+) -> Result<settings_lock::SettingsPasswordStatus, String> {
+    settings_lock::verify_password(&lock, password)
+}
+
+#[tauri::command]
+fn settings_password_change(
+    lock: tauri::State<'_, settings_lock::SettingsLockState>,
+    old_password: String,
+    new_password: String,
+) -> Result<settings_lock::SettingsPasswordStatus, String> {
+    settings_lock::change_password(&lock, old_password, new_password)
+}
+
+#[tauri::command]
+fn settings_password_lock(
+    lock: tauri::State<'_, settings_lock::SettingsLockState>,
+) -> Result<settings_lock::SettingsPasswordStatus, String> {
+    settings_lock::lock(&lock)
+}
+
+#[tauri::command]
+fn settings_password_clear(
+    lock: tauri::State<'_, settings_lock::SettingsLockState>,
+    password: String,
+) -> Result<settings_lock::SettingsPasswordStatus, String> {
+    settings_lock::clear_password(&lock, password)
+}
+
+#[tauri::command]
+fn settings_advanced_require_unlocked(
+    lock: tauri::State<'_, settings_lock::SettingsLockState>,
+) -> Result<(), String> {
+    settings_lock::require_unlocked(&lock)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(Mutex::new(EngineState { child: None }))
-        .invoke_handler(tauri::generate_handler![engine_status, engine_start, engine_stop])
+        .manage(settings_lock::SettingsLockState::default())
+        .invoke_handler(tauri::generate_handler![
+            engine_status,
+            engine_start,
+            engine_stop,
+            settings_password_status,
+            settings_password_create,
+            settings_password_verify,
+            settings_password_change,
+            settings_password_lock,
+            settings_password_clear,
+            settings_advanced_require_unlocked
+        ])
         .setup(|_app| {
             let _ = repo_root();
             let _ = data_dir();

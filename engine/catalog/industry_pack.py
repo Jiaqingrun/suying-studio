@@ -101,16 +101,8 @@ def resolve_piece_type(content_theme: str | None, *, pack_id: str | None = None)
     bindings = load_industry_pack(pack_id).get("piece_type_bindings") or {}
     if theme in bindings:
         return str(bindings[theme])
-    # sensible defaults for building-supply-like packs
-    defaults = {
-        "配送": "配送承诺",
-        "仓配": "配送承诺",
-        "产品": "单品介绍",
-        "施工机械": "单品介绍",
-        "门店": "门店实力",
-        "default": "综合日更",
-    }
-    return str(defaults.get(theme, "综合日更"))
+    # Product-neutral fallback; industry-specific mappings live in pack.json.
+    return "综合日更"
 
 
 def resolve_pack_id_from_profile(profile: dict[str, Any] | None) -> str | None:

@@ -7,6 +7,8 @@ export type EngineStatus = {
   repo: string;
   python?: string;
   message?: string | null;
+  /** true when engine code is inside the .app bundle */
+  bundled?: boolean;
 };
 
 export async function getEngineStatus(): Promise<EngineStatus> {

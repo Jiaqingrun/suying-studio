@@ -355,21 +355,6 @@ def _run_cdp_publish(
     return last
 
 
-def _quit_chrome_for_profile_switch() -> None:
-    """Serial account switch: only one Chrome user-data-dir can own CDP :9222."""
-    import subprocess
-    import time
-
-    subprocess.run(
-        ["osascript", "-e", 'tell application "Google Chrome" to quit'],
-        capture_output=True,
-        check=False,
-    )
-    time.sleep(1.0)
-    subprocess.run(["killall", "-9", "Google Chrome"], capture_output=True, check=False)
-    time.sleep(0.8)
-
-
 def _run_job(
     *,
     chrome_profile: str,
@@ -382,10 +367,14 @@ def _run_job(
     timeout_sec: float,
     dry_run: bool,
 ) -> None:
+    lease = None
     try:
         import time
 
         from engine.reach.cdp_publish import UPLOAD_URLS
+        from engine.reach.chrome_runtime import acquire_operation
+
+        lease = acquire_operation("auto_upload")
 
         entry = entry_for_platform(platform)
         # Prefer official upload URL from App reach map; fall back to platform home
@@ -398,9 +387,6 @@ def _run_job(
             cover_template_id=template_id,
         )
 
-        # Ensure CDP port free for this profile
-        if not dry_run:
-            _quit_chrome_for_profile_switch()
         open_info = open_chrome_profile(
             chrome_profile,
             url=open_url,
@@ -658,6 +644,11 @@ def _run_job(
         _finish_queue(queue_id, pub, note="app_customer_chrome_auto_upload")
     except Exception as e:  # noqa: BLE001
         _set(phase="failed", error=str(e), message=f"自动上传失败: {e}")
+    finally:
+        if lease is not None:
+            from engine.reach.chrome_runtime import release_operation
+
+            release_operation(lease)
 
 
 def pick_queue_item(session, customer_id: int, queue_id: int | None, platform: str = "douyin"):  # noqa: ANN001

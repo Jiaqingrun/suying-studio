@@ -22,6 +22,15 @@ class PathHealth:
     libraries: list[dict]
 
 
+def _safe_mkdir(path: Path) -> bool:
+    """Create directory; never crash startup on foreign/unwritable roots."""
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        return True
+    except OSError:
+        return False
+
+
 def ensure_layout(settings: AppSettings) -> None:
     frames = settings.paths.frames_root()
     for p in (
@@ -32,20 +41,23 @@ def ensure_layout(settings: AppSettings) -> None:
         settings.paths.music_root,
         frames,
     ):
-        p.mkdir(parents=True, exist_ok=True)
+        _safe_mkdir(p)
     music_readme = settings.paths.music_root / "README.txt"
-    if not music_readme.exists():
-        music_readme.write_text(
-            "速影 · BGM 目录\n"
-            "将免版权 mp3 / m4a / wav 放到此文件夹。\n"
-            "客户目录若存在「04-音乐」则优先使用客户曲库。\n",
-            encoding="utf-8",
-        )
+    if _safe_mkdir(settings.paths.music_root) and not music_readme.exists():
+        try:
+            music_readme.write_text(
+                "速影 · BGM 目录\n"
+                "将免版权 mp3 / m4a / wav 放到此文件夹。\n"
+                "客户目录若存在「04-音乐」则优先使用客户曲库。\n",
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
     for state in OUTPUT_STATES:
-        (settings.paths.output_root / state).mkdir(parents=True, exist_ok=True)
-    (settings.paths.cache_root / "proxies").mkdir(parents=True, exist_ok=True)
-    (settings.paths.cache_root / "temp").mkdir(parents=True, exist_ok=True)
-    (settings.paths.cache_root / "library").mkdir(parents=True, exist_ok=True)
+        _safe_mkdir(settings.paths.output_root / state)
+    _safe_mkdir(settings.paths.cache_root / "proxies")
+    _safe_mkdir(settings.paths.cache_root / "temp")
+    _safe_mkdir(settings.paths.cache_root / "library")
     readme = settings.paths.cache_root / "README.txt"
     if not readme.exists():
         readme.write_text(

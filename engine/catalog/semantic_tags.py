@@ -14,25 +14,6 @@ from engine.catalog.theme_tags import apply_theme_to_cliplet
 
 _DEFAULT_PACK = "_blank"
 
-# Product-neutral fallbacks when industry pack omits specialized rules
-_FALLBACK_SCENE_RULES: list[tuple[str, tuple[str, ...]]] = [
-    ("装车卸货", ("装车", "卸货", "货车", "卡车", "配送", "发货", "送货", "车斗", "三轮车")),
-    ("仓内货架", ("仓库", "货架", "堆放", "库存", "分拣", "配货", "码垛", "仓内", "库房")),
-    ("门店门头", ("门店", "门头", "展厅", "展示区", "店面", "招牌", "收银台")),
-    ("产品特写", ("特写", "产品", "配件", "细节", "特写镜头")),
-    ("工地现场", ("工地", "现场", "施工", "钢筋", "浇筑")),
-    ("人物作业", ("工人", "员工", "作业", "操作", "搬运")),
-]
-
-_FALLBACK_ACTION_RULES: list[tuple[str, tuple[str, ...]]] = [
-    ("装车", ("装车", "装货", "上车")),
-    ("卸货", ("卸货", "卸下")),
-    ("分拣", ("分拣", "拣货", "配货")),
-    ("堆放", ("堆放", "码垛", "堆叠")),
-    ("演示", ("演示", "开机", "试用", "操作设备")),
-]
-
-
 def _rules_from_pack(pack: dict[str, Any], key: str) -> list[tuple[str, tuple[str, ...]]]:
     raw = pack.get(key) or []
     out: list[tuple[str, tuple[str, ...]]] = []
@@ -59,7 +40,7 @@ def _score_labels(text: str, rules: list[tuple[str, tuple[str, ...]]]) -> list[t
 
 def classify_scene(text: str, *, pack_id: str | None = None) -> str:
     pack = load_industry_pack(pack_id or _DEFAULT_PACK)
-    rules = _rules_from_pack(pack, "scene_rules") or _FALLBACK_SCENE_RULES
+    rules = _rules_from_pack(pack, "scene_rules")
     scored = _score_labels(text, rules)
     return scored[0][0] if scored else "default"
 
@@ -78,7 +59,7 @@ def classify_objects(text: str, *, pack_id: str | None = None, limit: int = 5) -
 
 def classify_actions(text: str, *, pack_id: str | None = None, limit: int = 4) -> list[str]:
     pack = load_industry_pack(pack_id or _DEFAULT_PACK)
-    rules = _rules_from_pack(pack, "action_rules") or _FALLBACK_ACTION_RULES
+    rules = _rules_from_pack(pack, "action_rules")
     scored = _score_labels(text, rules)
     return [lab for lab, _ in scored[:limit]]
 
@@ -86,6 +67,56 @@ def classify_actions(text: str, *, pack_id: str | None = None, limit: int = 4) -
 def compose_embed_text(cliplet: Cliplet) -> str:
     """Text fed into embedding — richer than description alone."""
     parts: list[str] = []
+    semantic = cliplet.semantic_json if isinstance(getattr(cliplet, "semantic_json", None), dict) else {}
+    if semantic:
+        scenes = [str(v.get("label")) for v in semantic.get("scenes") or [] if isinstance(v, dict) and v.get("label")]
+        interactions = [
+            str(v.get("label"))
+            for v in semantic.get("interactions") or []
+            if isinstance(v, dict) and v.get("label")
+        ]
+        products = [
+            " / ".join(
+                filter(
+                    None,
+                    [
+                        str(v.get("name") or ""),
+                        str(v.get("category") or ""),
+                        str(v.get("use") or ""),
+                        "、".join(str(a) for a in (v.get("key_attributes") or []) if a),
+                    ],
+                )
+            )
+            for v in semantic.get("products") or []
+            if isinstance(v, dict)
+        ]
+        people = semantic.get("people") if isinstance(semantic.get("people"), dict) else {}
+        people_labels = [
+            str(v.get("label"))
+            for v in people.get("promotion_labels") or []
+            if isinstance(v, dict) and v.get("label")
+        ]
+        facts = [
+            str(fact)
+            for frame in semantic.get("frames") or []
+            if isinstance(frame, dict)
+            for fact in frame.get("visible_facts") or []
+            if fact
+        ]
+        if scenes:
+            parts.append("场景分类=" + "、".join(scenes))
+        if products:
+            parts.append("产品=" + "；".join(products))
+        if interactions:
+            parts.append("互动=" + "、".join(interactions))
+        if people_labels:
+            parts.append(
+                "人物宣传="
+                + "、".join(people_labels)
+                + f"；精神面貌={people.get('appearance') or '未知'}；衣着={people.get('clothing') or '未知'}"
+            )
+        if facts:
+            parts.append("逐帧可见事实=" + "；".join(facts))
     if cliplet.theme:
         parts.append(f"theme={cliplet.theme}")
     if cliplet.scene:
@@ -99,6 +130,37 @@ def compose_embed_text(cliplet: Cliplet) -> str:
     if cliplet.description:
         parts.append(cliplet.description)
     return "；".join(parts) if parts else (cliplet.description or "")
+
+
+def apply_structured_semantics(cliplet: Cliplet, data: dict[str, Any]) -> dict[str, Any]:
+    """Persist v1 structured labels into both JSON and legacy query columns."""
+    cliplet.semantic_json = data
+    cliplet.semantic_schema_version = str(data.get("schema_version") or "")
+    cliplet.description = str(data.get("description") or "").strip()
+    scenes = [
+        str(row.get("label"))
+        for row in data.get("scenes") or []
+        if isinstance(row, dict) and row.get("label")
+    ]
+    interactions = [
+        str(row.get("label"))
+        for row in data.get("interactions") or []
+        if isinstance(row, dict) and row.get("label")
+    ]
+    products = [
+        str(row.get("name"))
+        for row in data.get("products") or []
+        if isinstance(row, dict) and row.get("name")
+    ]
+    cliplet.scene = scenes[0] if scenes else None
+    cliplet.objects_json = products
+    cliplet.actions_json = [v for v in interactions if v != "none_visible"]
+    return {
+        "scenes": scenes,
+        "products": products,
+        "interactions": interactions,
+        "people": data.get("people") or {},
+    }
 
 
 def annotate_cliplet(

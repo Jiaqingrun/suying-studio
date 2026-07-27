@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -161,6 +162,93 @@ class ReachQueueItem(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
+class ReachMessageAccount(Base):
+    """Customer-scoped, locally managed Chrome account used for read-only scans."""
+
+    __tablename__ = "reach_message_accounts"
+    __table_args__ = (
+        UniqueConstraint("customer_id", "platform", "profile_name", name="uq_reach_msg_account_profile"),
+        CheckConstraint("cooldown_sec = 1800", name="ck_reach_message_cooldown_lock"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    customer_id: Mapped[int] = mapped_column(Integer, ForeignKey("customers.id"), index=True)
+    platform: Mapped[str] = mapped_column(String(32), index=True)
+    profile_name: Mapped[str] = mapped_column(String(128))
+    display_name: Mapped[str] = mapped_column(String(128), default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    cooldown_sec: Mapped[int] = mapped_column(Integer, default=1800)
+    message_url: Mapped[str] = mapped_column(Text, default="")
+    last_scanned_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class ReachMessage(Base):
+    """Unread message metadata only; never stores cookies or complete conversations."""
+
+    __tablename__ = "reach_messages"
+    __table_args__ = (
+        UniqueConstraint("account_id", "external_key", name="uq_reach_message_external"),
+        CheckConstraint("length(summary) <= 280", name="ck_reach_message_summary_len"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    customer_id: Mapped[int] = mapped_column(Integer, ForeignKey("customers.id"), index=True)
+    account_id: Mapped[int] = mapped_column(Integer, ForeignKey("reach_message_accounts.id"), index=True)
+    platform: Mapped[str] = mapped_column(String(32), index=True)
+    external_key: Mapped[str] = mapped_column(String(160))
+    sender: Mapped[str] = mapped_column(String(128), default="")
+    summary: Mapped[str] = mapped_column(String(280), default="")
+    reply_url: Mapped[str] = mapped_column(Text)
+    unread: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    source: Mapped[str] = mapped_column(String(32), default="dom_heuristic")
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    notification_claimed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+
+
+class ReachMessageScan(Base):
+    __tablename__ = "reach_message_scans"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    customer_id: Mapped[int] = mapped_column(Integer, ForeignKey("customers.id"), index=True)
+    account_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("reach_message_accounts.id"), nullable=True, index=True
+    )
+    status: Mapped[str] = mapped_column(String(32), default="queued", index=True)
+    source: Mapped[str] = mapped_column(String(32), default="")
+    found_count: Mapped[int] = mapped_column(Integer, default=0)
+    error_code: Mapped[str] = mapped_column(String(64), default="")
+    error: Mapped[str] = mapped_column(Text, default="")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class ReachNotificationEvent(Base):
+    """Auditable notification attempt without credentials or full conversations."""
+
+    __tablename__ = "reach_notification_events"
+    __table_args__ = (
+        UniqueConstraint("customer_id", "message_id", "channel", name="uq_reach_notification_delivery"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    customer_id: Mapped[int] = mapped_column(Integer, ForeignKey("customers.id"), index=True)
+    message_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("reach_messages.id"), nullable=True, index=True
+    )
+    channel: Mapped[str] = mapped_column(String(32), index=True)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    is_test: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    detail: Mapped[str] = mapped_column(String(300), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class Cliplet(Base):
     __tablename__ = "cliplets"
 
@@ -177,10 +265,39 @@ class Cliplet(Base):
     scene: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     objects_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     actions_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    # Nullable additive v1 fields keep upgraded SQLite databases and legacy rows readable.
+    semantic_schema_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    semantic_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    semantic_gate_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    semantic_attempts: Mapped[int] = mapped_column(Integer, default=0)
     score: Mapped[float] = mapped_column(Float, default=1.0)
+    # usable | rejected_blur | rejected_semantic — rejected rows are audit-only.
+    status: Mapped[str] = mapped_column(String(32), default="usable", index=True)
     embedding_json: Mapped[list[float] | None] = mapped_column(JSON, nullable=True)
     indexed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Short lease used by the semantic backfill API. It is independent from
+    # status so a crash never destroys a legacy vector or makes a row unusable.
+    semantic_claim_token: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    semantic_claimed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class SemanticBackfillState(Base):
+    """Durable audit cursor for bounded semantic backfill calls."""
+
+    __tablename__ = "semantic_backfill_state"
+    __table_args__ = (
+        UniqueConstraint("customer_id", "schema_version", name="uq_semantic_backfill_customer_version"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    customer_id: Mapped[int] = mapped_column(Integer, ForeignKey("customers.id"), index=True)
+    schema_version: Mapped[str] = mapped_column(String(64))
+    processed: Mapped[int] = mapped_column(Integer, default=0)
+    passed: Mapped[int] = mapped_column(Integer, default=0)
+    rejected: Mapped[int] = mapped_column(Integer, default=0)
+    last_cursor: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class ReviewItem(Base):
@@ -251,6 +368,24 @@ class ClipletUsage(Base):
     job_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("jobs.id"), nullable=True)
     render_output_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("render_outputs.id"), nullable=True)
     used_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+
+
+class DailyUsage(Base):
+    """纸片规则：本地日历日用量（仅 ready 成片 +1）。kind=cliplet|phrase。"""
+
+    __tablename__ = "daily_usage"
+    __table_args__ = (
+        UniqueConstraint("customer_id", "kind", "key", "day", name="uq_daily_usage_cust_kind_key_day"),
+        CheckConstraint("count >= 0 AND count <= 2", name="ck_daily_usage_count_cap"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    customer_id: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    kind: Mapped[str] = mapped_column(String(32), index=True)
+    key: Mapped[str] = mapped_column(String(512), index=True)
+    day: Mapped[str] = mapped_column(String(10), index=True)  # YYYY-MM-DD local
+    count: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 _engine = None
@@ -379,6 +514,12 @@ def _run_sqlite_migrations(settings: AppSettings | None = None) -> None:
     engine = get_engine(settings)
 
     with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                version TEXT PRIMARY KEY,
+                applied_at DATETIME NOT NULL
+            )
+        """))
         _add_column_if_missing(conn, "assets", "proxy_path", "TEXT")
         _add_column_if_missing(conn, "customers", "library_root", "TEXT")
         _add_column_if_missing(conn, "customers", "library_roots", "JSON")
@@ -395,7 +536,138 @@ def _run_sqlite_migrations(settings: AppSettings | None = None) -> None:
         _add_column_if_missing(conn, "cliplets", "scene", "VARCHAR(64)")
         _add_column_if_missing(conn, "cliplets", "objects_json", "JSON")
         _add_column_if_missing(conn, "cliplets", "actions_json", "JSON")
+        _add_column_if_missing(conn, "cliplets", "semantic_schema_version", "VARCHAR(64)")
+        _add_column_if_missing(conn, "cliplets", "semantic_json", "JSON")
+        _add_column_if_missing(conn, "cliplets", "semantic_gate_json", "JSON")
+        _add_column_if_missing(conn, "cliplets", "semantic_attempts", "INTEGER DEFAULT 0")
+        _add_column_if_missing(conn, "cliplets", "status", "VARCHAR(32) DEFAULT 'usable'")
+        _add_column_if_missing(conn, "cliplets", "semantic_claim_token", "VARCHAR(64)")
+        _add_column_if_missing(conn, "cliplets", "semantic_claimed_at", "DATETIME")
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS semantic_backfill_state (
+                id INTEGER PRIMARY KEY,
+                customer_id INTEGER NOT NULL,
+                schema_version VARCHAR(64) NOT NULL,
+                processed INTEGER DEFAULT 0 NOT NULL,
+                passed INTEGER DEFAULT 0 NOT NULL,
+                rejected INTEGER DEFAULT 0 NOT NULL,
+                last_cursor INTEGER,
+                updated_at DATETIME,
+                FOREIGN KEY(customer_id) REFERENCES customers(id),
+                UNIQUE(customer_id, schema_version)
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_cliplets_semantic_claim_token "
+            "ON cliplets (semantic_claim_token)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_semantic_backfill_state_customer_id "
+            "ON semantic_backfill_state (customer_id)"
+        ))
+        # Repair older ORM-written JSON `null` values and enforce the hard
+        # invariant for all final semantic rejects. Passed vectors are untouched.
+        conn.execute(text(
+            "UPDATE cliplets SET embedding_json=NULL, indexed_at=NULL "
+            "WHERE status='rejected_semantic'"
+        ))
+        if "reach_message_accounts" in {
+            row[0]
+            for row in conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table'")
+            ).fetchall()
+        }:
+            conn.execute(text("UPDATE reach_message_accounts SET cooldown_sec = 1800"))
+            conn.execute(text("""
+                CREATE TRIGGER IF NOT EXISTS trg_reach_message_cooldown_insert
+                BEFORE INSERT ON reach_message_accounts
+                WHEN NEW.cooldown_sec != 1800
+                BEGIN
+                    SELECT RAISE(ABORT, 'message scan interval is locked to 1800 seconds');
+                END
+            """))
+            conn.execute(text("""
+                CREATE TRIGGER IF NOT EXISTS trg_reach_message_cooldown_update
+                BEFORE UPDATE OF cooldown_sec ON reach_message_accounts
+                WHEN NEW.cooldown_sec != 1800
+                BEGIN
+                    SELECT RAISE(ABORT, 'message scan interval is locked to 1800 seconds');
+                END
+            """))
+            conn.execute(text("""
+                CREATE TRIGGER IF NOT EXISTS trg_reach_message_profile_tenant_insert
+                BEFORE INSERT ON reach_message_accounts
+                WHEN EXISTS (
+                    SELECT 1 FROM reach_message_accounts
+                    WHERE profile_name = NEW.profile_name
+                      AND customer_id != NEW.customer_id
+                )
+                BEGIN
+                    SELECT RAISE(ABORT, 'message Chrome profile cannot cross customers');
+                END
+            """))
+            conn.execute(text("""
+                CREATE TRIGGER IF NOT EXISTS trg_reach_message_profile_tenant_update
+                BEFORE UPDATE OF profile_name, customer_id ON reach_message_accounts
+                WHEN EXISTS (
+                    SELECT 1 FROM reach_message_accounts
+                    WHERE profile_name = NEW.profile_name
+                      AND customer_id != NEW.customer_id
+                      AND id != NEW.id
+                )
+                BEGIN
+                    SELECT RAISE(ABORT, 'message Chrome profile cannot cross customers');
+                END
+            """))
         _migrate_calendar_unique(conn)
+        # Existing SQLite tables cannot gain CHECK constraints via ALTER TABLE;
+        # triggers enforce the immutable PAPER_SLIP cap for upgraded databases.
+        conn.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS trg_daily_usage_cap_insert
+            BEFORE INSERT ON daily_usage
+            WHEN NEW.count < 0 OR NEW.count > 2
+            BEGIN
+                SELECT RAISE(ABORT, 'paper slip daily cap exceeded');
+            END
+        """))
+        conn.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS trg_daily_usage_cap_update
+            BEFORE UPDATE OF count ON daily_usage
+            WHEN NEW.count < 0 OR NEW.count > 2
+            BEGIN
+                SELECT RAISE(ABORT, 'paper slip daily cap exceeded');
+            END
+        """))
+        conn.execute(
+            text(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) "
+                "VALUES (:version, :applied_at)"
+            ),
+            {
+                "version": "20260726_closeout",
+                "applied_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        conn.execute(
+            text(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) "
+                "VALUES (:version, :applied_at)"
+            ),
+            {
+                "version": "20260726_g7_notifications_lock",
+                "applied_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        conn.execute(
+            text(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) "
+                "VALUES (:version, :applied_at)"
+            ),
+            {
+                "version": "20260726_g7_reach_messages",
+                "applied_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
 
     session = get_session()
     try:

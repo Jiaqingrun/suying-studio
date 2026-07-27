@@ -76,7 +76,16 @@ def chrome_profiles_root() -> Path:
     env = (os.environ.get("SUYING_CHROME_PROFILES") or "").strip()
     if env:
         return Path(env).expanduser()
-    return Path.home() / "QR-Volume" / "速影工作区" / "chrome-profiles"
+    # Keep login profiles beside the authoritative workspace data directory.
+    # For the standard `<workspace>/db` layout this resolves to
+    # `<workspace>/chrome-profiles`; bootstrap-only installs retain ~/Suying.
+    try:
+        from engine.config.settings import load_settings
+
+        data_root = Path(load_settings().paths.data_root).expanduser()
+        return data_root.parent / "chrome-profiles" if data_root.name == "db" else data_root / "chrome-profiles"
+    except Exception:
+        return Path.home() / "Suying" / "chrome-profiles"
 
 
 def dismiss_popups_extension_dir() -> Path | None:
@@ -91,8 +100,10 @@ def dismiss_popups_extension_dir() -> Path | None:
     return None
 
 
-def chrome_launch_args(user_data: Path, url: str, *, cdp_port: int | None = None) -> list[str]:
-    """Build Chrome argv with popup-blocker extension loaded."""
+def chrome_launch_args(
+    user_data: Path, url: str, *, cdp_port: int | None = None, headless: bool = False
+) -> list[str]:
+    """Build Chrome argv; G7 may use official Chrome's auditable headless mode."""
     cmd = [
         str(CHROME_MAC),
         f"--user-data-dir={user_data}",
@@ -102,9 +113,12 @@ def chrome_launch_args(user_data: Path, url: str, *, cdp_port: int | None = None
     if cdp_port:
         cmd.append(f"--remote-debugging-port={int(cdp_port)}")
         cmd.append("--remote-allow-origins=*")
-    ext = dismiss_popups_extension_dir()
-    if ext is not None:
-        cmd.append(f"--load-extension={ext}")
+    if headless:
+        cmd.extend(["--headless=new", "--disable-gpu", "--hide-scrollbars"])
+    else:
+        ext = dismiss_popups_extension_dir()
+        if ext is not None:
+            cmd.append(f"--load-extension={ext}")
     cmd.append(url)
     return cmd
 
@@ -320,7 +334,7 @@ def list_chrome_profiles() -> dict[str, Any]:
                 names.append(n)
     if root.is_dir():
         for child in sorted(root.iterdir()):
-            if child.is_dir() and not child.name.startswith("."):
+            if child.is_dir() and not child.name.startswith((".", "_")):
                 try:
                     n = validate_chrome_profile_name(child.name)
                 except ValueError:

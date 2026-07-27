@@ -1,6 +1,6 @@
 # 速影 · 语义切片与成片表达规格（优化版）
 
-> **状态：2026-07-25 · P0–P4 完成**（含第二客户零分叉）  
+> **状态：2026-07-26 · P0–P5 完成**（P5：严格语义门禁 v1）
 > **焦点：** 切片 + 描述 + 向量（理解层）优先；封面模板每客户固定目录；混剪规则 / 口播 / 多语言为后续消费层。  
 > **约束：** 遵守 [`DEVELOPMENT_STANDARDS.md`](DEVELOPMENT_STANDARDS.md)（引擎零业务硬编码、客户边界、同步区≠工作区）。
 
@@ -38,6 +38,67 @@
 
 ## 2. 切片 + 描述 + 向量（主优化）
 
+### 2.0 严格语义门禁 v1（P5）
+
+新切片必须按以下顺序进入检索：
+
+```text
+画质门禁通过
+  → 每段抽 3 个带时间戳的帧
+  → Vision 返回 suying.cliplet.semantic.v1
+  → schema / 可见事实 / 分类 / 置信度 / 帧间一致性门禁
+  → 通过：status=usable → 组合结构化向量文本 → embedding
+  → 失败：换抽帧位置重试（最多 3 次）
+  → 仍失败：status=rejected_semantic + embedding=NULL（隔离、可审计）
+```
+
+有限重试是安全约束，不接受“直至成功”的无限循环：模型离线、持续输出坏
+schema 或素材本身不可辨认时，无限重试只会重复消耗算力并制造队列饥饿。三次
+尝试分别使用不同抽帧位置；每次抽帧路径/时间、失败原因、最终处置都写入
+`semantic_gate_json`，`semantic_attempts` 记录次数。
+
+真实样本收紧（2026-07-27）：
+
+- 每次请求把实际成功抽取的 frame ID 列为唯一白名单；模型不得漏帧、改名或引用
+  未提供 ID。后处理只会删除无效引用、去重及校准真实时间戳，绝不把引用映射到
+  另一帧或补造事实。
+- 单个目标时间点解码失败时，仅允许在前后 0.08 秒内做两次有界抽帧回退；不增加
+  Vision 三次语义重试预算。
+- `people.present=true` 与 `none_visible` 互斥；人物可见但身份无直接证据时使用中性
+  `person_visible_unclassified`，不得被迫猜成员工/客户。冲突继续 fail-closed，
+  不由后处理猜测哪一项正确。
+- `visible_facts` 只写确定可见内容；无法辨认的信息进入 `unknowns`。身份、情绪、
+  精神状态及未直接展示的用途禁止推测。
+- 产品外观属性只允许颜色、形状、材质表观、包装和可见文字；不可见时由模型明确
+  返回 `unknown`。后处理不会自动填充缺失属性，字段缺失仍由门禁拒绝。
+
+稳定 schema 覆盖：
+
+- `scenes`：配送、使用、装车、码放、库存齐全、公司形象，以及仓库、门店、生产、安装现场、办公、运输、产品特写、人物活动等通用枚举；允许多标签。
+- `products`：可见名称、粗类别、画面直接展示的用途、关键外观属性、证据帧与置信度；看不清写未知，不凭行业猜产品。
+- `interactions`：交付、安装、维修、使用、装卸、分拣、码放、演示、检查、咨询、协作或明确无人互动；允许多标签。
+- `people`：是否有人、人数、可见精神/姿态描述、衣着，以及员工个人/集体、客户互动、工作肖像、团队形象等宣传分类。
+- `frames`：每帧 ID、真实时间戳、至少两条可见事实和 `unknowns`；`consistency` 明示跨帧矛盾。
+
+门禁要求：必须为 Vision 后端；2–4 帧且事实完整；描述 20–400 字、非空泛、
+无推测措辞；场景与互动分类齐全；每个标签/产品有证据帧且置信度 ≥0.65；
+总置信度 ≥0.72；人物有/无与分类一致；产品字段完整；帧间一致；
+schema 版本完全匹配。任何一项失败均 fail-closed。
+
+视觉调用约束（2026-07-27 · 分档级联）：
+
+- 向量一律 `nomic-embed-text`。
+- **16GB / standard 及以下**：默认视觉 `qwen3.5:9b`（约 6.6GB），**禁止**默认 `qwen3.5:27b-q4_K_M`；超时约 180s。
+- **32–64GB / pro（含至 95GB）**：默认 9B 快筛，门禁失败 / `vision_timeout` / `schema_not_object` 可升级 27B；超时约 240s（升级 300s）。
+- **≥96GB / max**：推荐同样「9B 快筛 → 27B 升级」以提速；也可主跑 27B（须显式配置）；超时约 300s。
+- 级联消耗同一 `MAX_SEMANTIC_ATTEMPTS=3` 预算，不额外加次；门禁阈值 0.65 / 0.72 不放宽。
+- Ollama `/api/chat` 的 `format` 必须传完整 JSON Schema（`semantic_response_json_schema()`），
+  `options.temperature=0`；`gemma4` 仍为 `compat` 可选。
+
+兼容策略：四个新增 SQLite 字段均为可空/带默认值的增量迁移，旧行不重写、
+旧 embedding 不自动销毁；但旧行若要重新生成 embedding，必须先重新描述并
+通过 v1 门禁。这样既不破坏生产库，也禁止新向量绕过门禁。
+
 ### 2.1 Cliplet 字段（目标）
 
 | 字段 | 类型 | 说明 |
@@ -57,8 +118,8 @@
 Asset ready
   → 场景切分 (2–8s)
   → 关键帧 1–3 张（段中偏前）
-  → Vision 一句描述（行业中立提示 + 行业包词表暗示）
-  → 规则标注 theme/scene/objects/actions（词典优先）
+  → Vision 多帧结构化事实描述（禁止文件名/行业暗示造成臆测）
+  → 多标签 scene/products/interactions/people + legacy 查询列映射
   → compose_embed_text → embed → 写入 embedding_json
 ```
 
@@ -67,6 +128,8 @@ Asset ready
 ### 2.3 嵌入文本（优化点）
 
 ```text
+场景分类={scenes}；产品={name/category/use/attributes}；互动={interactions}；
+人物宣传={labels/appearance/clothing}；逐帧可见事实={facts}；
 theme={theme}；scene={scene}；物品={objects}；动作={actions}；{description}
 ```
 
@@ -166,6 +229,7 @@ theme={theme}；scene={scene}；物品={objects}；动作={actions}；{descripti
 5. **P2** `voice_lang`×`subtitle_lang` 产品化 + 双语选项 ✅（App/API/profile；`burn_*` 先交付 SRT + intent）  
 6. **P3** `burn_mono` / `burn_dual` → ffmpeg 真烧录进 `publish_pack/video.burned.mp4` ✅（无 libass 时用 Pillow+overlay 回退）  
 7. **P4** 第二客户零分叉验收 ✅（[`ZERO_FORK.md`](ZERO_FORK.md) · `scripts/smoke_zero_fork.py`）  
+8. **P5** 多帧结构化分类 + 有限重试语义门禁 + 向量文本消费 ✅
 
 ---
 

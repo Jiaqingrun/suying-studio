@@ -1,0 +1,30 @@
+---
+description: 速影开发锁 — 强制流程与禁令（每次会话生效）
+alwaysApply: true
+---
+
+# 速影 DEV LOCK
+
+开发前必读：`docs/DEV_LOCK.md`、`docs/DEVELOPMENT_STANDARDS.md`。
+
+## 当前只允许
+
+- Gate **G2**（行业包数据化、去默认始峰）
+- Gate **G1** 中标注 **OFFLINE** 的 Sprint C 项
+- 文档纠偏与冒烟
+
+## 当前禁止
+
+- Gate G0 / 需片库成片复检（`BLOCKED_DISK`）— 用户未插盘
+- Pack / Reach / TTS 口播主开发 / 浏览器发布 / 反检测
+- `if customer.name == "北京始峰伟业"` 或硬编码客户路径
+- 往 `engine/template/hooks.py` 追加客户文案当全局默认
+- 未过 Gate 把下一项标 ✅
+
+## 每项完成
+
+1. 跑 `python3 scripts/smoke_test.py`
+2. 更新 `docs/DEV_LOCK.md` §E 状态
+3. 说明对应 Gate ID
+
+冲突时：`DEV_LOCK.md` > 口头 > 临时灵感。

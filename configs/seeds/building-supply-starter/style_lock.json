@@ -1,0 +1,33 @@
+{
+  "customer": "",
+  "brand_display": "",
+  "tagline": "",
+  "canvas": {
+    "width": 1080,
+    "height": 1920,
+    "orientation": "vertical"
+  },
+  "layout": {
+    "title_band": "top",
+    "title_y_ratio": 0.06,
+    "safe_areas": {
+      "top": 0.06,
+      "bottom": 0.12,
+      "side": 36
+    }
+  },
+  "title": {
+    "font_family": "PingFang SC",
+    "font_size_px": 92,
+    "color": "#FFE600",
+    "align": "center",
+    "max_chars": 10,
+    "max_lines": 2,
+    "stroke": {
+      "enabled": true,
+      "width_px": 6,
+      "color": "#000000"
+    },
+    "layout": "dual_chip"
+  }
+}

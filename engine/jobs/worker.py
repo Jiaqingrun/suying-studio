@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from engine.catalog.customer_scope import require_active_customer, resolve_customer, settings_with_customer_paths
-from engine.catalog.db import ClipletUsage, Job, RenderOutput, get_session, log_event
+from engine.catalog.db import Cliplet, ClipletUsage, Job, RenderOutput, get_session, log_event
 from engine.catalog.keyword_pack import get_active_pack, record_keyword_usage
 from engine.config.paths import ensure_layout
 from engine.config.settings import AppSettings, load_settings
@@ -115,7 +115,8 @@ class JobWorker:
                 session.commit()
                 return
 
-        seed = random.randint(1, 2_000_000_000)
+        configured_seed = snap.get("seed")
+        seed = int(configured_seed) if configured_seed is not None else random.randint(1, 2_000_000_000)
         # Q8: assets already used earlier in this job
         job_used_assets: set[str] = set()
         for usage in session.scalars(
@@ -128,6 +129,7 @@ class JobWorker:
         exclude_asset_uuids = {
             str(x) for x in (snap.get("exclude_asset_uuids") or []) if x
         }
+        strict_semantic_v1 = bool(snap.get("strict_semantic_v1", False))
         plan = build_plan(
             session,
             template,
@@ -138,6 +140,7 @@ class JobWorker:
             job_used_assets=job_used_assets,
             exclude_cliplet_ids=exclude_cliplet_ids or None,
             exclude_asset_uuids=exclude_asset_uuids or None,
+            strict_semantic_v1=strict_semantic_v1,
         )
 
         if plan.blocked or not plan.clips:
@@ -146,16 +149,74 @@ class JobWorker:
             session.commit()
             return
 
+        semantic_source_audit: list[dict[str, Any]] = []
+        if strict_semantic_v1:
+            from engine.ingest.semantic_gate import semantic_gate_passed
+            from engine.ingest.quality import MIN_QUALITY_SCORE, is_usable_quality
+
+            selected_ids = [clip.cliplet_id for clip in plan.clips]
+            rows = {
+                row.id: row
+                for row in session.scalars(
+                    select(Cliplet).where(Cliplet.id.in_([int(cid) for cid in selected_ids if cid]))
+                ).all()
+            }
+            invalid: list[str] = []
+            for clip in plan.clips:
+                row = rows.get(int(clip.cliplet_id)) if clip.cliplet_id else None
+                passed = bool(
+                    row
+                    and row.status == "usable"
+                    and row.embedding_json is not None
+                    and is_usable_quality(float(row.score or 0.0))
+                    and float(row.score or 0.0) >= float(MIN_QUALITY_SCORE)
+                    and semantic_gate_passed(row)
+                )
+                semantic_source_audit.append(
+                    {
+                        "cliplet_id": clip.cliplet_id,
+                        "status": row.status if row else None,
+                        "quality_score": float(row.score or 0.0) if row else None,
+                        "has_embedding": bool(row and row.embedding_json is not None),
+                        "semantic_schema_version": row.semantic_schema_version if row else None,
+                        "semantic_v1_passed": passed,
+                    }
+                )
+                if not passed:
+                    invalid.append(f"cliplet_id={clip.cliplet_id or 'whole_asset'}")
+            if invalid:
+                job.consecutive_failures += 1
+                log_event(
+                    session,
+                    job.id,
+                    "error",
+                    "严格 semantic v1 来源审计失败，禁止渲染",
+                    {"invalid_sources": invalid, "audit": semantic_source_audit},
+                )
+                session.commit()
+                return
+
         attempt = uuid.uuid4().hex[:8]
         rendering_dir = settings.paths.render_root
         rendering_dir.mkdir(parents=True, exist_ok=True)
         temp_out = rendering_dir / f"job{job.id}_{attempt}.mp4"
 
         render_meta: dict[str, Any] = {}
+        if strict_semantic_v1:
+            render_meta["strict_semantic_v1"] = True
+            render_meta["semantic_source_audit"] = semantic_source_audit
         profile = (customer_row.profile_json if customer_row else None) or {}
         profile = profile if isinstance(profile, dict) else {}
+        # One-shot job expression overrides (from POST /jobs body) — not persisted
+        snap_expr = snap.get("expression") if isinstance(snap.get("expression"), dict) else None
+        if snap_expr:
+            from engine.pack.expression import resolve_expression_prefs
 
-        # Frozen video template lock (始峰写死规则)
+            prefs = resolve_expression_prefs(profile, overrides=snap_expr)
+            profile = {**profile, "expression": prefs}
+            render_meta["expression_overrides"] = dict(prefs)
+
+        # Frozen product video-template lock.
         from engine.pack.video_lock import load_video_lock, logo_enabled_from_lock
         from engine.render.voice_subtitle import burn_subtitles_inplace, prepare_narration_for_plan
 
@@ -251,6 +312,11 @@ class JobWorker:
             render_meta["tts_provider"] = voice_info.get("provider")
             render_meta["tts_voice"] = voice_info.get("voice")
             render_meta["tts_mode"] = voice_info.get("tts_mode")
+            render_meta["tts_rate"] = voice_info.get("tts_rate")
+            render_meta["tts_pitch"] = voice_info.get("tts_pitch")
+            render_meta["tts_volume"] = voice_info.get("tts_volume")
+            if voice_info.get("ollama_narration_error"):
+                render_meta["ollama_narration_error"] = voice_info.get("ollama_narration_error")
             render_meta["voice_lang"] = voice_info.get("voice_lang")
             render_meta["subtitle_lang"] = voice_info.get("subtitle_lang")
             render_meta["subtitle_burn"] = voice_info.get("subtitle_burn")
@@ -272,7 +338,25 @@ class JobWorker:
         )
         if not ok:
             job.consecutive_failures += 1
-            log_event(session, job.id, "error", "渲染失败")
+            missing = [
+                c.source_path
+                for c in (plan.clips or [])
+                if not Path(str(c.source_path)).is_file()
+            ]
+            log_event(
+                session,
+                job.id,
+                "error",
+                "渲染失败",
+                {
+                    "missing_sources": missing[:5],
+                    "missing_count": len(missing),
+                    "clip_count": len(plan.clips or []),
+                    "hint": "素材路径不存在时请检查片库挂载或 /Users/xlf→本机用户路径迁移",
+                }
+                if missing
+                else {"clip_count": len(plan.clips or []), "temp_out": str(temp_out)},
+            )
             session.commit()
             return
 
@@ -280,6 +364,9 @@ class JobWorker:
         srt_path = voice_info.get("srt_path")
         burn_mode = str(voice_info.get("subtitle_burn") or "external")
         render_meta["subtitle_burn"] = burn_mode
+        render_meta["ollama_narration"] = bool(voice_info.get("ollama_narration"))
+        if voice_info.get("emoji_cues"):
+            render_meta["emoji_cues"] = voice_info.get("emoji_cues")
         if srt_path and voice_info.get("subtitle_lang") != "none":
             render_meta["subtitle_path"] = srt_path
             render_meta["dual_secondary_lang"] = voice_info.get("dual_secondary_lang")
@@ -312,6 +399,27 @@ class JobWorker:
                     {"srt": srt_path},
                 )
 
+        # HARD (2026-07-26): 禁止标题附近浮动表情贴纸；表情只进字幕行内
+        render_meta["title_stickers_disabled"] = True
+        render_meta["emoji_in_subtitle"] = bool(voice_info.get("emoji_in_subtitle"))
+        render_meta["subtitle_has_emoji"] = bool(voice_info.get("subtitle_has_emoji"))
+        if voice_info.get("emoji_cues"):
+            render_meta["emoji_cues"] = voice_info.get("emoji_cues")
+        # Legacy sticker burn permanently off for 成片 (emoji live in subtitle burn)
+        render_meta["emoji_burned"] = False
+        render_meta["emoji_burn_count"] = 0
+        if voice_info.get("subtitle_has_emoji") and burn_mode in ("burn_mono", "burn_dual"):
+            render_meta["emoji_in_subtitle_burned"] = bool(render_meta.get("subtitle_burned"))
+        elif voice_info.get("subtitle_has_emoji"):
+            render_meta["emoji_in_subtitle_burned"] = False
+            log_event(
+                session,
+                job.id,
+                "warning",
+                "字幕含表情但未烧录进成片（应 force burn_mono）",
+                {"burn_mode": burn_mode},
+            )
+
         qc = run_qc(temp_out, plan, require_audio=bool(settings.require_audio))
         # pack already loaded above for brand
         copy = build_copywriting(plan, pack.data_json if pack else None, music_credit=render_meta.get("music_credit"))
@@ -337,13 +445,64 @@ class JobWorker:
             },
         )
 
-        # QC fail → failed; consistency hard fail → review; else ready
+        # QC fail → failed; READY_GATE fail → failed; consistency hard fail → review; else ready
+        # 强制参考 docs/READY_GATE.md — 门禁未全过不得进成品库
+        from engine.qc.ready_gate import evaluate_ready_gate
+
+        mock_vo = (
+            str(render_meta.get("tts_provider") or "").lower() == "mock"
+            and voice_info.get("voice_lang") not in (None, "", "none")
+            and bool(getattr(settings, "tts_provider", "edge") != "mock")
+        )
+        gate = evaluate_ready_gate(
+            temp_out,
+            require_ollama=True,
+        )
+        # Persist gate result onto sidecar before move
+        if sidecar.exists():
+            import json as _json
+
+            try:
+                _data = _json.loads(sidecar.read_text(encoding="utf-8"))
+                _data["ready_gate"] = {
+                    "ok": gate.get("ok"),
+                    "fails": gate.get("fails") or [],
+                    "fail_count": gate.get("fail_count") or 0,
+                    "checks": gate.get("checks") or {},
+                }
+                sidecar.write_text(_json.dumps(_data, indent=2, ensure_ascii=False), encoding="utf-8")
+            except (OSError, _json.JSONDecodeError, TypeError):
+                pass
         if not qc.passed:
             final_state = "failed"
-        elif plan.needs_review:
+        elif not gate.get("ok"):
+            final_state = "failed"
+            log_event(
+                session,
+                job.id,
+                "warning",
+                "READY_GATE 未通过，打回重做（不成 ready）",
+                {"fails": gate.get("fails") or [], "fail_count": gate.get("fail_count")},
+            )
+        elif plan.needs_review or mock_vo:
             final_state = "review"
+            if mock_vo:
+                log_event(
+                    session,
+                    job.id,
+                    "warning",
+                    "旁白为 mock 静音占位，降级 review（生产默认 Edge）",
+                    {"tts_provider": render_meta.get("tts_provider")},
+                )
         else:
             final_state = "ready"
+            log_event(
+                session,
+                job.id,
+                "info",
+                "READY_GATE 全过 → ready（强制参考 HARD_LOCKS/VIDEO_LOCK）",
+                {"title_color": (plan.title_style or {}).get("color")},
+            )
         final_dir = settings.paths.output_root / final_state / datetime.now().strftime("%Y-%m-%d")
         final_dir.mkdir(parents=True, exist_ok=True)
         final_out = final_dir / f"montage_{job.id}_{seed}.mp4"
@@ -396,17 +555,23 @@ class JobWorker:
             seed=seed,
             sidecar_path=str(sidecar_new),
             qc_json={
-                "passed": qc.passed,
-                "reasons": qc.reasons,
+                "passed": qc.passed and bool(gate.get("ok")),
+                "reasons": list(qc.reasons) + list(gate.get("fails") or []),
                 "metrics": qc.metrics,
                 "covers": final_covers,
                 "consistency_score": plan.consistency_score,
                 "needs_review": plan.needs_review,
                 "reframe_mode": getattr(template, "reframe_mode", "smart"),
+                "ready_gate": {
+                    "ok": gate.get("ok"),
+                    "fail_count": gate.get("fail_count") or 0,
+                    "fails": gate.get("fails") or [],
+                },
             },
         )
         session.add(out_row)
         session.flush()
+        # ClipletUsage 仍记全部产出（冷却用）；纸片日配额仅 ready 计入
         record_cliplet_usage(session, plan, job_id=job.id, render_output_id=out_row.id, customer_id=job.customer_id)
 
         if final_state == "ready":
@@ -415,7 +580,22 @@ class JobWorker:
             snap["consecutive_non_ready"] = 0
             job.config_snapshot_json = dict(snap)
             record_keyword_usage(session, plan.title, theme, job.id, customer_id=job.customer_id)
-            log_event(session, job.id, "info", "渲染成功", {"path": str(final_out), "seed": seed})
+            # PAPER_SLIP：仅 ready 成功才 +1（强制参考 docs/PAPER_SLIP_LOCK.md）
+            from engine.catalog.paper_slip import commit_paper_slip_for_ready
+
+            slip = commit_paper_slip_for_ready(
+                session,
+                cliplet_ids=[c.cliplet_id for c in plan.clips if c.cliplet_id],
+                title=plan.title,
+                customer_id=job.customer_id,
+            )
+            log_event(
+                session,
+                job.id,
+                "info",
+                "渲染成功",
+                {"path": str(final_out), "seed": seed, "paper_slip": slip},
+            )
         elif final_state == "review":
             job.produced_count += 1  # counts toward quota but needs human check
             job.consecutive_failures = 0
@@ -444,8 +624,12 @@ class JobWorker:
                 session,
                 job.id,
                 "warning",
-                "质检未通过",
-                {"reasons": qc.reasons, "consecutive_non_ready": snap["consecutive_non_ready"]},
+                "质检/READY_GATE 未通过",
+                {
+                    "reasons": list(qc.reasons) + list(gate.get("fails") or []),
+                    "ready_gate_ok": gate.get("ok"),
+                    "consecutive_non_ready": snap["consecutive_non_ready"],
+                },
             )
             if snap["consecutive_non_ready"] >= settings.quality_circuit_threshold:
                 job.status = "circuit_open"

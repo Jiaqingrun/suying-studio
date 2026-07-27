@@ -1,5 +1,7 @@
 # 安装检查清单
 
+> **客户交付**请以 [`CUSTOMER_INSTALL.md`](CUSTOMER_INSTALL.md) 为准（产品套件 + Ollama）。下文偏开发机自检。
+
 ## 硬件
 - [ ] Mac（建议 Apple Silicon，内存 ≥ 16GB，MVP 推荐 48GB）
 - [ ] 内置 SSD 剩余 ≥ 20GB
@@ -17,7 +19,11 @@
 2. `python3 -m pip install -r requirements.txt`
 3. `cd apps/desktop && npm install`
 4. 启动引擎：`./scripts/start-engine.sh`
-5. 启动桌面 App：`cd apps/desktop && npm run tauri dev`（开发）或 `npm run tauri build`（打包）
+5. 启动桌面 App：`cd apps/desktop && npm run tauri dev`（开发）或 `npm run package:mac`（**一体包**：嵌入引擎 + Python）
+6. 产品套件：`BUILD_APP=1 ./scripts/package-product.sh`（见 [`CUSTOMER_INSTALL.md`](CUSTOMER_INSTALL.md)）
+
+> 一体包双击即可起引擎；Ollama / FFmpeg / 片库仍在本机。开发联调仍可用 `./scripts/start-engine.sh` + `tauri dev`。
+> 默认 `package:mac` 是 ad-hoc 内测签名；客户外发必须按 `CUSTOMER_INSTALL.md` 配置 Developer ID Application 与 notarization。
 
 ## 路径配置（App → 系统）
 - [ ] 资料库根目录已创建且可写

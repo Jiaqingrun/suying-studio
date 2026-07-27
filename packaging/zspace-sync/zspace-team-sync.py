@@ -4,8 +4,8 @@
 Requires 极空间 desktop client logged in (local proxy port from vuex, often 13579/13581).
 Official「文档同步」cannot select team space; this script uses the client tunnel API.
 
-Directions from ~/.qr/suying-sync.json (installed by 速影 App):
-  PULL/PUSH path maps per customer; legacy 始峰 uses 手机相册备份 aliases.
+Directions from ~/.qr/suying-sync.json (installed by 速影 App).
+Default carrier_only mode synchronizes configuration/update/backup files only.
 
 Other remote paths under /public still pull 1:1 into the local sync root.
 """
@@ -16,6 +16,8 @@ import argparse
 import hashlib
 import json
 import os
+import plistlib
+import subprocess
 import sys
 import time
 import urllib.error
@@ -23,65 +25,121 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-DEFAULT_LOCAL = Path("/Users/qr/QR-Volume/极空间团队文件同步")
+DEFAULT_LOCAL = Path.home() / "Suying" / "sync"
 DEFAULT_REMOTE = "/public"
 DEFAULT_PROXY = "http://127.0.0.1:13579"
 VUEX = Path.home() / "Library/Application Support/zspace/vuex.json"
 LOG_DIR = Path.home() / ".qr/logs"
 STATE_PATH = Path.home() / ".qr/zspace-team-sync-state.json"
 LOCK_PATH = Path.home() / ".qr/zspace-team-sync.lock"
-MOUNT_SCRIPT = Path.home() / "QR/tools/mount-qr-volume.sh"
 CONFIG_PATH = Path.home() / ".qr" / "suying-sync.json"
 
 PUSH_SKIP_PARTS = {".DS_Store", "rendering", "Thumbs.db"}
 
 # Filled by load_runtime_maps()
+# PATH_ALIASES entries: (remote_prefix_under_public, local_prefix_under_local_root)
+# NOTE: keep comments free of fixed customer names to satisfy smoke checks.
 PATH_ALIASES: list[tuple[str, str]] = []
 PUSH_LOCAL_PREFIXES: list[str] = []
 
 
-def _legacy_defaults() -> tuple[list[tuple[str, str]], list[str], Path]:
-    aliases = [
-        ("手机相册备份/徐玲飞", "速影客户/北京始峰伟业/01-片库/徐玲飞"),
-        ("手机相册备份/车凯盛", "速影客户/北京始峰伟业/01-片库/车凯盛"),
-        ("手机相册备份/成品视频", "速影客户/北京始峰伟业/02-成片"),
-        ("手机相册备份/词池", "速影客户/北京始峰伟业/03-词池"),
-    ]
-    push = [
-        "速影客户/北京始峰伟业/02-成片",
-        "速影客户/北京始峰伟业/03-词池",
-    ]
-    return aliases, push, DEFAULT_LOCAL
-
-
-def load_runtime_maps() -> Path:
+def load_runtime_maps() -> dict:
     """Load aliases/push prefixes from ~/.qr/suying-sync.json (App 预设置)."""
     global PATH_ALIASES, PUSH_LOCAL_PREFIXES
     if not CONFIG_PATH.exists():
-        PATH_ALIASES, PUSH_LOCAL_PREFIXES, local = _legacy_defaults()
-        return local
+        raise RuntimeError(f"缺少同步配置: {CONFIG_PATH}，请先在速影安装向导中配置")
     try:
         cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        PATH_ALIASES, PUSH_LOCAL_PREFIXES, local = _legacy_defaults()
-        return local
+    except (OSError, json.JSONDecodeError) as e:
+        raise RuntimeError(f"同步配置无效: {CONFIG_PATH}: {e}") from e
+    mode = str(cfg.get("sync_mode") or "carrier_only")
+    if mode == "carrier_only":
+        PATH_ALIASES = []
+        PUSH_LOCAL_PREFIXES = [""]
+        remote = f"/public/{str(cfg.get('carrier_relpath') or '速影载体').strip('/')}"
+        return {
+            "mode": mode,
+            "local_root": Path(cfg.get("carrier_mirror") or Path.home() / "Suying" / "carrier"),
+            "remote_root": remote,
+            "pull_remote_roots": [remote],
+        }
+    if not bool(cfg.get("media_sync_enabled", False)):
+        raise RuntimeError("媒体同步未显式启用")
+    volume_uuid = str(cfg.get("volume_uuid") or "").strip()
+    if not volume_uuid:
+        raise RuntimeError("媒体同步需要配置外置盘 volume_uuid")
+    info = subprocess.run(
+        ["diskutil", "info", "-plist", volume_uuid],
+        capture_output=True,
+        check=False,
+    )
+    if info.returncode != 0:
+        raise RuntimeError(f"指定外置盘未连接: {volume_uuid}")
+    volume = plistlib.loads(info.stdout)
+    mount_point = str(volume.get("MountPoint") or "").strip()
+    if not mount_point:
+        raise RuntimeError(f"指定外置盘尚未挂载: {volume_uuid}")
+    # v3: media_sources as first-class media pull mapping (fail-closed)
+    # v1/v2: customers[].aliases back-compat
     aliases: list[tuple[str, str]] = []
+    pull_roots: list[str] = []
     push: list[str] = []
+
+    # 1) Push candidates (legacy behavior, can be enabled explicitly by customer.push_local).
     for c in cfg.get("customers") or []:
-        for a in c.get("aliases") or []:
-            r, l = a.get("remote"), a.get("local")
-            if r and l:
-                aliases.append((str(r), str(l)))
         for pfx in c.get("push_local") or []:
             if pfx not in push:
                 push.append(str(pfx))
-    if not aliases and not push:
-        PATH_ALIASES, PUSH_LOCAL_PREFIXES, local = _legacy_defaults()
-        return local
+
+    # 2) Media pull mapping.
+    raw_sources = cfg.get("media_sources")
+    if isinstance(raw_sources, list) and raw_sources:
+        for s in raw_sources:
+            remote_root = s.get("remote_root") or s.get("remote")
+            local_target = s.get("local_target") or s.get("local")
+            if not remote_root or not local_target:
+                continue
+            remote_rel = str(remote_root).strip().removeprefix("/public/").strip("/")
+            if not remote_rel or ".." in remote_rel:
+                continue
+            aliases.append((remote_rel, str(local_target)))
+            pull_roots.append(f"/public/{remote_rel}")
+    else:
+        # Back-compat for legacy config.
+        for c in cfg.get("customers") or []:
+            for a in c.get("aliases") or []:
+                r, l = a.get("remote"), a.get("local")
+                if not r or not l:
+                    continue
+                remote_rel = str(r).strip().removeprefix("/public/").strip("/")
+                if not remote_rel or ".." in remote_rel:
+                    continue
+                aliases.append((remote_rel, str(l)))
+                pull_roots.append(f"/public/{remote_rel}")
+
+        # Optional explicit narrow pull scope (if user already provided it).
+        raw_roots = cfg.get("pull_remote_roots")
+        if isinstance(raw_roots, list):
+            for item in raw_roots:
+                rel = str(item or "").strip().removeprefix("/public/").strip("/")
+                if rel:
+                    pull_roots.append(f"/public/{rel}")
+
+    # Fail-closed: no mapping => refuse to pull anything under /public.
+    # This prevents client-side mixing when multiple customers share the same team space parents.
+    # Also de-duplicate pull roots.
+    pull_roots = sorted({r for r in pull_roots if r})
+    if not aliases or not pull_roots:
+        raise RuntimeError("媒体同步未配置任何有效媒体来源（media_sources 或 customers[].aliases 为空）")
+
     PATH_ALIASES = aliases
     PUSH_LOCAL_PREFIXES = push
-    local = Path(cfg.get("local_root") or DEFAULT_LOCAL)
-    return local
+    return {
+        "mode": mode,
+        "local_root": Path(mount_point) / str(cfg.get("volume_relpath") or "极空间团队文件同步"),
+        "remote_root": DEFAULT_REMOTE,
+        "pull_remote_roots": pull_roots,
+    }
 
 
 def log(msg: str, log_file: Path | None = None) -> None:
@@ -437,8 +495,14 @@ def relative_under_public(remote_path: str) -> Path:
 
 
 def walk_files(client: ZSpaceClient, root: str) -> list[dict]:
+    """Walk remote tree. Resolve /public/... to backend (/sataXX/public/...) first.
+
+    Listing /public itself works; listing /public/<subdir> often returns N001411.
+    Child entries already carry backend paths from the API.
+    """
     files: list[dict] = []
-    stack = [root]
+    # Resolve once up front so pull_remote_roots like /public/手机相册备份/徐玲飞 work.
+    stack = [client.to_backend_path(root)]
     seen: set[str] = set()
     while stack:
         cur = stack.pop()
@@ -475,13 +539,15 @@ def release_lock(fd: int) -> None:
         os.close(fd)
 
 
-def ensure_mount(log_file: Path) -> None:
-    if DEFAULT_LOCAL.parent.exists() and any(DEFAULT_LOCAL.parent.iterdir()):
-        return
-    if MOUNT_SCRIPT.exists():
-        os.system(f"/bin/bash '{MOUNT_SCRIPT}'")
-    if not DEFAULT_LOCAL.parent.exists():
-        raise RuntimeError("外置盘未挂载到 ~/QR-Volume，请插入 QR 盘后重试")
+def relative_under_remote(path: str, remote_root: str) -> Path:
+    rel = relative_under_public(path)
+    prefix = remote_root.removeprefix("/public").strip("/")
+    if not prefix:
+        return rel
+    parts = Path(prefix).parts
+    if rel.parts[: len(parts)] != parts:
+        raise ValueError(f"路径不在远程角色目录内: {path}")
+    return Path(*rel.parts[len(parts) :])
 
 
 def sync_pull(
@@ -490,22 +556,41 @@ def sync_pull(
     remote_root: str,
     dry_run: bool,
     log_file: Path,
+    pull_roots: list[str] | None = None,
+    strict_mapped_only: bool = False,
 ) -> dict:
-    log(f"PULL 枚举远程 {remote_root}", log_file)
-    files = walk_files(client, remote_root)
+    roots = [r for r in (pull_roots or [remote_root]) if r]
+    if not roots:
+        roots = [remote_root]
+    log(f"PULL 枚举远程 {roots}", log_file)
+    files: list[dict] = []
+    seen_paths: set[str] = set()
+    for root in roots:
+        walk_root = client.to_backend_path(root)
+        if walk_root != root:
+            log(f"PULL root → backend: {root} → {walk_root}", log_file)
+        for it in walk_files(client, walk_root):
+            p = str(it.get("path") or "")
+            if p in seen_paths:
+                continue
+            seen_paths.add(p)
+            files.append(it)
     log(f"远程文件数: {len(files)}", log_file)
 
-    downloaded = skipped = failed = mapped = pending = 0
+    downloaded = skipped = failed = mapped = pending = unmapped_skipped = 0
     bytes_dl = 0
     errors: list[str] = []
 
     # Pre-count pending so logs show the backlog clearly
     for it in files:
         try:
-            rel = relative_under_public(it["path"])
+            rel = relative_under_remote(it["path"], remote_root)
         except ValueError:
             continue
-        dest = local_root / remote_rel_to_local_rel(rel)
+        local_rel = remote_rel_to_local_rel(rel)
+        if strict_mapped_only and local_rel == rel:
+            continue
+        dest = local_root / local_rel
         size = int(it.get("size") or 0)
         if not (dest.exists() and dest.stat().st_size == size and size >= 0):
             pending += 1
@@ -515,7 +600,7 @@ def sync_pull(
     for i, it in enumerate(files, 1):
         rpath = it["path"]
         try:
-            rel = relative_under_public(rpath)
+            rel = relative_under_remote(rpath, remote_root)
         except ValueError as e:
             failed += 1
             errors.append(str(e))
@@ -523,6 +608,9 @@ def sync_pull(
         local_rel = remote_rel_to_local_rel(rel)
         if local_rel != rel:
             mapped += 1
+        elif strict_mapped_only:
+            unmapped_skipped += 1
+            continue
         dest = local_root / local_rel
         size = int(it.get("size") or 0)
         mtime = int(it.get("modify_time") or 0)
@@ -563,6 +651,7 @@ def sync_pull(
         "skipped": skipped,
         "failed": failed,
         "mapped": mapped,
+        "unmapped_skipped": unmapped_skipped,
         "bytes": bytes_dl,
         "errors": errors[:20],
         "finished_at": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -577,15 +666,16 @@ def sync_pull(
 def sync_push(
     client: ZSpaceClient,
     local_root: Path,
+    remote_root: str,
     dry_run: bool,
     log_file: Path,
 ) -> dict:
-    log("PUSH 扫描本机成片/词池", log_file)
+    log(f"PUSH 扫描本机角色目录 → {remote_root}", log_file)
     remote_index: dict[str, int] = {}
     try:
-        for it in walk_files(client, DEFAULT_REMOTE):
+        for it in walk_files(client, remote_root):
             try:
-                rel = relative_under_public(it["path"]).as_posix()
+                rel = relative_under_remote(it["path"], remote_root).as_posix()
             except ValueError:
                 continue
             remote_index[rel] = int(it.get("size") or 0)
@@ -619,7 +709,7 @@ def sync_push(
         if remote_index.get(remote_posix) == size:
             skipped += 1
             continue
-        remote_file = f"/public/{remote_posix}"
+        remote_file = f"{remote_root.rstrip('/')}/{remote_posix}"
         log(
             f"[{i}/{len(candidates)}] {'DRY ' if dry_run else ''}↑ {rel} → {remote_posix} ({size} bytes)",
             log_file,
@@ -671,10 +761,11 @@ def main() -> int:
     fd = None
     try:
         fd = acquire_lock()
-        ensure_mount(log_file)
-        cfg_local = load_runtime_maps()
+        runtime = load_runtime_maps()
         if args.local == DEFAULT_LOCAL:
-            args.local = cfg_local
+            args.local = runtime["local_root"]
+        if args.remote == DEFAULT_REMOTE:
+            args.remote = runtime["remote_root"]
         args.local.mkdir(parents=True, exist_ok=True)
         log(f"配置: {CONFIG_PATH} aliases={len(PATH_ALIASES)} push={len(PUSH_LOCAL_PREFIXES)}", log_file)
 
@@ -708,10 +799,20 @@ def main() -> int:
         do_pull = not args.push_only
         do_push = not args.pull_only
 
+        pull_roots = list(runtime.get("pull_remote_roots") or [args.remote])
+        summary["pull_remote_roots"] = pull_roots
         if do_pull:
-            summary["pull"] = sync_pull(client, args.local, args.remote, args.dry_run, log_file)
+            summary["pull"] = sync_pull(
+                client,
+                args.local,
+                args.remote,
+                args.dry_run,
+                log_file,
+                pull_roots=pull_roots,
+                strict_mapped_only=(runtime.get("mode") != "carrier_only"),
+            )
         if do_push:
-            summary["push"] = sync_push(client, args.local, args.dry_run, log_file)
+            summary["push"] = sync_push(client, args.local, args.remote, args.dry_run, log_file)
 
         summary["finished_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
         STATE_PATH.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")

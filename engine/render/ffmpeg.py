@@ -122,21 +122,23 @@ def render_title_png(
     out_path: Path,
     *,
     position: str = "top",
-    color: str = "#E10600",
+    color: str = "#FFE600",
     bar_color: str = "#111827",
     bar_opacity: float = 0.0,
     max_chars: int = 10,
     max_lines: int = 2,
     bold: bool = True,
     stroke_width: int = 6,
-    stroke_color: str = "#FFE600",
+    stroke_color: str = "#000000",
     layout: str = "dual_chip",
+    offset_y_px: int = 120,
 ) -> Path:
     """Render title overlay.
 
     layout=dual_chip (default) / stroke:
       Auto wrap up to max_lines, each line centered.
-      Red fill (#E10600) + yellow stroke (#FFE600) by default.
+      Yellow fill (#FFE600) + black stroke (#000000) — HARD LOCK.
+      offset_y_px: 相对 band 基准整体下移（写死 120）。
     """
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
@@ -160,9 +162,11 @@ def render_title_png(
     else:
         y_ratio = 0.05
 
-    # 红字黄边：双行居中自动换行（dual_chip 与 stroke 统一视觉）
+    dy = max(0, int(offset_y_px))
+
+    # 黄字黑描边：双行居中自动换行（dual_chip 与 stroke 统一视觉）
     layout_key = (layout or "dual_chip").lower()
-    if layout_key in {"dual_chip", "douyin_ref", "ref", "stroke", "red_yellow"}:
+    if layout_key in {"dual_chip", "douyin_ref", "ref", "stroke", "red_yellow", "yellow_black"}:
         sw = max(8, int(stroke_width))
         gap = max(20, int(font_size * 0.12))
         fill = _hex_to_rgba(color, 1.0)
@@ -177,12 +181,12 @@ def render_title_png(
             ld = ImageDraw.Draw(layer)
             ox, oy = sw + 4, sw + 2
             for dx in range(-sw, sw + 1):
-                for dy in range(-sw, sw + 1):
-                    if dx == 0 and dy == 0:
+                for dyy in range(-sw, sw + 1):
+                    if dx == 0 and dyy == 0:
                         continue
-                    if dx * dx + dy * dy > sw * sw:
+                    if dx * dx + dyy * dyy > sw * sw:
                         continue
-                    ld.text((ox + dx, oy + dy), ln, font=font, fill=stroke)
+                    ld.text((ox + dx, oy + dyy), ln, font=font, fill=stroke)
             ld.text((ox, oy), ln, font=font, fill=fill)
             bbox = layer.getbbox()
             if bbox:
@@ -196,7 +200,7 @@ def render_title_png(
         for ln in lines[:max_lines]:
             bb = draw.textbbox((0, 0), ln, font=font)
             approx_h += (bb[3] - bb[1]) + sw * 2 + gap
-        y = int(height * y_ratio)
+        y = int(height * y_ratio) + dy
         y = max(8, min(height - approx_h - 8, y))
         for ln in lines[:max_lines]:
             y = _draw_stroked_line(ln, y)
@@ -207,7 +211,7 @@ def render_title_png(
         tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
         pad_y = 24
         bar_h = th + pad_y * 2
-        bar_y = int(height * y_ratio)
+        bar_y = int(height * y_ratio) + dy
         bar_y = max(0, min(height - bar_h - 8, bar_y))
         if bar_opacity and bar_opacity > 0:
             draw.rectangle([(0, bar_y), (width, bar_y + bar_h)], fill=_hex_to_rgba(bar_color, bar_opacity))
@@ -217,12 +221,12 @@ def render_title_png(
         stroke = _hex_to_rgba(stroke_color, 1.0)
         sw = max(1, int(stroke_width))
         for dx in range(-sw, sw + 1):
-            for dy in range(-sw, sw + 1):
-                if dx == 0 and dy == 0:
+            for dyy in range(-sw, sw + 1):
+                if dx == 0 and dyy == 0:
                     continue
-                if dx * dx + dy * dy > sw * sw:
+                if dx * dx + dyy * dyy > sw * sw:
                     continue
-                draw.multiline_text((x + dx, y + dy), text, font=font, fill=stroke, align="center", spacing=spacing)
+                draw.multiline_text((x + dx, y + dyy), text, font=font, fill=stroke, align="center", spacing=spacing)
         draw.multiline_text((x, y), text, font=font, fill=fill, align="center", spacing=spacing)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -662,7 +666,7 @@ def render_plan(
         int(style.get("font_size") or template_meta.get("title_font_size", 92)),
         title_png,
         position=str(style.get("position") or template_meta.get("title_position", "top")),
-        color=str(style.get("color") or template_meta.get("title_color", "#E10600")),
+        color=str(style.get("color") or template_meta.get("title_color", "#FFE600")),
         bar_color=str(style.get("bar_color") or template_meta.get("title_bar_color", "#111827")),
         bar_opacity=float(
             style.get("bar_opacity")
@@ -673,8 +677,13 @@ def render_plan(
         max_lines=max_lines,
         bold=bool(style.get("bold", template_meta.get("title_bold", True))),
         stroke_width=int(style.get("stroke_width") or template_meta.get("title_stroke_width", 6)),
-        stroke_color=str(style.get("stroke_color") or template_meta.get("title_stroke_color", "#FFE600")),
+        stroke_color=str(style.get("stroke_color") or template_meta.get("title_stroke_color", "#000000")),
         layout=str(style.get("layout") or template_meta.get("title_layout", "dual_chip")),
+        offset_y_px=int(
+            style.get("offset_y_px")
+            if style.get("offset_y_px") is not None
+            else template_meta.get("title_offset_y_px", 120)
+        ),
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

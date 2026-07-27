@@ -123,7 +123,7 @@ def today_plan(session: Session, customer_id: int, day: str | None = None) -> Ca
 
 def seed_week_if_empty(session: Session, customer_id: int, customer_name: str = "") -> int:
     """Seed a demo week of calendar entries if none exist for this customer."""
-    from engine.catalog.industry_pack import pack_id_for_customer
+    from engine.catalog.industry_pack import load_industry_pack, pack_id_for_customer
 
     existing = session.scalar(
         select(CalendarEntry.id).where(CalendarEntry.customer_id == customer_id).limit(1)
@@ -132,14 +132,14 @@ def seed_week_if_empty(session: Session, customer_id: int, customer_name: str = 
         return 0
     cust = session.get(Customer, customer_id)
     pack_id = pack_id_for_customer(customer_name or (cust.name if cust else ""), cust.profile_json if cust else None)
+    configured = [
+        str(x).strip()
+        for x in (load_industry_pack(pack_id).get("content_themes") or ["default"])
+        if str(x).strip()
+    ] or ["default"]
     themes = [
-        ("default", "日常卖点"),
-        ("五金", "五金耗材主题 · 稳镜产品"),
-        ("配送", "本地配送主题 · 快切发货"),
-        ("default", "门店实力展示"),
-        ("批发", "批发价格主题 · 快切发货"),
-        ("default", "周末补货"),
-        ("default", "周一开局"),
+        (configured[i % len(configured)], f"行业包日历 · 第 {i + 1} 天")
+        for i in range(7)
     ]
     created = 0
     for i, (theme, note) in enumerate(themes):

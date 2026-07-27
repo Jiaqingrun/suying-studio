@@ -15,6 +15,7 @@
 | **产品总图** | [`docs/PRODUCT_PLAN.md`](docs/PRODUCT_PLAN.md) | 做什么、分期、卖什么 |
 | **开发标准（通用）** | [`docs/DEVELOPMENT_STANDARDS.md`](docs/DEVELOPMENT_STANDARDS.md) | App/引擎/多客户/配置铁律 |
 | 速影 App | [`docs/V8_SUYING_APP.md`](docs/V8_SUYING_APP.md) | 控制台能力 |
+| **客户安装（交付）** | [`docs/CUSTOMER_INSTALL.md`](docs/CUSTOMER_INSTALL.md) | 一体 macOS App + Ollama |
 | 外置盘存储 | [`docs/V8_STORAGE.md`](docs/V8_STORAGE.md) | 同步区 vs 工作区 |
 | 质量冲刺 | [`docs/V8_QUALITY.md`](docs/V8_QUALITY.md) | 冲刺范围（进度看 DEV_LOCK） |
 | 黄金样片 | [`docs/GOLDEN_SAMPLES.md`](docs/GOLDEN_SAMPLES.md) | 质量标尺 |

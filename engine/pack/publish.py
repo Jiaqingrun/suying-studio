@@ -68,7 +68,7 @@ def build_platform_copy(
         "channels": {
             "platform": "channels",
             "title": f"{hook} · {brand}"[:64],
-            "body": f"{sub}。{brand}仓配/门店实拍，欢迎咨询。\n{tag_line}",
+            "body": f"{sub}。{brand}真实现场记录，欢迎咨询。\n{tag_line}",
             "hashtags": tags,
         },
         "xhs": {
@@ -336,36 +336,42 @@ def export_publish_pack(
             "copy": copy_name,
             "subtitle": srt_name,
         }
-        if include_narration and prefs["voice_lang"] == loc and loc not in ("zh", "zh-TW"):
-            script_loc = narration_script_for_lang(loc, brand=brand_name, title_zh=title, speak_title=False)
-            narr_dir = dest / f"narration.{loc}"
-            # Prefer Edge when available for foreign voices
-            from engine.render.voice_subtitle import resolve_tts_provider
-            from engine.config.settings import load_settings as _ls
+        # G4: foreign pack variants always include VO when narration is on
+        # (not only when primary voice_lang equals that locale).
+        if include_narration and loc not in ("zh", "zh-TW"):
+            try:
+                script_loc = narration_script_for_lang(
+                    loc, brand=brand_name, title_zh=title, speak_title=False
+                )
+                narr_dir = dest / f"narration.{loc}"
+                from engine.render.voice_subtitle import resolve_tts_provider
+                from engine.config.settings import load_settings as _ls
 
-            provider = resolve_tts_provider(_ls())
-            if tts_provider in ("mock", "say"):
-                provider = tts_provider  # type: ignore[assignment]
-            narr = synthesize_script(
-                script_loc,
-                narr_dir,
-                lang=loc,
-                provider=provider,  # type: ignore[arg-type]
-                voice=edge_voice_for_lang(loc),
-            )
-            bed = narration_bed_from_result(narr, dest / f"voiceover.{loc}.wav")
-            variant_meta["narration_dir"] = f"narration.{loc}"
-            variant_meta["voiceover"] = f"voiceover.{loc}.wav"
-            variant_meta["script"] = script_loc
-            variant_meta["duration_sec"] = narr.total_duration_sec
-            files[f"voiceover_{loc.replace('-', '_')}"] = bed.name
-            files[f"narration_{loc.replace('-', '_')}"] = f"narration.{loc}"
-            from engine.pack.narration_script import srt_from_narration_segments
+                provider = resolve_tts_provider(_ls())
+                if tts_provider in ("mock", "say"):
+                    provider = tts_provider  # type: ignore[assignment]
+                narr = synthesize_script(
+                    script_loc,
+                    narr_dir,
+                    lang=loc,
+                    provider=provider,  # type: ignore[arg-type]
+                    voice=edge_voice_for_lang(loc),
+                )
+                bed = narration_bed_from_result(narr, dest / f"voiceover.{loc}.wav")
+                variant_meta["narration_dir"] = f"narration.{loc}"
+                variant_meta["voiceover"] = f"voiceover.{loc}.wav"
+                variant_meta["script"] = script_loc
+                variant_meta["duration_sec"] = narr.total_duration_sec
+                files[f"voiceover_{loc.replace('-', '_')}"] = bed.name
+                files[f"narration_{loc.replace('-', '_')}"] = f"narration.{loc}"
+                from engine.pack.narration_script import srt_from_narration_segments
 
-            timed = srt_from_narration_segments(narr.segments, video_duration_sec=dur or None)
-            if timed.strip():
-                (dest / srt_name).write_text(timed, encoding="utf-8")
-                foreign_srts[loc] = timed
+                timed = srt_from_narration_segments(narr.segments, video_duration_sec=dur or None)
+                if timed.strip():
+                    (dest / srt_name).write_text(timed, encoding="utf-8")
+                    foreign_srts[loc] = timed
+            except Exception:  # noqa: BLE001
+                pass
         variants[loc] = variant_meta
 
     # Primary subtitle pointer by subtitle_lang

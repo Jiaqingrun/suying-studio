@@ -2,15 +2,23 @@ from __future__ import annotations
 
 import re
 import subprocess
+import uuid
+from collections import Counter
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
-from engine.catalog.db import Asset, Cliplet, Customer
-from engine.catalog.semantic_tags import annotate_cliplet
+from engine.catalog.db import Asset, Cliplet, Customer, SemanticBackfillState
+from engine.catalog.semantic_tags import annotate_cliplet, apply_structured_semantics
 from engine.catalog.industry_pack import pack_id_for_customer
-from engine.ingest.vision_caption import describe_cliplet_vision
+from engine.ingest.semantic_gate import (
+    MAX_SEMANTIC_ATTEMPTS,
+    SEMANTIC_SCHEMA_VERSION,
+    evaluate_semantic_gate,
+)
+from engine.ingest.vision_caption import analyze_cliplet_semantics
 from engine.config.settings import load_settings
 from engine.ingest.proxy import analysis_video_path
 
@@ -64,6 +72,101 @@ def describe_cliplet(asset: Asset, start: float, end: float) -> str:
     return heuristic_describe(asset, start, end)
 
 
+def _analyze_with_gate(
+    asset: Asset,
+    start: float,
+    end: float,
+    *,
+    cache_dir: Path,
+    use_vision: bool,
+) -> tuple[dict | None, dict]:
+    """Retry with distinct frame offsets, then fail closed with full audit.
+
+    Cascade policy (pro/max): attempt on primary (9b); on gate reject /
+    vision_timeout / schema_not_object switch remaining attempts to escalate
+    (27b). Total attempts never exceed MAX_SEMANTIC_ATTEMPTS (3) — cascade
+    consumes the same budget, it does not add extra tries.
+    """
+    from engine.catalog.host_profile import resolve_vision_policy
+    from engine.ingest.vision_caption import should_escalate_vision
+
+    policy = resolve_vision_policy()
+    stage = "primary"
+    attempts: list[dict] = []
+    final_gate = {"passed": False, "reasons": ["not_attempted"]}
+    for attempt in range(1, MAX_SEMANTIC_ATTEMPTS + 1):
+        try:
+            data, extraction_audit = analyze_cliplet_semantics(
+                asset,
+                start,
+                end,
+                cache_dir=cache_dir,
+                attempt=attempt,
+                use_vision=use_vision,
+                cascade_stage=stage,
+            )
+        except Exception as exc:  # fail closed, but keep the retry budget bounded
+            data = None
+            extraction_audit = {
+                "attempt": attempt,
+                "backend": "vision",
+                "error": "semantic_analysis_exception",
+                "error_type": type(exc).__name__,
+                "cascade_stage": stage,
+                "vision_model": policy.model_for_stage(stage),
+                "vision_tier": policy.tier,
+            }
+        if data is None:
+            err = str((extraction_audit or {}).get("error") or "schema_not_object")
+            gate = {"passed": False, "reasons": [err]}
+        else:
+            gate = evaluate_semantic_gate(data)
+        attempts.append(
+            {
+                "attempt": attempt,
+                "extraction": extraction_audit,
+                "analysis": data,
+                "gate": gate,
+                "cascade_stage": stage,
+                "vision_model": (extraction_audit or {}).get("vision_model")
+                or policy.model_for_stage(stage),
+            }
+        )
+        final_gate = gate
+        if gate["passed"] and data is not None:
+            return data, {
+                "passed": True,
+                "attempts": attempt,
+                "max_attempts": MAX_SEMANTIC_ATTEMPTS,
+                "history": attempts,
+                "reasons": [],
+                "vision_tier": policy.tier,
+                "cascade": policy.cascade,
+                "final_cascade_stage": stage,
+                "final_vision_model": (extraction_audit or {}).get("vision_model")
+                or policy.model_for_stage(stage),
+            }
+        # Escalate for subsequent attempts only (does not burn an extra attempt).
+        if (
+            policy.cascade
+            and stage == "primary"
+            and should_escalate_vision(gate=gate, extraction_audit=extraction_audit)
+        ):
+            stage = "escalate"
+    return None, {
+        "passed": False,
+        "attempts": MAX_SEMANTIC_ATTEMPTS,
+        "max_attempts": MAX_SEMANTIC_ATTEMPTS,
+        "history": attempts,
+        "reasons": final_gate.get("reasons") or ["semantic_analysis_failed"],
+        "disposition": "quarantined_no_embedding",
+        "vision_tier": policy.tier,
+        "cascade": policy.cascade,
+        "final_cascade_stage": stage,
+        "final_vision_model": policy.model_for_stage(stage),
+    }
+
+
 def create_cliplets_for_asset(
     session: Session,
     asset: Asset,
@@ -89,7 +192,12 @@ def create_cliplets_for_asset(
     ranges = build_clip_ranges(duration, cuts)
     settings = load_settings()
     cache_dir = settings.paths.frames_root()
-    from engine.ingest.quality import score_clip_window
+    from engine.ingest.quality import (
+        CLIPLET_STATUS_REJECTED_BLUR,
+        CLIPLET_STATUS_USABLE,
+        is_usable_quality,
+        score_clip_window,
+    )
 
     pack_id = "_blank"
     if asset.customer_id:
@@ -98,22 +206,65 @@ def create_cliplets_for_asset(
             pack_id = pack_id_for_customer(cust.name, cust.profile_json)
 
     rows: list[Cliplet] = []
+    rejected_blur = 0
     for start, end in ranges:
-        desc, _backend = describe_cliplet_vision(
+        q = score_clip_window(video, start, end)
+        if not is_usable_quality(q):
+            # HARD: do not create usable blurry cliplets (optional audit row with rejected status)
+            row = Cliplet(
+                asset_id=asset.id,
+                asset_uuid=asset.uuid,
+                start_sec=start,
+                end_sec=end,
+                duration_sec=round(end - start, 3),
+                description="[rejected_blur] 虚焦/模糊切片，禁止向量化",
+                category=asset.category,
+                score=q,
+                status=CLIPLET_STATUS_REJECTED_BLUR,
+                embedding_json=None,
+            )
+            session.add(row)
+            rejected_blur += 1
+            continue
+        semantic, gate_audit = _analyze_with_gate(
             asset, start, end, cache_dir=cache_dir, use_vision=use_vision
         )
-        q = score_clip_window(video, start, end)
+        if semantic is None:
+            # Keep one audit-only row; it is neither returned as usable nor vectorized.
+            rejected = Cliplet(
+                asset_id=asset.id,
+                asset_uuid=asset.uuid,
+                start_sec=start,
+                end_sec=end,
+                duration_sec=round(end - start, 3),
+                description="[rejected_semantic] 语义分析未通过严格门禁",
+                category=asset.category,
+                score=q,
+                status="rejected_semantic",
+                semantic_schema_version=SEMANTIC_SCHEMA_VERSION,
+                semantic_gate_json=gate_audit,
+                semantic_attempts=int(gate_audit["attempts"]),
+                embedding_json=None,
+            )
+            session.add(rejected)
+            continue
         row = Cliplet(
             asset_id=asset.id,
             asset_uuid=asset.uuid,
             start_sec=start,
             end_sec=end,
             duration_sec=round(end - start, 3),
-            description=desc,
+            description=str(semantic["description"]),
             category=asset.category,
             score=q,
+            status="semantic_pending",
+            semantic_schema_version=SEMANTIC_SCHEMA_VERSION,
+            semantic_gate_json=gate_audit,
+            semantic_attempts=int(gate_audit["attempts"]),
         )
         annotate_cliplet(row, asset, pack_id=pack_id)
+        apply_structured_semantics(row, semantic)
+        row.status = CLIPLET_STATUS_USABLE
         session.add(row)
         rows.append(row)
     session.commit()
@@ -125,32 +276,235 @@ def create_cliplets_for_asset(
 def recaption_existing_cliplets(
     session: Session,
     *,
+    customer_id: int,
     limit: int = 500,
     use_vision: bool = True,
-) -> dict[str, int]:
-    """Refresh descriptions (+ clear embeddings) for existing cliplets."""
+) -> dict[str, object]:
+    """Safely backfill old semantic rows using one-row atomic SQLite leases."""
     from engine.catalog.vector_index import index_cliplet
 
+    limit = max(1, min(int(limit), 500))
     settings = load_settings()
     cache_dir = settings.paths.frames_root()
-    rows = list(session.scalars(select(Cliplet).order_by(Cliplet.id.asc()).limit(limit)).all())
     vision_n = 0
-    heur_n = 0
-    for row in rows:
+    rejected_n = 0
+    claimed_ids: list[int] = []
+    errors: list[str] = []
+    failure_reasons: Counter[str] = Counter()
+
+    for _ in range(limit):
+        claimed = _claim_next_semantic_cliplet(session, customer_id=customer_id)
+        if claimed is None:
+            break
+        row, token = claimed
+        claimed_ids.append(int(row.id))
         asset = session.get(Asset, row.asset_id)
         if not asset:
+            _release_semantic_claim(session, row, token)
+            errors.append(f"cliplet {row.id}: asset_missing")
             continue
-        desc, backend = describe_cliplet_vision(
-            asset, row.start_sec, row.end_sec, cache_dir=cache_dir, use_vision=use_vision
-        )
-        row.description = desc
-        row.embedding_json = None
-        row.indexed_at = None
-        annotate_cliplet(row, asset)
-        if backend == "vision":
+        try:
+            semantic, gate_audit = _analyze_with_gate(
+                asset, row.start_sec, row.end_sec, cache_dir=cache_dir, use_vision=use_vision
+            )
+            # Preserve the legacy vector until analysis reaches a terminal
+            # result. A crashed/failed call can therefore be retried safely.
+            row.embedding_json = None
+            row.indexed_at = None
+            row.semantic_gate_json = gate_audit
+            row.semantic_attempts = int(gate_audit["attempts"])
+            row.semantic_schema_version = SEMANTIC_SCHEMA_VERSION
+            if semantic is None:
+                row.status = "rejected_semantic"
+                row.description = "[rejected_semantic] 语义分析未通过严格门禁"
+                row.semantic_claim_token = None
+                row.semantic_claimed_at = None
+                rejected_n += 1
+                failure_reasons.update(str(v) for v in (gate_audit.get("reasons") or []))
+                _record_semantic_progress(session, customer_id, row.id, passed=False)
+                session.flush()
+                # SQLAlchemy JSON maps Python None to JSON text `null` by
+                # default. The hard lock requires a physical SQL NULL so gap
+                # queries and audits cannot mistake rejected rows for vectors.
+                session.execute(
+                    text(
+                        "UPDATE cliplets SET embedding_json=NULL, indexed_at=NULL "
+                        "WHERE id=:id AND status='rejected_semantic'"
+                    ),
+                    {"id": int(row.id)},
+                )
+                session.commit()
+                continue
+            row.description = str(semantic["description"])
+            annotate_cliplet(row, asset)
+            apply_structured_semantics(row, semantic)
+            row.status = "usable"
+            row.semantic_claim_token = None
+            row.semantic_claimed_at = None
+            _record_semantic_progress(session, customer_id, row.id, passed=True)
+            session.commit()
+            # expire_on_commit can leave JSON attrs unloaded; refresh before
+            # index_cliplet re-checks semantic_gate_passed / semantic_json.
+            session.refresh(row)
+            index_cliplet(session, row)
+            if row.embedding_json is None:
+                raise RuntimeError("semantic pass did not produce embedding")
             vision_n += 1
-        else:
-            heur_n += 1
+        except Exception as exc:
+            session.rollback()
+            current = session.get(Cliplet, row.id)
+            if current is not None:
+                _release_semantic_claim(session, current, token)
+            errors.append(f"cliplet {row.id}: {type(exc).__name__}: {exc}")
+
+    progress = semantic_backfill_progress(session, customer_id=customer_id)
+    return {
+        "queued": len(claimed_ids),
+        "processed": vision_n + rejected_n,
+        "passed": vision_n,
+        "rejected": rejected_n,
+        "remaining": progress["remaining"],
+        "eligible": progress["eligible"],
+        "last_cursor": progress["last_cursor"],
+        "claimed_ids": claimed_ids,
+        "failure_reasons": dict(failure_reasons.most_common()),
+        "errors": errors,
+        # Backward-compatible response keys.
+        "updated": vision_n + rejected_n,
+        "vision": vision_n,
+        "heuristic": 0,
+        "semantic_rejected": rejected_n,
+        "quality_rejected": 0,
+    }
+
+
+def _eligible_semantic_stmt(customer_id: int):
+    from engine.ingest.quality import MIN_QUALITY_SCORE
+
+    return (
+        select(Cliplet)
+        .join(Asset, Cliplet.asset_id == Asset.id)
+        .where(
+            Asset.customer_id == customer_id,
+            Cliplet.status.notin_(("rejected_blur", "rejected_semantic")),
+            Cliplet.score >= MIN_QUALITY_SCORE,
+            Cliplet.score != 1.0,
+            or_(
+                Cliplet.semantic_schema_version.is_(None),
+                Cliplet.semantic_schema_version != SEMANTIC_SCHEMA_VERSION,
+                Cliplet.semantic_gate_json.is_(None),
+            ),
+        )
+    )
+
+
+def _claim_next_semantic_cliplet(
+    session: Session,
+    *,
+    customer_id: int,
+    lease_minutes: int = 30,
+) -> tuple[Cliplet, str] | None:
+    """Claim the oldest eligible row under SQLite's write lock."""
+    session.rollback()
+    session.execute(text("BEGIN IMMEDIATE"))
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=lease_minutes)
+    row = session.scalar(
+        _eligible_semantic_stmt(customer_id)
+        .where(
+            or_(
+                Cliplet.semantic_claim_token.is_(None),
+                Cliplet.semantic_claimed_at.is_(None),
+                Cliplet.semantic_claimed_at < cutoff,
+            )
+        )
+        .order_by(Cliplet.id.asc())
+        .limit(1)
+    )
+    if row is None:
         session.commit()
-        index_cliplet(session, row)
-    return {"updated": len(rows), "vision": vision_n, "heuristic": heur_n}
+        return None
+    token = uuid.uuid4().hex
+    row.semantic_claim_token = token
+    row.semantic_claimed_at = datetime.now(timezone.utc)
+    session.commit()
+    session.refresh(row)
+    return row, token
+
+
+def _release_semantic_claim(session: Session, row: Cliplet, token: str) -> None:
+    if row.semantic_claim_token == token:
+        row.semantic_claim_token = None
+        row.semantic_claimed_at = None
+        session.commit()
+
+
+def _record_semantic_progress(
+    session: Session,
+    customer_id: int,
+    cursor: int,
+    *,
+    passed: bool,
+) -> None:
+    state = session.scalar(
+        select(SemanticBackfillState).where(
+            SemanticBackfillState.customer_id == customer_id,
+            SemanticBackfillState.schema_version == SEMANTIC_SCHEMA_VERSION,
+        )
+    )
+    if state is None:
+        state = SemanticBackfillState(
+            customer_id=customer_id,
+            schema_version=SEMANTIC_SCHEMA_VERSION,
+        )
+        session.add(state)
+    state.processed = int(state.processed or 0) + 1
+    state.passed = int(state.passed or 0) + int(passed)
+    state.rejected = int(state.rejected or 0) + int(not passed)
+    state.last_cursor = cursor
+    state.updated_at = datetime.now(timezone.utc)
+
+
+def semantic_backfill_progress(session: Session, *, customer_id: int) -> dict[str, object]:
+    """Return auditable v1 totals for the active customer."""
+    scoped = (
+        select(Cliplet.status, func.count(Cliplet.id))
+        .join(Asset, Cliplet.asset_id == Asset.id)
+        .where(
+            Asset.customer_id == customer_id,
+            Cliplet.semantic_schema_version == SEMANTIC_SCHEMA_VERSION,
+        )
+        .group_by(Cliplet.status)
+    )
+    by_status = {str(status): int(count) for status, count in session.execute(scoped).all()}
+    passed = by_status.get("usable", 0)
+    rejected = by_status.get("rejected_semantic", 0)
+    remaining = int(
+        session.scalar(select(func.count()).select_from(_eligible_semantic_stmt(customer_id).subquery()))
+        or 0
+    )
+    state = session.scalar(
+        select(SemanticBackfillState).where(
+            SemanticBackfillState.customer_id == customer_id,
+            SemanticBackfillState.schema_version == SEMANTIC_SCHEMA_VERSION,
+        )
+    )
+    return {
+        "schema_version": SEMANTIC_SCHEMA_VERSION,
+        "eligible": passed + rejected + remaining,
+        "processed": passed + rejected,
+        "passed": passed,
+        "rejected": rejected,
+        "remaining": remaining,
+        "last_cursor": state.last_cursor if state else None,
+        "claimed": int(
+            session.scalar(
+                select(func.count(Cliplet.id))
+                .join(Asset, Cliplet.asset_id == Asset.id)
+                .where(
+                    Asset.customer_id == customer_id,
+                    Cliplet.semantic_claim_token.is_not(None),
+                )
+            )
+            or 0
+        ),
+    }

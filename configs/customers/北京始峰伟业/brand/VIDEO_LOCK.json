@@ -1,6 +1,6 @@
 {
   "locked": true,
-  "locked_at": "2026-07-25",
+  "locked_at": "2026-07-26",
   "do_not_change_without_user_approval": true,
   "reference_title": "少等半天少跑几趟路",
   "reference_outputs": [
@@ -15,13 +15,14 @@
   },
   "title": {
     "font_size": 92,
-    "color": "#E10600",
-    "stroke_color": "#FFE600",
+    "color": "#FFE600",
+    "stroke_color": "#000000",
     "stroke_width": 6,
     "bar_opacity": 0.0,
     "bold": true,
     "layout": "dual_chip",
     "position": "top",
+    "offset_y_px": 120,
     "max_chars": 10,
     "max_lines": 2,
     "spoken": false,
@@ -38,22 +39,31 @@
     "color": "#FFFFFF",
     "outline": "#000000",
     "bottom_padding_px": 400,
+    "side_margin_px": 48,
     "no_background_mask": true,
     "auto_dual_line": true,
     "horizontal": "center",
-    "tail_trim_seconds": 0.04,
-        "inter_sentence_gap_seconds": 0.15,
-    "forbid_title_content": true
+    "forbid_edge_clip": true,
+    "tail_trim_seconds": 0.12,
+    "inter_sentence_gap_seconds": 0.15,
+    "align_to_voice_mandatory": true,
+    "clear_during_silence": true,
+    "forbid_title_content": true,
+    "force_burn_mono": true,
+    "emoji_in_subtitle": true
   },
   "voice": {
     "provider": "edge",
     "voice": "zh-CN-XiaoxiaoNeural",
     "label": "晓晓",
     "rate": "-8%",
-    "pitch": "+20Hz",
+    "pitch": "+35Hz",
     "fill_video_duration": true,
     "forbid_theme_announce": true,
-    "chars_per_sec_zh": 3.8
+    "chars_per_sec_zh": 3.8,
+    "max_chars_per_breath": 18,
+    "volume": "+12%",
+    "emotion_boost": true
   },
   "logo": {
     "enabled": false
@@ -61,6 +71,8 @@
   "narration": {
     "rich_theme_script": true,
     "strip_punctuation": true,
+    "max_chars_per_breath": 18,
+    "require_sentence_breaks": true,
     "forbid_title_content": true,
     "forbid_interjections": [
       "嗨",
@@ -84,11 +96,42 @@
       "配货效率",
       "发货效率",
       "配送服务"
-    ]
+    ],
+    "emotional_delivery": true
   },
   "compose": {
     "preferred_runtime": "ffmpeg",
     "keep_source_audio": false,
     "template_name": "default-vertical"
+  },
+  "quality": {
+    "locked": true,
+    "do_not_change_without_user_approval": true,
+    "reject_blur": true,
+    "forbid_blur_ingest": true,
+    "forbid_blur_vectorize": true,
+    "forbid_blur_in_plan": true,
+    "forbid_unscored_vectorize": true,
+    "min_quality_score": 0.35,
+    "min_laplacian_var": 48.0,
+    "asset_blur_fail_ratio": 0.6,
+    "cliplet_reject_status": "rejected_blur",
+    "asset_reject_status": "rejected_blur"
+  },
+  "emoji": {
+    "locked": true,
+    "in_subtitle": true,
+    "forbid_title_stickers": true,
+    "forbid_spoken_emoji": true,
+    "require_burn_mono": true
+  },
+  "paper_slip": {
+    "locked": true,
+    "do_not_change_without_user_approval": true,
+    "max_daily_uses": 2,
+    "cliplet": true,
+    "phrase": true,
+    "count_on": "ready_only",
+    "timezone": "Asia/Shanghai"
   }
 }

@@ -292,7 +292,41 @@ def ingest_file(
             pass
         return None
 
-    meta = {**probe, "library_root": str(root), "has_proxy": bool(proxy_ok)}
+    # HARD: reject whole source if mostly out-of-focus / soft (QUALITY_LOCK)
+    from engine.ingest.quality import ASSET_STATUS_REJECTED_BLUR, score_asset_focus
+
+    focus = score_asset_focus(normalized, duration_sec=float(probe.get("duration_sec") or 0) or None)
+    if focus.get("rejected_blur"):
+        log.info(
+            "reject blur asset=%s mean_lap=%s fail_ratio=%s path=%s",
+            asset.id,
+            focus.get("mean_laplacian"),
+            focus.get("fail_ratio"),
+            file_path,
+        )
+        asset.status = ASSET_STATUS_REJECTED_BLUR
+        meta = dict(asset.metadata_json or {})
+        meta.update(
+            {
+                **probe,
+                "library_root": str(root),
+                "reject_reason": "blur",
+                "focus_qa": focus,
+                "has_proxy": bool(proxy_ok),
+            }
+        )
+        asset.metadata_json = meta
+        asset.storage_path = str(normalized)
+        asset.proxy_path = proxy_path
+        asset.duration_sec = probe.get("duration_sec")
+        asset.width = probe.get("width")
+        asset.height = probe.get("height")
+        asset.fps = probe.get("fps")
+        asset.has_audio = probe.get("has_audio", False)
+        session.commit()
+        return None
+
+    meta = {**probe, "library_root": str(root), "has_proxy": bool(proxy_ok), "focus_qa": focus}
     if defer_index:
         meta["index_pending"] = True
     asset.storage_path = str(normalized)

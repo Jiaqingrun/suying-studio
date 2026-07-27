@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "id": "building-supply-starter",
+  "name": "建材门店起步配置",
+  "description": "可选导入词池、品牌样式与视频硬锁；不含客户视频、数据库、账号或密钥",
+  "profile": {
+    "industry_pack": "building-supply",
+    "locale": "zh-CN",
+    "expression": {
+      "voice_lang": "zh",
+      "subtitle_lang": "zh",
+      "subtitle_burn": "external"
+    }
+  },
+  "files": [
+    {
+      "source": "keyword-pack.json",
+      "target": "03-词池/keyword-pack.json"
+    },
+    {
+      "source": "VIDEO_LOCK.json",
+      "target": "05-品牌/VIDEO_LOCK.json"
+    },
+    {
+      "source": "style_lock.json",
+      "target": "05-品牌/style_lock.json"
+    }
+  ]
+}

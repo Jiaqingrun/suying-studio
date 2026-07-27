@@ -64,7 +64,8 @@ DEFAULT_EDGE_VOICE = {
     "nl": "nl-NL-FennaNeural",
 }
 DEFAULT_EDGE_RATE = "-8%"
-DEFAULT_EDGE_PITCH = "+20Hz"
+DEFAULT_EDGE_PITCH = "+35Hz"
+DEFAULT_EDGE_VOLUME = "+12%"
 
 
 @dataclass
@@ -75,6 +76,10 @@ class NarrationSegment:
     audio_path: str
     duration_sec: float
     estimated_sec: float
+    # Absolute cue window on the final voiceover bed (oneshot). When set, SRT
+    # MUST use these — duration_sec is speech-only and must NOT include silence.
+    start_sec: float | None = None
+    end_sec: float | None = None
 
 
 @dataclass
@@ -109,6 +114,13 @@ def split_script(text: str, *, max_chars: int = 80, lang: str = "zh") -> list[st
     raw = (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
     if not raw:
         return []
+    # CJK: restore short breaths before split (Ollama often returns run-ons)
+    if str(lang).startswith("zh"):
+        from engine.pack.text_sanitize import ensure_zh_speech_breaks
+
+        # Default breath ≤18 chars so Edge pauses; caller may pass larger max_chars
+        breath_cap = min(int(max_chars), 18) if max_chars else 18
+        raw = ensure_zh_speech_breaks(raw, max_chars=breath_cap)
     # CJK sentence ends for zh/ja/ko; Thai/others use .!? as well (foreign templates)
     splitter = _SENTENCE_SPLIT_ZH if lang.startswith("zh") or lang in ("ja", "ko") else _SENTENCE_SPLIT
     parts = [p.strip() for p in splitter.split(raw) if p and p.strip()]
@@ -228,6 +240,7 @@ def _edge_to_wav(
     lang: str = "zh",
     rate: str = DEFAULT_EDGE_RATE,
     pitch: str = DEFAULT_EDGE_PITCH,
+    volume: str = "+0%",
     retries: int = 3,
 ) -> None:
     """Edge TTS (晓晓 default) → MP3 → WAV. Retries on transient network errors."""
@@ -255,11 +268,16 @@ def _edge_to_wav(
     mp3 = path.with_suffix(".mp3")
     last_err: Exception | None = None
     attempts = max(1, int(retries))
+    vol = volume or "+0%"
 
     for attempt in range(attempts):
         async def _run() -> None:
             communicate = edge_tts.Communicate(
-                text, voice_id, rate=rate or DEFAULT_EDGE_RATE, pitch=pitch or DEFAULT_EDGE_PITCH
+                text,
+                voice_id,
+                rate=rate or DEFAULT_EDGE_RATE,
+                pitch=pitch or DEFAULT_EDGE_PITCH,
+                volume=vol,
             )
             await communicate.save(str(mp3))
 
@@ -320,6 +338,7 @@ def synthesize_script(
     write_manifest: bool = True,
     rate: str | None = None,
     pitch: str | None = None,
+    volume: str | None = None,
     strip_punctuation: bool = False,
     allow_fallback: bool = True,
     inter_sentence_gap_sec: float = 0.15,
@@ -333,12 +352,23 @@ def synthesize_script(
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    chunks = split_script(script, lang=lang)
-    if strip_punctuation:
-        from engine.pack.text_sanitize import strip_all_punctuation
+    # zh lock: re-punctuate → split on 。 → strip marks for spoken chunk text.
+    # Order matters: never strip before split (would destroy 断句).
+    effective_rate = rate or DEFAULT_EDGE_RATE
+    effective_pitch = pitch or DEFAULT_EDGE_PITCH
+    effective_volume = volume or DEFAULT_EDGE_VOLUME
+    if str(lang).startswith("zh") and strip_punctuation:
+        from engine.pack.text_sanitize import ensure_zh_speech_breaks, split_then_strip_sentences
 
-        chunks = [strip_all_punctuation(c) for c in chunks]
-        chunks = [c for c in chunks if c]
+        punctuated = ensure_zh_speech_breaks(script, max_chars=18)
+        chunks = split_then_strip_sentences(punctuated)
+    else:
+        chunks = split_script(script, lang=lang, max_chars=18 if str(lang).startswith("zh") else 80)
+        if strip_punctuation:
+            from engine.pack.text_sanitize import strip_all_punctuation
+
+            chunks = [strip_all_punctuation(c) for c in chunks]
+            chunks = [c for c in chunks if c]
     if not chunks:
         chunks = ["无旁白"] if strip_punctuation else ["（无旁白）"]
 
@@ -363,51 +393,57 @@ def synthesize_script(
                 oneshot,
                 voice=voice,
                 lang=lang,
-                rate=rate or DEFAULT_EDGE_RATE,
-                pitch=pitch or DEFAULT_EDGE_PITCH,
+                rate=effective_rate,
+                pitch=effective_pitch,
+                volume=effective_volume,
                 retries=6 if not allow_fallback else 3,
             )
             total_real = probe_audio_duration(oneshot)
-            # Slice by silence so caption timing matches spoken pauses
-            spans = _speech_spans_by_silence(oneshot, min_silence=0.08)
-            # Normalize span count to sentence count (drop tiny leading/trailing noise)
-            if len(spans) > len(chunks):
-                spans = sorted(spans, key=lambda x: x[1] - x[0], reverse=True)[: len(chunks)]
-                spans = sorted(spans, key=lambda x: x[0])
+            # Slice by silence, then merge spans → one group per sentence.
+            # HARD: cue end = speech end (never absorb inter-sentence silence).
+            raw_spans = _speech_spans_by_silence(oneshot, min_silence=0.08)
+            grouped = _group_spans_for_chunks(raw_spans, chunks)
             segments: list[NarrationSegment] = []
-            if len(spans) == len(chunks):
-                for i, (text, (st, en)) in enumerate(zip(chunks, spans)):
-                    # Duration includes trailing pause until next cue (keeps SRT locked to oneshot bed)
-                    if i + 1 < len(spans):
-                        cue_dur = max(0.15, spans[i + 1][0] - st)
-                    else:
-                        cue_dur = max(0.15, total_real - st)
+            if grouped is not None:
+                for i, (text, (st, en)) in enumerate(zip(chunks, grouped)):
+                    speech_dur = max(0.12, float(en) - float(st))
                     segments.append(
                         NarrationSegment(
                             index=i,
                             text=text,
                             lang=lang,
                             audio_path=str(oneshot.resolve()),
-                            duration_sec=round(cue_dur, 3),
+                            duration_sec=round(speech_dur, 3),
                             estimated_sec=estimate_duration_sec(text, lang=lang, cps=cps),
+                            start_sec=round(float(st), 3),
+                            end_sec=round(float(en), 3),
                         )
                     )
             else:
-                # Silence count mismatch — proportional timing on oneshot bed only
+                # Span count < sentences — proportional speech windows on bed.
+                # Still leave measurable gaps so captions clear between cues.
                 weights = [max(1, len(c)) for c in chunks]
                 tw = float(sum(weights)) or 1.0
-                usable = max(0.4, total_real - gap * max(0, len(chunks) - 1))
+                gap_est = min(0.12, gap if gap > 0 else 0.08)
+                usable = max(0.4, total_real - gap_est * max(0, len(chunks) - 1))
+                cursor = 0.0
                 for i, (text, w) in enumerate(zip(chunks, weights)):
+                    speech_dur = max(0.12, usable * (w / tw))
+                    st = cursor
+                    en = min(total_real, st + speech_dur)
                     segments.append(
                         NarrationSegment(
                             index=i,
                             text=text,
                             lang=lang,
                             audio_path=str(oneshot.resolve()),
-                            duration_sec=round(usable * (w / tw), 3),
+                            duration_sec=round(en - st, 3),
                             estimated_sec=estimate_duration_sec(text, lang=lang, cps=cps),
+                            start_sec=round(st, 3),
+                            end_sec=round(en, 3),
                         )
                     )
+                    cursor = en + (gap_est if i + 1 < len(chunks) else 0.0)
             result = NarrationResult(
                 segments=segments,
                 total_duration_sec=round(total_real, 3),
@@ -418,12 +454,18 @@ def synthesize_script(
                 extras={
                     "requested_provider": provider,
                     "voice": voice,
+                    "rate": effective_rate,
+                    "pitch": effective_pitch,
+                    "volume": effective_volume,
                     "allow_fallback": allow_fallback,
                     "mode": "oneshot_punctuated",
                     "oneshot_path": str(oneshot.resolve()),
                     "inter_sentence_gap_sec": 0.0,  # pauses already inside oneshot
-                    "silence_spans": len(spans),
+                    "silence_spans": len(raw_spans),
+                    "grouped_spans": len(grouped or []),
                     "chunk_count": len(chunks),
+                    "cue_timing": "speech_absolute",
+                    "max_chars_per_breath": 18,
                 },
             )
             if write_manifest:
@@ -453,7 +495,7 @@ def synthesize_script(
             and wav.stat().st_size > 1000
             and probe_audio_duration(wav) > 0.2
         ):
-            real = probe_audio_duration(wav)
+            real = _trim_wav_trailing_silence(wav)
             segments.append(
                 NarrationSegment(
                     index=i,
@@ -472,8 +514,9 @@ def synthesize_script(
                     wav,
                     voice=voice,
                     lang=lang,
-                    rate=rate or DEFAULT_EDGE_RATE,
-                    pitch=pitch or DEFAULT_EDGE_PITCH,
+                    rate=effective_rate,
+                    pitch=effective_pitch,
+                    volume=effective_volume,
                     retries=5 if not allow_fallback else 3,
                 )
                 if i + 1 < len(chunks):
@@ -503,7 +546,7 @@ def synthesize_script(
                 _ffmpeg_tone(wav, est, freq=200 + (i % 5) * 20)
         else:
             _ffmpeg_tone(wav, est, freq=200 + (i % 5) * 20)
-        real = probe_audio_duration(wav)
+        real = _trim_wav_trailing_silence(wav)
         segments.append(
             NarrationSegment(
                 index=i,
@@ -541,6 +584,108 @@ def synthesize_script(
         )
         result.manifest_path = str(man_path.resolve())
     return result
+
+
+def _group_spans_for_chunks(
+    spans: list[tuple[float, float]],
+    chunks: list[str],
+) -> list[tuple[float, float]] | None:
+    """Merge consecutive speech spans into len(chunks) groups by char weight.
+
+    Returns None when grouping is impossible (fewer spans than sentences).
+    HARD RULE: each group end is the last speech sample — never includes the
+    silence gap before the next sentence (字幕不得拖过话音).
+    """
+    n = len(chunks)
+    if n <= 0 or not spans:
+        return None
+    if len(spans) == n:
+        return [(float(s), float(e)) for s, e in spans]
+    if len(spans) < n:
+        return None
+    weights = [max(1, len((c or "").strip())) for c in chunks]
+    tw = float(sum(weights)) or 1.0
+    speech_lens = [max(0.01, float(e) - float(s)) for s, e in spans]
+    total_speech = float(sum(speech_lens))
+    # Cumulative speech-duration targets at each group boundary
+    boundaries: list[float] = []
+    acc_w = 0.0
+    for w in weights[:-1]:
+        acc_w += w
+        boundaries.append(total_speech * (acc_w / tw))
+    groups: list[tuple[float, float]] = []
+    span_i = 0
+    spoken_before = 0.0
+    for b_i, boundary in enumerate(boundaries):
+        remaining_groups_after = n - len(groups) - 1
+        if span_i >= len(spans):
+            break
+        g_start = float(spans[span_i][0])
+        g_end = float(spans[span_i][1])
+        spoken_in = speech_lens[span_i]
+        span_i += 1
+        while span_i < len(spans) - remaining_groups_after:
+            # Stop absorbing once we reached/passed this group's speech budget
+            if spoken_before + spoken_in >= boundary * 0.92 and spoken_in >= 0.2:
+                break
+            g_end = float(spans[span_i][1])
+            spoken_in += speech_lens[span_i]
+            span_i += 1
+        groups.append((g_start, g_end))
+        spoken_before += spoken_in
+    # Last group takes all remaining spans
+    if span_i < len(spans):
+        groups.append((float(spans[span_i][0]), float(spans[-1][1])))
+    elif len(groups) < n and spans:
+        # Degenerate: pad with tiny tails from last span end
+        last_end = float(spans[-1][1])
+        while len(groups) < n:
+            groups.append((max(0.0, last_end - 0.2), last_end))
+    return groups if len(groups) == n else None
+
+
+def _speech_end_on_wav(wav: Path, *, fallback: float) -> float:
+    """Last audible speech end on a clip WAV (trim TTS trailing silence)."""
+    spans = _speech_spans_by_silence(wav, min_silence=0.06)
+    if not spans:
+        return float(fallback)
+    end = float(spans[-1][1])
+    # Never exceed file length; keep a tiny floor so ultra-short cues still show
+    return max(0.12, min(float(fallback), end))
+
+
+def _trim_wav_trailing_silence(wav: Path, *, pad_sec: float = 0.04) -> float:
+    """Rewrite WAV so trailing TTS silence is removed; return new duration."""
+    wav = Path(wav)
+    full = probe_audio_duration(wav)
+    if full <= 0.2:
+        return full
+    speech_end = _speech_end_on_wav(wav, fallback=full)
+    target = min(full, speech_end + max(0.0, pad_sec))
+    if full - target < 0.08:
+        return full
+    tmp = wav.with_suffix(".trim.wav")
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(wav),
+        "-t",
+        f"{target:.3f}",
+        "-c:a",
+        "pcm_s16le",
+        "-ar",
+        "44100",
+        "-ac",
+        "1",
+        str(tmp),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if proc.returncode != 0 or not tmp.is_file():
+        tmp.unlink(missing_ok=True)
+        return full
+    tmp.replace(wav)
+    return probe_audio_duration(wav)
 
 
 def _speech_spans_by_silence(wav: Path, *, min_silence: float = 0.08) -> list[tuple[float, float]]:

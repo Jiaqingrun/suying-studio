@@ -9,5 +9,22 @@ MontageStudio/
 apps/desktop/node_modules/
 apps/desktop/dist/
 apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
 *.log
-.cursor/
+# Keep project rules/skills versionable; ignore other local Cursor state.
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/*.mdc
+!.cursor/skills/
+!.cursor/skills/*/
+!.cursor/skills/*/SKILL.md
+packaging/cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.tsbuildinfo
+# Local QA / smoke scratch (never ship)
+_qa*.png
+_smoke_*/

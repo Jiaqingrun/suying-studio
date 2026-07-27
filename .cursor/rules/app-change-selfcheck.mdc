@@ -1,0 +1,24 @@
+---
+description: APP 改动后必须全量自检、清死代码、停旧进程并重启
+alwaysApply: true
+---
+
+# App / 引擎改动后的交付纪律
+
+每次修改 `apps/desktop/**` 或与之配套的引擎 API（尤其触达/配额/审片/物料）后，在宣称完成前必须：
+
+1. **全量自检**
+   - `apps/desktop`: `npx tsc --noEmit`
+   - 引擎：关键路由冒烟（至少 `GET /health`、本次改动相关 API）
+   - 相关 Python 模块可 import / 小断言通过
+2. **删除死代码与无效代码**
+   - 未使用的 import、函数、状态、重复 CSS、被替换的旧提示路径
+   - 成功反馈不得再滥用 `setError`；用 `notify`/独立 toast
+3. **停旧进程、启新进程**
+   - `kill $(lsof -t -iTCP:8766 -sTCP:LISTEN)`（若有监听）
+   - `SUYING_FORCE=1 ./scripts/start-engine.sh` 重启引擎
+   - 若桌面端热更新未吃到改动，提示用户刷新/重启 App
+4. **循环默认间隔**
+   - 用户要求「建立循环 / 下一步」且未指定间隔时，默认 **30s**（`AGENT_LOOP_TICK_*`）
+
+不要把自检结果只说成「应该没问题」——要实际跑命令并处理失败。

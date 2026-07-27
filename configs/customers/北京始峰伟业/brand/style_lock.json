@@ -32,7 +32,7 @@
   "title": {
     "font_family": "STHeiti Medium / PingFang Bold",
     "font_size_px": 92,
-    "color": "#E10600",
+    "color": "#FFE600",
     "align": "center",
     "max_chars": 10,
     "max_lines": 2,
@@ -40,7 +40,7 @@
     "stroke": {
       "enabled": true,
       "width_px": 6,
-      "color": "#FFE600"
+      "color": "#000000"
     },
     "bar": {
       "enabled": false,
@@ -55,14 +55,14 @@
     "wrap": "auto_balanced_center",
     "layout": "dual_chip",
     "line1": {
-      "text": "#E10600",
-      "stroke": "#FFE600",
-      "note": "红字黄边，居中"
+      "text": "#FFE600",
+      "stroke": "#000000",
+      "note": "黄字黑描边，居中"
     },
     "line2": {
-      "text": "#E10600",
-      "stroke": "#FFE600",
-      "note": "红字黄边，居中，可双行"
+      "text": "#FFE600",
+      "stroke": "#000000",
+      "note": "黄字黑描边，居中，可双行"
     },
     "prefer_full_dual": false,
     "min_chars_total": 16,

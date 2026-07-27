@@ -1,0 +1,48 @@
+---
+description: 速影生产一体包打包规则（macOS .app / DMG / 交付清单）
+alwaysApply: false
+---
+
+# 速影 · 生产打包（scheme A）
+
+用户说「打包 / 出包 / 生产包 / 打 DMG / package」时按本规则执行。权威客户说明：`docs/CUSTOMER_INSTALL.md`。
+
+## 命令（默认一体包）
+
+```bash
+# 推荐：Tauri build + 嵌入 studio/creative/Python + 桌面套件 + DMG
+cd apps/desktop && npm run package:mac
+
+# 产品套件（含安装脚本）；需 openmontage 旁路仓
+BUILD_APP=1 ./scripts/package-product.sh
+
+# 仅往已有 .app 塞运行时
+./scripts/embed-app-runtime.sh /path/to/速影.app
+```
+
+- 默认 `EMBED=1`。壳-only：`EMBED=0`。
+- Python：生产包默认且必须使用可迁移 standalone CPython；仅本机调试可显式 `PREFER_STANDALONE=0 ALLOW_HOST_VENV_FALLBACK=1`。
+- `OPENMONTAGE_ROOT` 默认 `../openmontage`。
+- Tauri `bundle.targets` 保持 `["app"]`；DMG 由 `package-macos.sh` 在 **embed 之后** 用 `hdiutil` 生成（勿只靠 tauri dmg）。
+
+## 必须打进 App
+
+`速影.app/Contents/Resources/runtime/{studio,creative,python}` + `BUNDLE_LAYOUT.txt`。
+
+## 禁止打进包
+
+`configs/customers/*`、片库/成片/词池、`~/Suying/data`、`.env`、API Key、Ollama 模型、客户 `projects/` 产出、`.venv` 源仓、`node_modules`、`src-tauri/target`。
+
+## 交付物 DoD
+
+桌面套件 `~/Desktop/速影-<ver>-macos-<arch>/` 须含：
+
+1. `速影.app`（含 `runtime/BUNDLE_LAYOUT.txt`）
+2. `速影-<ver>.dmg`（从 **已 embed** 的 App 生成）
+3. `安装说明` + `SHA256.txt`
+
+冒烟：把 App 复制到另一绝对路径后，内嵌 Python 可 `import encodings,fastapi,uvicorn`；`python -m engine.main` 的 `GET /health=ok`；`Origin: http://tauri.localhost` 的 `OPTIONS /jobs` 预检通过。Ollama/FFmpeg 仍本机，不塞进 App。
+
+## 改打包链路后
+
+同步 `docs/CUSTOMER_INSTALL.md`；跑 `apps/desktop` 的 `npx tsc --noEmit`；必要时 `cargo check`（`src-tauri`）。

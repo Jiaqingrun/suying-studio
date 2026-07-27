@@ -1,48 +1,113 @@
-/* Bright Control Deck — design tokens (readable accent on light UI) */
+/* 速影 · 暖宣纸主题（M 系列 Retina · 密度分档） */
 :root {
-  --bg-0: #f4f6f8;
-  --bg-1: #e8eef4;
-  --bg-2: #dde5ee;
-  --bg-3: #d0dae6;
-  --surface-0: #f4f6f8;
-  --surface-1: #ffffff;
-  --surface-2: rgba(255, 255, 255, 0.94);
-  --line: rgba(15, 23, 42, 0.1);
-  --line-strong: rgba(15, 23, 42, 0.18);
-  --text: #0f172a;
-  --text-dim: #334155;
-  --text-mute: #64748b;
-  /* Deeper teal: solid fills + white label; readable as text on white */
-  --accent: #0f766e;
-  --accent-strong: #0d9488;
+  /* Paper / ink */
+  --bg-0: #f3eee6;
+  --bg-1: #ebe4da;
+  --bg-2: #e2d8cc;
+  --bg-3: #d6caba;
+  --surface-0: #f7f2ea;
+  --surface-1: rgba(255, 252, 247, 0.92);
+  --surface-2: rgba(255, 255, 255, 0.78);
+  --line: rgba(46, 36, 28, 0.1);
+  --line-strong: rgba(46, 36, 28, 0.18);
+  --text: #2a211a;
+  --text-dim: #5a4c40;
+  --text-mute: #8a7a6a;
+
+  /* Cinnabar accent */
+  --accent: #b84532;
+  --accent-strong: #9e3929;
   --accent-ink: #ffffff;
-  --accent-dim: rgba(15, 118, 110, 0.12);
-  --accent-line: rgba(15, 118, 110, 0.42);
-  --warn: #d97706;
-  --warn-dim: rgba(217, 119, 6, 0.12);
-  --danger: #e11d48;
-  --danger-dim: rgba(225, 29, 72, 0.12);
-  --ok: #059669;
-  --ok-dim: rgba(5, 150, 105, 0.12);
+  --accent-dim: rgba(184, 69, 50, 0.12);
+  --accent-line: rgba(184, 69, 50, 0.42);
+
+  /* Status */
+  --warn: #c47a14;
+  --warn-dim: rgba(196, 122, 20, 0.12);
+  --danger: #c62828;
+  --danger-dim: rgba(198, 40, 40, 0.12);
+  --ok: #2f7a4f;
+  --ok-dim: rgba(47, 122, 79, 0.12);
+  --info: #3d6b8a;
+  --info-dim: rgba(61, 107, 138, 0.12);
+  --amber: #c47a14;
+
+  /* Brand (video lock) */
   --brand-red: #e10600;
   --brand-yellow: #ffe600;
-  --font-sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Avenir Next", "Segoe UI", sans-serif;
-  --font-mono: "SF Mono", "Menlo", "Consolas", "Cascadia Mono", ui-monospace, monospace;
-  --radius: 10px;
+
+  /* Type */
+  --font-sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "SF Pro Text", "Segoe UI", sans-serif;
+  --font-mono: "SF Mono", "Menlo", "Consolas", ui-monospace, monospace;
+
+  /* Density tokens — standard default; overridden by [data-density] */
+  --radius: 12px;
+  --radius-sm: 8px;
   --header-h: 56px;
+  --rail-w: 220px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --font-body: 14px;
+  --font-title: 1.05rem;
+  --font-caption: 12px;
+  --btn-h: 34px;
+  --hit-min: 36px;
+  --card-pad: 18px;
+  --shadow-card: 0 2px 10px rgba(42, 33, 26, 0.06);
+  --content-max: 1400px;
+}
+
+/* Compact: more content, readable floor */
+:root[data-density="compact"],
+.app[data-density="compact"] {
+  --rail-w: 176px;
+  --header-h: 48px;
+  --space-3: 8px;
+  --space-4: 10px;
+  --space-5: 14px;
+  --space-6: 20px;
+  --font-body: 13px;
+  --font-title: 0.95rem;
+  --font-caption: 11px;
+  --btn-h: 32px;
+  --hit-min: 36px;
+  --card-pad: 12px;
+  --radius: 10px;
+}
+
+/* Wide: more columns / breathing room without giant type */
+:root[data-density="wide"],
+.app[data-density="wide"] {
   --rail-w: 248px;
-  --amber: #d97706;
+  --header-h: 58px;
+  --space-4: 18px;
+  --space-5: 28px;
+  --space-6: 36px;
+  --font-body: 14px;
+  --font-title: 1.1rem;
+  --card-pad: 22px;
+  --content-max: 1680px;
 }
 
 @theme {
-  --color-deck-bg: #f4f6f8;
-  --color-deck-panel: #e8eef4;
-  --color-deck-ink: #0f172a;
-  --color-deck-muted: #334155;
-  --color-deck-accent: #0f766e;
-  --color-deck-danger: #e11d48;
-  --color-deck-warn: #d97706;
-  --color-deck-ok: #059669;
+  --color-deck-bg: #f3eee6;
+  --color-deck-panel: #ebe4da;
+  --color-deck-ink: #2a211a;
+  --color-deck-muted: #5a4c40;
+  --color-deck-accent: #b84532;
+  --color-deck-danger: #c62828;
+  --color-deck-warn: #c47a14;
+  --color-deck-ok: #2f7a4f;
   --font-sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
   --font-mono: "SF Mono", "Menlo", ui-monospace, monospace;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration: 0ms;
+  }
 }

@@ -50,9 +50,15 @@ def index_asset(
     indexed = 0
     skipped_emb = 0
     for c in cliplets:
+        if (getattr(c, "status", None) or "") == "rejected_blur":
+            skipped_emb += 1
+            continue
         if c.embedding_json is None:
             index_cliplet(session, c)
-            indexed += 1
+            if c.embedding_json is not None:
+                indexed += 1
+            else:
+                skipped_emb += 1
         else:
             skipped_emb += 1
     return {
@@ -85,7 +91,11 @@ def vectorization_gap_report(
     pending_emb_sq = (
         select(func.count())
         .select_from(Cliplet)
-        .where(Cliplet.asset_id == Asset.id, Cliplet.embedding_json.is_(None))
+        .where(
+            Cliplet.asset_id == Asset.id,
+            Cliplet.status == "usable",
+            Cliplet.embedding_json.is_(None),
+        )
         .correlate(Asset)
         .scalar_subquery()
     )
@@ -99,12 +109,14 @@ def vectorization_gap_report(
         gap_stmt = gap_stmt.where(Asset.customer_id == customer_id)
     gap_assets = int(session.scalar(gap_stmt) or 0)
 
-    clip_q = select(func.count()).select_from(Cliplet)
+    clip_q = select(func.count()).select_from(Cliplet).where(Cliplet.status == "usable")
     if customer_id is not None:
         clip_q = clip_q.join(Asset, Cliplet.asset_id == Asset.id).where(Asset.customer_id == customer_id)
     cliplets_total = int(session.scalar(clip_q) or 0)
 
-    emb_q = select(func.count()).select_from(Cliplet).where(Cliplet.embedding_json.is_not(None))
+    emb_q = select(func.count()).select_from(Cliplet).where(
+        Cliplet.status == "usable", Cliplet.embedding_json.is_not(None)
+    )
     if customer_id is not None:
         emb_q = emb_q.join(Asset, Cliplet.asset_id == Asset.id).where(Asset.customer_id == customer_id)
     cliplets_embedded = int(session.scalar(emb_q) or 0)
@@ -160,7 +172,11 @@ def reconcile_pending_assets(
     pending_emb_sq = (
         select(func.count())
         .select_from(Cliplet)
-        .where(Cliplet.asset_id == Asset.id, Cliplet.embedding_json.is_(None))
+        .where(
+            Cliplet.asset_id == Asset.id,
+            Cliplet.status == "usable",
+            Cliplet.embedding_json.is_(None),
+        )
         .correlate(Asset)
         .scalar_subquery()
     )
@@ -189,7 +205,11 @@ def reconcile_pending_assets(
         pending_emb = session.scalar(
             select(func.count())
             .select_from(Cliplet)
-            .where(Cliplet.asset_id == asset.id, Cliplet.embedding_json.is_(None))
+            .where(
+                Cliplet.asset_id == asset.id,
+                Cliplet.status == "usable",
+                Cliplet.embedding_json.is_(None),
+            )
         ) or 0
 
         try:
@@ -203,7 +223,7 @@ def reconcile_pending_assets(
             session.commit()
 
             if clip_count > 0 and pending_emb > 0 and not force:
-                emb = index_pending(session, limit=200)
+                emb = index_pending(session, limit=200, customer_id=customer_id)
                 indexed += int(emb.get("indexed", 0))
             else:
                 created += int(result.get("cliplets", 0))

@@ -57,6 +57,28 @@ def main() -> None:
         reset_engine()
         save_settings(settings)
         init_db(settings)
+        from sqlalchemy import text
+        from engine.catalog.db import get_engine
+
+        with get_engine(settings).connect() as conn:
+            versions = {
+                str(row[0])
+                for row in conn.execute(text("SELECT version FROM schema_migrations")).fetchall()
+            }
+            assert "20260726_closeout" in versions, versions
+            triggers = {
+                str(row[0])
+                for row in conn.execute(
+                    text(
+                        "SELECT name FROM sqlite_master "
+                        "WHERE type='trigger' AND name LIKE 'trg_daily_usage_cap_%'"
+                    )
+                ).fetchall()
+            }
+            assert triggers == {
+                "trg_daily_usage_cap_insert",
+                "trg_daily_usage_cap_update",
+            }, triggers
 
         client = TestClient(app)
         health = client.get("/health")
@@ -140,6 +162,10 @@ def main() -> None:
         finally:
             session.close()
 
+        # Customer-scoped review: make active_customer match the job/output customer.
+        settings.active_customer = "sample"
+        save_settings(settings)
+
         rejected = client.post(
             f"/review/{output_id}",
             params={
@@ -201,7 +227,9 @@ def main() -> None:
         # G3: publish_pack export in temp dir (no customer disk)
         from engine.pack.publish import export_publish_pack
 
-        fake_mp4 = base / "ready" / "demo.mp4"
+        # Pack source stays inside the active customer's output root: API must
+        # reject arbitrary filesystem paths even in isolated smoke mode.
+        fake_mp4 = settings.paths.output_root / "ready" / "demo.mp4"
         fake_mp4.parent.mkdir(parents=True, exist_ok=True)
         # minimal valid-enough file for copy (not a real mp4 decode)
         fake_mp4.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 64)

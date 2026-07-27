@@ -7,6 +7,12 @@
 | 序 | 文档 | 用途 |
 |----|------|------|
 | 1 | [`DEV_LOCK.md`](DEV_LOCK.md) | **写死**流程 / Gate / 核对表 / 禁令 |
+| 1a | [`HARD_LOCKS.md`](HARD_LOCKS.md) | **写死**硬规则总索引 |
+| 1a2 | [`READY_GATE.md`](READY_GATE.md) | **写死**进成品库总门禁（全过才 ready） |
+| 1a3 | [`PAPER_SLIP_LOCK.md`](PAPER_SLIP_LOCK.md) | **写死**纸片规则（日≤2） |
+| 1b | [`NARRATION_SUBTITLE_LOCK.md`](NARRATION_SUBTITLE_LOCK.md) | **写死**旁白×字幕对齐（话说完字幕即灭） |
+| 1c | [`EMOJI_STICKER_LOCK.md`](EMOJI_STICKER_LOCK.md) | **写死**表情贴纸（旁白不读 + 必须可见） |
+| 1d | [`QUALITY_LOCK.md`](QUALITY_LOCK.md) | **写死**虚焦/模糊不入库 |
 | 2 | [`DEVELOPMENT_STANDARDS.md`](DEVELOPMENT_STANDARDS.md) | 通用多客户工程标准 |
 | 3 | [`PRODUCT_PLAN.md`](PRODUCT_PLAN.md) | 产品是什么、三档、分期 |
 | 3b | [`REACH_NON_GOALS.md`](REACH_NON_GOALS.md) | Reach 触达非目标（人在回路） |
@@ -22,7 +28,7 @@
 | 8 | [`MUSIC.md`](MUSIC.md) | BGM 曲库调用（`bensound-*` / `km-*`）与合规 |
 | 9 | [`BACKLOG.md`](BACKLOG.md) | 问题清单（以 DEV_LOCK §E 为准更新状态） |
 
-运维手册：`INSTALL.md` · `SOP.md` · `ACCEPTANCE.md`（入口以 App 向导 + DEV_LOCK 为准）。
+运维手册：[`CUSTOMER_INSTALL.md`](CUSTOMER_INSTALL.md) · [`REMOTE_DEPLOY.md`](REMOTE_DEPLOY.md) · `INSTALL.md` · `SOP.md` · `ACCEPTANCE.md`（入口以 App 向导 + DEV_LOCK 为准）。
 
 ## 历史归档（勿当现行需求）
 

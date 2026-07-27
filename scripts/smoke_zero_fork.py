@@ -23,6 +23,7 @@ from sqlalchemy import select  # noqa: E402
 
 
 FORBIDDEN = ("始峰", "QR-Volume", "徐玲飞", "车凯盛")
+ENGINE_DEFAULT_FORBIDDEN = FORBIDDEN + ("仓配", "仓库", "工地", "五金", "建材", "配送", "施工")
 
 
 def _no_leak(payload: object) -> None:
@@ -32,6 +33,12 @@ def _no_leak(payload: object) -> None:
 
 
 def main() -> None:
+    engine_root = ROOT / "engine"
+    for source in engine_root.rglob("*.py"):
+        text = source.read_text(encoding="utf-8")
+        for marker in ENGINE_DEFAULT_FORBIDDEN:
+            assert marker not in text, f"product-core hardcode {marker!r} in {source.relative_to(ROOT)}"
+
     with tempfile.TemporaryDirectory(prefix="suying-zerofork-") as tmp:
         base = Path(tmp)
         lib_a, out_a = base / "a_lib", base / "a_out"

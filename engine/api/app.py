@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,6 +18,10 @@ from engine.catalog.db import (
     Job,
     JobEvent,
     KeywordUsage,
+    ReachMessage,
+    ReachMessageAccount,
+    ReachMessageScan,
+    ReachNotificationEvent,
     RenderOutput,
     ReviewItem,
     Template,
@@ -47,7 +51,11 @@ from engine.catalog.vector_index import index_pending, search_cliplets
 from engine.config.paths import check_paths, ensure_layout
 from engine.config.settings import AppSettings, PathConfig, load_settings, save_settings
 from engine.export.csv_export import export_job_events_csv, export_renders_csv
-from engine.ingest.cliplet import create_cliplets_for_asset, recaption_existing_cliplets
+from engine.ingest.cliplet import (
+    create_cliplets_for_asset,
+    recaption_existing_cliplets,
+    semantic_backfill_progress,
+)
 from engine.ingest.watcher import IngestWatcher
 from engine.jobs.queue import CreateJobRequest, create_job, pause_job, resume_job
 from engine.jobs.worker import worker
@@ -121,7 +129,11 @@ async def lifespan(app: FastAPI):
     watcher.start()
     worker.start()
     scheduler.start()
+    from engine.reach.message_sync import message_sync
+
+    message_sync.start_scheduler()
     yield
+    message_sync.stop_scheduler()
     scheduler.stop()
     worker.stop()
     if watcher:
@@ -129,13 +141,28 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Montage Studio Engine", version="0.1.0", lifespan=lifespan)
-# Note: allow_origins=["*"] cannot be combined with allow_credentials=True (browser rejects).
+# Local desktop engine: never grant arbitrary web origins access to privileged
+# localhost operations (carrier/update/settings write paths).
+# Tauri 2 macOS/Windows webview origin is http(s)://tauri.localhost (not tauri://).
+# JSON POST/PUT/PATCH require CORS preflight; missing origin → fetch fails as "无法连接引擎"
+# while GET /health still looks fine in some WebViews / via Rust engine_status.
+_TAURI_ORIGINS = [
+    "tauri://localhost",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+    "http://localhost",
+    "http://127.0.0.1",
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_TAURI_ORIGINS,
+    allow_origin_regex=(
+        r"^(tauri://localhost|https?://tauri\.localhost|"
+        r"https?://(localhost|127\.0\.0\.1)(:\d+)?)$"
+    ),
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Accept", "Range"],
     expose_headers=["Accept-Ranges", "Content-Range", "Content-Length", "Content-Type"],
 )
 
@@ -158,6 +185,13 @@ class SettingsUpdate(BaseModel):
     onboarded: bool | None = None
     # None = leave unchanged; "" = clear; non-empty = set
     cursor_api_key: str | None = None
+    ollama_embed_model: str | None = None
+    ollama_vision_model: str | None = None
+    ollama_vision_escalate_model: str | None = None
+    ollama_vision_cascade: bool | None = None
+    ollama_narration_enabled: bool | None = None
+    ollama_narration_model: str | None = None
+    ollama_narration_burn_emoji: bool | None = None
 
 
 class CursorKeyBody(BaseModel):
@@ -204,6 +238,7 @@ class DryRunRequest(BaseModel):
     category: str = "default"
     customer_name: str | None = None
     seed: int | None = None
+    strict_semantic_v1: bool = False
 
 
 def _active_scope(session, settings: AppSettings | None = None):
@@ -238,6 +273,9 @@ def health() -> dict[str, Any]:
     finally:
         session.close()
     disks = disk_report(settings)
+    from engine.catalog.ollama_status import check_ollama
+
+    ollama = check_ollama()
     return {
         "status": "ok" if health_info.ok else "degraded",
         "product_name": settings.product_name,
@@ -261,13 +299,94 @@ def health() -> dict[str, Any]:
         "vectorization_enabled": settings.vectorization_enabled,
         "vectorization_enabled_at": settings.vectorization_enabled_at,
         "vectorization_mode": getattr(settings, "vectorization_mode", "incremental"),
+        "ollama_narration_enabled": bool(getattr(settings, "ollama_narration_enabled", False)),
+        "ollama_narration_model": getattr(settings, "ollama_narration_model", "") or "",
+        "ollama_narration_burn_emoji": bool(getattr(settings, "ollama_narration_burn_emoji", True)),
         "onboarded": settings.onboarded,
         "setup_complete": bool(customer.library_root and customer.output_root),
         "worker_running": worker.is_alive(),
         "scheduler_running": scheduler.is_alive(),
         "watcher_running": bool(watcher and watcher.is_alive()),
+        "ollama": {
+            "reachable": ollama.get("reachable"),
+            "embed_ready": ollama.get("embed_ready"),
+            "vision_ready": ollama.get("vision_ready"),
+            "escalate_ready": ollama.get("escalate_ready"),
+            "ready": ollama.get("ready"),
+            "message": ollama.get("message"),
+            "embed_model": ollama.get("embed_model"),
+            "vision_model": ollama.get("vision_model"),
+            "escalate_model": ollama.get("escalate_model"),
+            "cascade": ollama.get("cascade"),
+            "vision_timeout_sec": ollama.get("vision_timeout_sec"),
+            "escalate_timeout_sec": ollama.get("escalate_timeout_sec"),
+            "vision_policy": ollama.get("vision_policy"),
+            "host": ollama.get("host"),
+            "recommended": ollama.get("recommended"),
+            "setup_steps": ollama.get("setup_steps"),
+            "install_url": ollama.get("install_url"),
+            "pull": ollama.get("pull"),
+        },
         **public_cursor_key_fields(settings.cursor_api_key),
     }
+
+
+@app.get("/health/ollama")
+def health_ollama() -> dict[str, Any]:
+    """Local AI dependency: Ollama daemon + embed/vision models."""
+    from engine.catalog.ollama_status import check_ollama
+
+    return check_ollama()
+
+
+@app.get("/setup/status")
+def setup_status() -> dict[str, Any]:
+    """First-run environment: Python / FFmpeg / Ollama / recommended models."""
+    from engine.catalog.host_profile import host_dict, probe_host, recommend_models
+    from engine.catalog.ollama_status import check_ollama
+
+    host = probe_host()
+    ollama = check_ollama()
+    rec = recommend_models(host)
+    return {
+        "host": host_dict(host),
+        "recommended": rec,
+        "ollama": ollama,
+        "install_url": ollama.get("install_url"),
+        "setup_steps": ollama.get("setup_steps") or [],
+        "ready_for_vectorization": bool(ollama.get("embed_ready")),
+    }
+
+
+@app.post("/ollama/pull")
+def ollama_pull(model: str = "nomic-embed-text") -> dict[str, Any]:
+    """Start background `ollama pull <model>` (embed or vision)."""
+    from engine.catalog.ollama_status import allowed_pull_models, start_pull
+
+    model = (model or "nomic-embed-text").strip()
+    allowed = allowed_pull_models()
+    if model not in allowed and model.split(":")[0] not in {a.split(":")[0] for a in allowed}:
+        raise HTTPException(400, f"不允许拉取的模型: {model}；允许: {sorted(allowed)}")
+    result = start_pull(model)
+    if not result.get("ok") and "不允许" in str(result.get("message") or ""):
+        raise HTTPException(400, result["message"])
+    return result
+
+
+@app.post("/ollama/pull-recommended")
+def ollama_pull_recommended() -> dict[str, Any]:
+    """Detect host RAM tier, persist model choices, pull embed + vision."""
+    from engine.catalog.ollama_status import start_pull_recommended
+
+    return start_pull_recommended()
+
+
+@app.post("/setup/apply-recommended-models")
+def setup_apply_recommended_models() -> dict[str, Any]:
+    """Only write recommended model names into settings (no download)."""
+    from engine.catalog.ollama_status import apply_recommended_to_settings
+
+    return apply_recommended_to_settings()
 
 
 @app.get("/settings")
@@ -325,6 +444,20 @@ def update_settings(body: SettingsUpdate) -> dict[str, Any]:
             settings.vectorization_enabled = False
     if body.cursor_api_key is not None:
         settings.cursor_api_key = body.cursor_api_key.strip()
+    if body.ollama_embed_model is not None:
+        settings.ollama_embed_model = body.ollama_embed_model.strip() or "nomic-embed-text"
+    if body.ollama_vision_model is not None:
+        settings.ollama_vision_model = body.ollama_vision_model.strip()
+    if body.ollama_vision_escalate_model is not None:
+        settings.ollama_vision_escalate_model = body.ollama_vision_escalate_model.strip()
+    if body.ollama_vision_cascade is not None:
+        settings.ollama_vision_cascade = bool(body.ollama_vision_cascade)
+    if body.ollama_narration_enabled is not None:
+        settings.ollama_narration_enabled = bool(body.ollama_narration_enabled)
+    if body.ollama_narration_model is not None:
+        settings.ollama_narration_model = body.ollama_narration_model.strip()
+    if body.ollama_narration_burn_emoji is not None:
+        settings.ollama_narration_burn_emoji = bool(body.ollama_narration_burn_emoji)
     save_settings(settings)
     ensure_layout(settings)
     if data_root_changed:
@@ -875,6 +1008,7 @@ def dry_run(body: DryRunRequest) -> dict[str, Any]:
             theme=body.theme,
             category=body.category,
             seed=seed,
+            strict_semantic_v1=body.strict_semantic_v1,
         )
         out = plan_to_dict(plan)
         out["resolved_template"] = tpl_name
@@ -933,8 +1067,13 @@ def post_job(body: CreateJobRequest) -> dict[str, Any]:
 
 @app.post("/jobs/{job_id}/pause")
 def post_pause(job_id: int) -> dict[str, Any]:
+    settings = load_settings()
     session = get_session()
     try:
+        _, customer, _ = _active_scope(session, settings)
+        job = session.get(Job, job_id)
+        if not job or job.customer_id != customer.id:
+            raise HTTPException(404, "Job not found")
         job = pause_job(session, job_id)
         if not job:
             raise HTTPException(404, "Job not found")
@@ -945,8 +1084,13 @@ def post_pause(job_id: int) -> dict[str, Any]:
 
 @app.post("/jobs/{job_id}/resume")
 def post_resume(job_id: int) -> dict[str, Any]:
+    settings = load_settings()
     session = get_session()
     try:
+        _, customer, _ = _active_scope(session, settings)
+        job = session.get(Job, job_id)
+        if not job or job.customer_id != customer.id:
+            raise HTTPException(404, "Job not found")
         job = resume_job(session, job_id)
         if not job:
             raise HTTPException(404, "Job not found")
@@ -1569,16 +1713,31 @@ def reach_set_status(item_id: int, body: ReachStatusRequest) -> dict[str, Any]:
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
         trail: list[dict[str, Any]] = []
+        archive: dict[str, Any] = {}
         if body.status == "published" and item.output_id:
-            out = session.get(RenderOutput, item.output_id)
-            if out:
-                trail = append_publish_trail(
-                    out,
-                    platform=str(item.platform or ""),
-                    reach_item_id=item.id,
-                    note=body.note or "",
-                )
-        return {"ok": True, "item": item_to_dict(item), "publish_trail": trail}
+            out = _scoped_output(session, item.output_id, customer.id)
+            trail = append_publish_trail(
+                out,
+                platform=str(item.platform or ""),
+                reach_item_id=item.id,
+                note=body.note or "",
+            )
+            from engine.ops.published_archive import archive_published_output
+
+            archive = archive_published_output(
+                out,
+                output_root=customer.output_root or settings.paths.output_root,
+                platform=str(item.platform or ""),
+                note=body.note or "",
+            )
+            session.add(out)
+            session.commit()
+        return {
+            "ok": True,
+            "item": item_to_dict(item),
+            "publish_trail": trail,
+            "archive": archive,
+        }
     finally:
         session.close()
 
@@ -1604,6 +1763,20 @@ def reach_enqueue_from_pack(body: ReachFromPackRequest) -> dict[str, Any]:
     session = get_session()
     try:
         _, customer, _ = _active_scope(session, settings)
+        pack_dir = Path(body.pack_dir).expanduser().resolve()
+        root = Path(customer.output_root or settings.paths.output_root).expanduser().resolve()
+        if not pack_dir.is_relative_to(root):
+            raise HTTPException(403, "publish_pack 必须位于当前客户成片目录")
+        if body.output_id:
+            out = _scoped_output(session, body.output_id, customer.id)
+            if (
+                out.state == "published"
+                or (out.output_path and "published" in Path(out.output_path).parts)
+            ):
+                raise HTTPException(
+                    400,
+                    "该成片已归档到 published/，禁止再次入队；请从待发 ready 列表选择",
+                )
         quota = int(getattr(settings, "reach_daily_quota", 5) or 5)
         fail_th = int(getattr(settings, "reach_fail_threshold", 3) or 3)
         plat_quotas = getattr(settings, "reach_platform_quotas", None) or {}
@@ -1630,7 +1803,7 @@ def reach_enqueue_from_pack(body: ReachFromPackRequest) -> dict[str, Any]:
             items = enqueue_from_pack(
                 session,
                 customer_id=customer.id,
-                pack_dir=Path(body.pack_dir),
+                pack_dir=pack_dir,
                 platforms=body.platforms,
                 locale=body.locale,
                 output_id=body.output_id,
@@ -2176,6 +2349,528 @@ def reach_cover_templates_resolve(body: CoverResolveRequest) -> dict[str, Any]:
     return {"ok": True, "resolve": resolved, "gate": gate, "store": str(store)}
 
 
+class ReachMessageAccountCreate(BaseModel):
+    platform: str
+    profile_name: str
+    display_name: str = ""
+    enabled: bool = True
+    cooldown_sec: Literal[1800] = 1800
+    message_url: str | None = None
+
+
+class ReachMessageAccountPatch(BaseModel):
+    display_name: str | None = None
+    enabled: bool | None = None
+    cooldown_sec: Literal[1800] | None = None
+    message_url: str | None = None
+
+
+class ReachMessageScanRequest(BaseModel):
+    account_id: int | None = None
+    dry_run: bool = False
+
+
+class ReachMessageOpenRequest(BaseModel):
+    dry_run: bool = False
+
+
+class ReachNtfyConfigUpdate(BaseModel):
+    enabled: bool = False
+    server_url: str
+    topic: str
+    auth_mode: Literal["none", "token", "basic"] = "none"
+    token: str | None = Field(default=None, max_length=512)
+    username: str | None = Field(default=None, max_length=256)
+    password: str | None = Field(default=None, max_length=512)
+    clear_token: bool = False
+    clear_username: bool = False
+    clear_password: bool = False
+
+
+class ReachNotificationReport(BaseModel):
+    message_id: int
+    channel: Literal["app", "macos"]
+    status: Literal["sent", "failed", "permission_denied"]
+    detail: str = Field(default="", max_length=300)
+
+
+@app.get("/reach/message-accounts")
+def reach_message_accounts_list() -> dict[str, Any]:
+    from engine.reach.message_sync import account_to_dict
+
+    settings = load_settings()
+    session = get_session()
+    try:
+        _, customer, _ = _active_scope(session, settings)
+        rows = session.scalars(
+            select(ReachMessageAccount)
+            .where(ReachMessageAccount.customer_id == customer.id)
+            .order_by(ReachMessageAccount.id)
+        ).all()
+        accounts: list[dict[str, Any]] = []
+        for row in rows:
+            item = account_to_dict(row)
+            latest = session.scalar(
+                select(ReachMessageScan)
+                .where(ReachMessageScan.account_id == row.id)
+                .order_by(ReachMessageScan.id.desc())
+                .limit(1)
+            )
+            item["last_status"] = latest.status if latest else None
+            item["last_error"] = latest.error if latest and latest.error else None
+            accounts.append(item)
+        return {"ok": True, "accounts": accounts}
+    finally:
+        session.close()
+
+
+@app.post("/reach/message-accounts")
+def reach_message_accounts_create(body: ReachMessageAccountCreate) -> dict[str, Any]:
+    from engine.reach.browser import validate_chrome_profile_name
+    from engine.reach.message_sync import account_to_dict
+    from engine.reach.messages_adapters import spec_for, validate_official_url
+
+    settings = load_settings()
+    session = get_session()
+    try:
+        _, customer, _ = _active_scope(session, settings)
+        try:
+            spec = spec_for(body.platform)
+            profile_name = validate_chrome_profile_name(body.profile_name)
+            message_url = validate_official_url(body.platform, body.message_url or spec.message_url)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        existing = session.scalar(
+            select(ReachMessageAccount).where(
+                ReachMessageAccount.profile_name == profile_name,
+            )
+        )
+        if existing:
+            raise HTTPException(409, "该 Chrome profile 已绑定消息账号；客户之间不得共用登录 profile")
+        row = ReachMessageAccount(
+            customer_id=customer.id,
+            platform=spec.platform,
+            profile_name=profile_name,
+            display_name=body.display_name[:128],
+            enabled=body.enabled,
+            cooldown_sec=1800,
+            message_url=message_url,
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return {"ok": True, "account": account_to_dict(row)}
+    finally:
+        session.close()
+
+
+@app.patch("/reach/message-accounts/{account_id}")
+def reach_message_accounts_patch(
+    account_id: int, body: ReachMessageAccountPatch
+) -> dict[str, Any]:
+    from engine.reach.message_sync import account_to_dict
+    from engine.reach.messages_adapters import validate_official_url
+
+    settings = load_settings()
+    session = get_session()
+    try:
+        _, customer, _ = _active_scope(session, settings)
+        row = session.scalar(
+            select(ReachMessageAccount).where(
+                ReachMessageAccount.id == account_id,
+                ReachMessageAccount.customer_id == customer.id,
+            )
+        )
+        if not row:
+            raise HTTPException(404, "消息账号不存在")
+        if body.display_name is not None:
+            row.display_name = body.display_name[:128]
+        if body.enabled is not None:
+            row.enabled = body.enabled
+        if body.cooldown_sec is not None:
+            row.cooldown_sec = 1800
+        if body.message_url is not None:
+            try:
+                row.message_url = validate_official_url(row.platform, body.message_url)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+        from datetime import datetime, timezone
+
+        row.updated_at = datetime.now(timezone.utc)
+        session.commit()
+        session.refresh(row)
+        return {"ok": True, "account": account_to_dict(row)}
+    finally:
+        session.close()
+
+
+@app.post("/reach/messages/scan")
+def reach_messages_scan(body: ReachMessageScanRequest) -> dict[str, Any]:
+    from engine.reach.message_sync import message_sync
+
+    settings = load_settings()
+    session = get_session()
+    try:
+        _, customer, _ = _active_scope(session, settings)
+        query = select(ReachMessageAccount.id).where(
+            ReachMessageAccount.customer_id == customer.id,
+            ReachMessageAccount.enabled.is_(True),
+        )
+        if body.account_id is not None:
+            query = query.where(ReachMessageAccount.id == body.account_id)
+        account_ids = list(session.scalars(query).all())
+        if body.account_id is not None and not account_ids:
+            raise HTTPException(404, "消息账号不存在或未启用")
+        if not account_ids:
+            raise HTTPException(400, "当前客户没有已启用的消息账号")
+        return {"ok": True, **message_sync.enqueue(account_ids, dry_run=body.dry_run)}
+    finally:
+        session.close()
+
+
+@app.get("/reach/messages/status")
+def reach_messages_status() -> dict[str, Any]:
+    from engine.reach.message_sync import message_sync
+
+    settings = load_settings()
+    session = get_session()
+    try:
+        _, customer, _ = _active_scope(session, settings)
+        scans = session.scalars(
+            select(ReachMessageScan)
+            .where(ReachMessageScan.customer_id == customer.id)
+            .order_by(ReachMessageScan.id.desc())
+            .limit(20)
+        ).all()
+        worker_status = message_sync.status()
+        worker_account_id = worker_status.get("account_id")
+        if worker_account_id is not None:
+            owned = session.scalar(
+                select(ReachMessageAccount.id).where(
+                    ReachMessageAccount.id == worker_account_id,
+                    ReachMessageAccount.customer_id == customer.id,
+                )
+            )
+            if owned is None:
+                worker_status = {
+                    **worker_status,
+                    "account_id": None,
+                    "platform": None,
+                    "task_id": None,
+                    "error": None,
+                    "error_code": None,
+                    "phase": "other_customer_active" if worker_status.get("active") else "idle",
+                }
+        return {
+            "ok": True,
+            "worker": worker_status,
+            "scans": [
+                {
+                    "id": row.id,
+                    "account_id": row.account_id,
+                    "status": row.status,
+                    "source": row.source,
+                    "found_count": row.found_count,
+                    "error_code": row.error_code,
+                    "error": row.error,
+                    "started_at": row.started_at.isoformat() if row.started_at else None,
+                    "finished_at": row.finished_at.isoformat() if row.finished_at else None,
+                }
+                for row in scans
+            ],
+        }
+    finally:
+        session.close()
+
+
+@app.post("/reach/messages/cancel")
+def reach_messages_cancel() -> dict[str, Any]:
+    from engine.reach.message_sync import message_sync
+
+    settings = load_settings()
+    session = get_session()
+    try:
+        _, customer, _ = _active_scope(session, settings)
+        account_ids = set(
+            session.scalars(
+                select(ReachMessageAccount.id).where(
+                    ReachMessageAccount.customer_id == customer.id
+                )
+            ).all()
+        )
+        return {"ok": True, **message_sync.cancel(account_ids)}
+    finally:
+        session.close()
+
+
+@app.get("/reach/messages")
+def reach_messages_list(
+    account_id: int | None = None, unread: bool | None = None, limit: int = 100
+) -> dict[str, Any]:
+    from engine.reach.message_sync import message_to_dict
+
+    settings = load_settings()
+    session = get_session()
+    try:
+        _, customer, _ = _active_scope(session, settings)
+        query = select(ReachMessage).where(ReachMessage.customer_id == customer.id)
+        if account_id is not None:
+            query = query.where(ReachMessage.account_id == account_id)
+        if unread is not None:
+            query = query.where(ReachMessage.unread.is_(unread))
+        rows = session.scalars(
+            query.order_by(ReachMessage.last_seen_at.desc()).limit(max(1, min(limit, 500)))
+        ).all()
+        return {"ok": True, "messages": [message_to_dict(row) for row in rows]}
+    finally:
+        session.close()
+
+
+@app.post("/reach/messages/{message_id}/read")
+def reach_messages_mark_read(message_id: int) -> dict[str, Any]:
+    from datetime import datetime, timezone
+    from engine.reach.message_sync import message_to_dict
+
+    settings = load_settings()
+    session = get_session()
+    try:
+        _, customer, _ = _active_scope(session, settings)
+        row = session.scalar(
+            select(ReachMessage).where(
+                ReachMessage.id == message_id,
+                ReachMessage.customer_id == customer.id,
+            )
+        )
+        if not row:
+            raise HTTPException(404, "消息不存在")
+        row.unread = False
+        row.read_at = datetime.now(timezone.utc)
+        session.commit()
+        session.refresh(row)
+        return {"ok": True, "message": message_to_dict(row)}
+    finally:
+        session.close()
+
+
+@app.post("/reach/notifications/claim")
+def reach_notifications_claim(limit: int = 20) -> dict[str, Any]:
+    """Claim each unread summary once for local macOS notification delivery."""
+    from datetime import datetime, timezone
+    from engine.reach.message_sync import message_to_dict, notification_claim_lock
+
+    with notification_claim_lock:
+        settings = load_settings()
+        session = get_session()
+        try:
+            _, customer, _ = _active_scope(session, settings)
+            rows = session.scalars(
+                select(ReachMessage)
+                .where(
+                    ReachMessage.customer_id == customer.id,
+                    ReachMessage.unread.is_(True),
+                    ReachMessage.notification_claimed_at.is_(None),
+                )
+                .order_by(ReachMessage.first_seen_at)
+                .limit(max(1, min(limit, 100)))
+            ).all()
+            claimed_at = datetime.now(timezone.utc)
+            for row in rows:
+                row.notification_claimed_at = claimed_at
+            session.commit()
+            return {"ok": True, "messages": [message_to_dict(row) for row in rows]}
+        finally:
+            session.close()
+
+
+@app.get("/reach/notifications/ntfy")
+def reach_notifications_ntfy_get() -> dict[str, Any]:
+    from dataclasses import asdict
+
+    from engine.reach.notifications import public_config
+
+    settings = load_settings()
+    session = get_session()
+    try:
+        _, customer, _ = _active_scope(session, settings)
+        return {"ok": True, "config": asdict(public_config(customer.id))}
+    finally:
+        session.close()
+
+
+@app.put("/reach/notifications/ntfy")
+def reach_notifications_ntfy_put(body: ReachNtfyConfigUpdate) -> dict[str, Any]:
+    from dataclasses import asdict
+
+    from engine.reach.notifications import save_config
+
+    settings = load_settings()
+    session = get_session()
+    try:
+        _, customer, _ = _active_scope(session, settings)
+        try:
+            config = save_config(customer.id, body.model_dump())
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"ok": True, "config": asdict(config)}
+    finally:
+        session.close()
+
+
+@app.post("/reach/notifications/ntfy/test")
+def reach_notifications_ntfy_test() -> dict[str, Any]:
+    from engine.reach.notifications import send_ntfy
+
+    settings = load_settings()
+    session = get_session()
+    try:
+        _, customer, _ = _active_scope(session, settings)
+        event = ReachNotificationEvent(
+            customer_id=customer.id,
+            message_id=None,
+            channel="ntfy",
+            status="sending",
+            is_test=True,
+        )
+        session.add(event)
+        session.commit()
+        try:
+            result = send_ntfy(
+                customer.id,
+                title="速影 ntfy 测试通知",
+                summary="这是测试通知，不代表收到真实平台消息。",
+                reply_url="",
+                test=True,
+            )
+            event.status = str(result.get("status") or "sent")
+            event.detail = "test"
+            session.commit()
+            return {"ok": True, "sent": bool(result.get("sent")), "test": True}
+        except Exception as exc:  # noqa: BLE001
+            event.status = "failed"
+            event.detail = str(exc)[:300]
+            session.commit()
+            raise HTTPException(502, str(exc)) from exc
+    finally:
+        session.close()
+
+
+@app.post("/reach/notifications/report")
+def reach_notifications_report(body: ReachNotificationReport) -> dict[str, Any]:
+    from datetime import datetime, timezone
+
+    settings = load_settings()
+    session = get_session()
+    try:
+        _, customer, _ = _active_scope(session, settings)
+        message = session.scalar(
+            select(ReachMessage).where(
+                ReachMessage.id == body.message_id,
+                ReachMessage.customer_id == customer.id,
+            )
+        )
+        if message is None:
+            raise HTTPException(404, "消息不存在")
+        event = session.scalar(
+            select(ReachNotificationEvent).where(
+                ReachNotificationEvent.customer_id == customer.id,
+                ReachNotificationEvent.message_id == message.id,
+                ReachNotificationEvent.channel == body.channel,
+            )
+        )
+        if event is None:
+            event = ReachNotificationEvent(
+                customer_id=customer.id,
+                message_id=message.id,
+                channel=body.channel,
+                status=body.status,
+                is_test=False,
+            )
+            session.add(event)
+        event.status = body.status
+        event.detail = body.detail[:300]
+        event.updated_at = datetime.now(timezone.utc)
+        session.commit()
+        return {"ok": True}
+    finally:
+        session.close()
+
+
+@app.get("/reach/notifications/events")
+def reach_notifications_events(limit: int = 50) -> dict[str, Any]:
+    settings = load_settings()
+    session = get_session()
+    try:
+        _, customer, _ = _active_scope(session, settings)
+        rows = session.scalars(
+            select(ReachNotificationEvent)
+            .where(ReachNotificationEvent.customer_id == customer.id)
+            .order_by(ReachNotificationEvent.id.desc())
+            .limit(max(1, min(limit, 200)))
+        ).all()
+        return {
+            "ok": True,
+            "events": [
+                {
+                    "id": row.id,
+                    "message_id": row.message_id,
+                    "channel": row.channel,
+                    "status": row.status,
+                    "is_test": row.is_test,
+                    "detail": row.detail,
+                    "created_at": row.created_at.isoformat() if row.created_at else None,
+                    "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+                }
+                for row in rows
+            ],
+        }
+    finally:
+        session.close()
+
+
+@app.post("/reach/messages/{message_id}/open")
+def reach_messages_open(
+    message_id: int, body: ReachMessageOpenRequest | None = None
+) -> dict[str, Any]:
+    """Open only the saved official reply URL; never fills or sends a reply."""
+    from engine.reach.browser import open_chrome_profile
+    from engine.reach.chrome_runtime import ChromeRuntimeError, operation
+    from engine.reach.messages_adapters import validate_official_url
+
+    settings = load_settings()
+    session = get_session()
+    try:
+        _, customer, _ = _active_scope(session, settings)
+        row = session.scalar(
+            select(ReachMessage).where(
+                ReachMessage.id == message_id,
+                ReachMessage.customer_id == customer.id,
+            )
+        )
+        if not row:
+            raise HTTPException(404, "消息不存在")
+        account = session.get(ReachMessageAccount, row.account_id)
+        if not account or account.customer_id != customer.id:
+            raise HTTPException(404, "消息账号不存在")
+        try:
+            url = validate_official_url(row.platform, row.reply_url)
+            with operation("message_open"):
+                opened = open_chrome_profile(
+                    account.profile_name,
+                    url=url,
+                    dry_run=bool(body.dry_run) if body else False,
+                )
+        except (ValueError, ChromeRuntimeError) as exc:
+            raise HTTPException(409 if isinstance(exc, ChromeRuntimeError) else 400, str(exc)) from exc
+        return {
+            "ok": True,
+            "opened": opened,
+            "auto_reply": False,
+            "human_in_loop": True,
+        }
+    finally:
+        session.close()
+
+
 @app.get("/reach/inbox")
 def reach_inbox(limit: int = 50) -> dict[str, Any]:
     """G5 message hub: local unread summaries + official deep links (no auto-reply)."""
@@ -2224,7 +2919,8 @@ def export_events() -> dict[str, str]:
     out = settings.paths.data_root / "exports" / "job_events.csv"
     session = get_session()
     try:
-        export_job_events_csv(session, out)
+        _, customer, _ = _active_scope(session, settings)
+        export_job_events_csv(session, out, customer_id=customer.id)
         return {"path": str(out)}
     finally:
         session.close()
@@ -2236,7 +2932,8 @@ def export_renders() -> dict[str, str]:
     out = settings.paths.data_root / "exports" / "render_outputs.csv"
     session = get_session()
     try:
-        export_renders_csv(session, out)
+        _, customer, _ = _active_scope(session, settings)
+        export_renders_csv(session, out, customer_id=customer.id)
         return {"path": str(out)}
     finally:
         session.close()
@@ -2263,7 +2960,7 @@ def build_cliplets(force: bool = False, limit: int = 50, use_vision: bool = True
             for row in rows:
                 if row.embedding_json is None:
                     index_cliplet(session, row)
-        pending = index_pending(session, limit=500)
+        pending = index_pending(session, limit=500, customer_id=customer.id)
         cliplet_rows = list(
             session.scalars(
                 select(Cliplet).join(Asset, Cliplet.asset_id == Asset.id).where(Asset.customer_id == customer.id)
@@ -2276,12 +2973,33 @@ def build_cliplets(force: bool = False, limit: int = 50, use_vision: bool = True
 
 
 @app.post("/index/captions")
-def rebuild_captions(limit: int = 500, use_vision: bool = True) -> dict[str, Any]:
-    """Re-describe existing cliplets with vision model and re-embed."""
+def rebuild_captions(limit: int = 10, use_vision: bool = True) -> dict[str, Any]:
+    """Bounded, resumable strict-semantic backfill for the active customer."""
+    if not 1 <= limit <= 500:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
+    settings = load_settings()
     session = get_session()
     try:
-        result = recaption_existing_cliplets(session, limit=limit, use_vision=use_vision)
+        _, customer, _ = _active_scope(session, settings)
+        result = recaption_existing_cliplets(
+            session,
+            customer_id=customer.id,
+            limit=limit,
+            use_vision=use_vision,
+        )
         return result
+    finally:
+        session.close()
+
+
+@app.get("/index/captions/status")
+def captions_backfill_status() -> dict[str, Any]:
+    """Auditable progress for strict-semantic migration of the active customer."""
+    settings = load_settings()
+    session = get_session()
+    try:
+        _, customer, _ = _active_scope(session, settings)
+        return semantic_backfill_progress(session, customer_id=customer.id)
     finally:
         session.close()
 
@@ -2323,7 +3041,7 @@ def list_cliplets(limit: int = 50) -> list[dict[str, Any]]:
 
 @app.post("/cliplets/themes/backfill")
 def backfill_cliplet_themes_api(limit: int = 2000, force: bool = False) -> dict[str, Any]:
-    """Tag existing cliplets with content themes (配送/仓配/门店/…)."""
+    """Tag existing cliplets with themes from the active industry pack."""
     from engine.catalog.theme_tags import backfill_cliplet_themes
 
     settings = load_settings()
@@ -2356,6 +3074,30 @@ def backfill_cliplet_quality_api(
             limit=limit,
             force=force,
             only_unscored=only_unscored,
+        )
+    finally:
+        session.close()
+
+
+@app.post("/cliplets/quality/purge-blur")
+def purge_blur_catalog_api(
+    limit: int = 5000,
+    rescore: bool = True,
+    purge_assets: bool = True,
+) -> dict[str, Any]:
+    """QUALITY_LOCK: reject blur cliplets/assets; clear their embeddings (no vectorize)."""
+    from engine.ingest.quality import purge_blur_from_catalog
+
+    settings = load_settings()
+    session = get_session()
+    try:
+        _, customer, _ = _active_scope(session, settings)
+        return purge_blur_from_catalog(
+            session,
+            customer_id=customer.id,
+            limit=limit,
+            rescore=rescore,
+            purge_assets=purge_assets,
         )
     finally:
         session.close()
@@ -2612,9 +3354,18 @@ def seed_golden() -> dict[str, Any]:
 
 @app.get("/reviews")
 def list_reviews(limit: int = 100) -> list[dict[str, Any]]:
+    settings = load_settings()
     session = get_session()
     try:
-        rows = session.scalars(select(ReviewItem).order_by(ReviewItem.id.desc()).limit(limit)).all()
+        _, customer, _ = _active_scope(session, settings)
+        rows = session.scalars(
+            select(ReviewItem)
+            .join(RenderOutput, ReviewItem.render_output_id == RenderOutput.id)
+            .join(Job, RenderOutput.job_id == Job.id)
+            .where(Job.customer_id == customer.id)
+            .order_by(ReviewItem.id.desc())
+            .limit(limit)
+        ).all()
         return [
             {
                 "id": r.id,
@@ -2656,11 +3407,16 @@ def review_output(
 
     if status not in {"approved", "rejected", "pending"}:
         raise HTTPException(400, "status must be approved/rejected/pending")
+    settings = load_settings()
     session = get_session()
     try:
+        _, customer, _ = _active_scope(session, settings)
         out = session.get(RenderOutput, output_id)
-        if not out:
+        if not out or not out.job_id:
             raise HTTPException(404, "output not found")
+        job = session.get(Job, out.job_id)
+        if not job or job.customer_id != customer.id:
+            raise HTTPException(403, "output 不属于当前客户")
         reason_code = parse_reject_reason(note, reason or None) if status == "rejected" else ""
         note_store = note
         if status == "rejected" and reason_code and f"[{reason_code}]" not in (note or ""):
@@ -2711,9 +3467,14 @@ def review_rerender(output_id: int, reason: str = "") -> dict[str, Any]:
         raise HTTPException(409, str(e)) from e
     session = get_session()
     try:
+        settings = load_settings()
+        _, customer, _ = _active_scope(session, settings)
         out = session.get(RenderOutput, output_id)
-        if not out:
+        if not out or not out.job_id:
             raise HTTPException(404, "output not found")
+        job = session.get(Job, out.job_id)
+        if not job or job.customer_id != customer.id:
+            raise HTTPException(403, "output 不属于当前客户")
         # Prefer reason from latest reject note
         note = ""
         last = session.scalar(
@@ -2970,6 +3731,21 @@ def report_ops() -> dict[str, Any]:
             parts.append(f"磁盘 {float(free):.0f} GB")
         if tts_noncompliant:
             parts.append(f"音色违规 {tts_noncompliant}")
+
+        from engine.catalog.db import db_path
+        from engine.ops.db_health import db_health_phrase, inspect_montage_db
+
+        db_info = inspect_montage_db(db_path(settings))
+        db_phrase = db_health_phrase(db_info)
+        if not db_info.get("ok") or db_info.get("empty"):
+            parts.insert(0, db_phrase)
+        else:
+            parts.append(db_phrase)
+
+        from engine.ops.published_archive import publish_stats
+
+        fs_stats = publish_stats(customer.output_root or settings.paths.output_root)
+
         health_line = " · ".join(parts) if parts else "状态未知"
 
         return {
@@ -2987,6 +3763,16 @@ def report_ops() -> dict[str, Any]:
             "ready_with_subtitle": ready_with_sub,
             "ready_count": ready_n,
             "published_ready": ready_published,
+            "published_state_count": by_state.get("published", 0),
+            "published_count": by_state.get("published", 0) or fs_stats.get("published_files") or 0,
+            "pending_publish": max(0, ready_n - ready_published),
+            "pending_ready": max(0, ready_n - ready_published),
+            "fs_ready_files": fs_stats.get("ready_files"),
+            "fs_published_files": fs_stats.get("published_files"),
+            "today_published_files": fs_stats.get("today_published_files"),
+            "today_ready_files": fs_stats.get("today_ready_files"),
+            "ready_today": fs_stats.get("today_ready_files") or 0,
+            "published_today": fs_stats.get("today_published_files") or 0,
             "missing_voice": max(0, ready_n - ready_with_voice),
             "tts_noncompliant": tts_noncompliant,
             "tts_say": tts_say,
@@ -2998,6 +3784,8 @@ def report_ops() -> dict[str, Any]:
             "path_health": path_h,
             "library_ok": lib_ok,
             "output_ok": out_ok,
+            "db_health": db_info,
+            "db_ok": bool(db_info.get("ok")) and not bool(db_info.get("empty")),
         }
     finally:
         session.close()
@@ -3006,6 +3794,235 @@ def report_ops() -> dict[str, Any]:
 @app.get("/ops/disk")
 def ops_disk() -> dict[str, Any]:
     return disk_report()
+
+
+@app.get("/ops/carrier")
+def ops_carrier() -> dict[str, Any]:
+    """T2S carrier status (install/backup/update only — no media sync)."""
+    from engine.ops.carrier import carrier_status
+    from engine.ops.suying_sync import check_zspace_bind
+
+    bind = check_zspace_bind()
+    return carrier_status(bound_nas_ok=bool(bind.get("bound_ok") and bind.get("match")))
+
+
+@app.get("/ops/keyword-stats")
+def ops_keyword_stats() -> dict[str, Any]:
+    from engine.ops.keyword_stats import keyword_stats
+
+    settings = load_settings()
+    session = get_session()
+    try:
+        _, customer, _ = _active_scope(session, settings)
+        return keyword_stats(
+            session,
+            customer_id=customer.id,
+            keyword_pack_path=customer.keyword_pack_path,
+        )
+    finally:
+        session.close()
+
+
+@app.get("/ops/app-update")
+def ops_app_update_check() -> dict[str, Any]:
+    from engine.ops.app_update import check_update
+
+    return check_update()
+
+
+class AppUpdateInstallRequest(BaseModel):
+    apply: bool = False
+
+
+@app.post("/ops/app-update/install")
+def ops_app_update_install(body: AppUpdateInstallRequest) -> dict[str, Any]:
+    """Click-to-install from carrier. apply=false only verifies sha256."""
+    from engine.ops.app_update import install_update
+
+    return install_update(apply=bool(body.apply))
+
+
+class CarrierBackupRequest(BaseModel):
+    carrier_root: str | None = None
+
+
+@app.post("/ops/carrier/backup")
+def ops_carrier_backup(body: CarrierBackupRequest) -> dict[str, Any]:
+    from pathlib import Path
+
+    from engine.ops.carrier import (
+        ensure_carrier_layout,
+        export_config_backup,
+        resolve_carrier_root,
+    )
+
+    settings = load_settings()
+    session = get_session()
+    try:
+        _, customer, _ = _active_scope(session, settings)
+        try:
+            root = resolve_carrier_root(body.carrier_root)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+        ensure_carrier_layout(root)
+        payload = {
+            "customer": {
+                "id": customer.id,
+                "name": customer.name,
+            },
+            "settings": {
+                "active_customer": settings.active_customer,
+                "tts_provider": getattr(settings, "tts_provider", "edge"),
+            },
+        }
+        return export_config_backup(
+            carrier_root=root,
+            customer_id=customer.id,
+            customer_name=customer.name,
+            payload=payload,
+        )
+    finally:
+        session.close()
+
+
+@app.post("/ops/carrier/ensure")
+def ops_carrier_ensure(carrier_root: str | None = None) -> dict[str, Any]:
+    from engine.ops.carrier import (
+        ensure_carrier_layout,
+        resolve_carrier_root,
+        seed_industry_into_carrier,
+    )
+
+    try:
+        root = resolve_carrier_root(carrier_root)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    ensure_carrier_layout(root)
+    repo = Path(__file__).resolve().parents[2]
+    seeded = seed_industry_into_carrier(root, repo / "configs")
+    return {"ok": True, "root": str(root), "seed": seeded}
+
+
+@app.get("/ops/carrier/seeds")
+def ops_carrier_seeds() -> dict[str, Any]:
+    """Optional customer configuration seeds available on the T2S carrier."""
+    from engine.ops.carrier import list_customer_seeds
+
+    seeds = list_customer_seeds()
+    for seed in seeds:
+        seed.pop("_seed_dir", None)
+        seed.pop("_carrier_root", None)
+    return {"ok": True, "seeds": seeds}
+
+
+class CarrierSeedImportRequest(BaseModel):
+    seed_id: str
+    overwrite: bool = False
+
+
+@app.post("/ops/carrier/seeds/import")
+def ops_carrier_seed_import(body: CarrierSeedImportRequest) -> dict[str, Any]:
+    """Import one optional config-only seed into the active customer's folders."""
+    from engine.ops.carrier import import_customer_seed
+
+    settings = load_settings()
+    session = get_session()
+    try:
+        _, customer, _ = _active_scope(session, settings)
+        output_root = Path(customer.output_root or settings.paths.output_root).expanduser().resolve()
+        customer_root = output_root.parent
+        try:
+            result = import_customer_seed(
+                seed_id=body.seed_id.strip(),
+                customer_root=customer_root,
+                overwrite=bool(body.overwrite),
+            )
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+
+        profile = dict(customer.profile_json or {})
+        seed_profile = result.get("profile") if isinstance(result.get("profile"), dict) else {}
+        for key, value in seed_profile.items():
+            if isinstance(value, dict) and isinstance(profile.get(key), dict):
+                profile[key] = {**profile[key], **value}
+            else:
+                profile[key] = value
+        customer.profile_json = profile
+        keyword_path = customer_root / "03-词池" / "keyword-pack.json"
+        if keyword_path.is_file():
+            customer.keyword_pack_path = str(keyword_path)
+        session.commit()
+        result["customer_id"] = customer.id
+        result["customer_name"] = customer.name
+        result["customer_root"] = str(customer_root)
+        result["keyword_pack_path"] = customer.keyword_pack_path
+        return result
+    finally:
+        session.close()
+
+
+class CarrierRestoreRequest(BaseModel):
+    backup_path: str
+
+
+@app.post("/ops/carrier/restore")
+def ops_carrier_restore(body: CarrierRestoreRequest) -> dict[str, Any]:
+    """Restore config-level backup from T2S carrier (no media)."""
+    from engine.ops.carrier import resolve_carrier_backup, restore_config_backup
+
+    try:
+        return restore_config_backup(resolve_carrier_backup(body.backup_path))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@app.post("/ops/carrier/install-update-agent")
+def ops_carrier_install_update_agent() -> dict[str, Any]:
+    """Install LaunchAgent that polls carrier app/latest.json (no media sync)."""
+    import subprocess
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "install-carrier-update-agent.sh"
+    if not script.is_file():
+        raise HTTPException(404, f"缺少脚本: {script}")
+    proc = subprocess.run(
+        ["bash", str(script)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return {
+        "ok": proc.returncode == 0,
+        "returncode": proc.returncode,
+        "stdout": (proc.stdout or "")[-2000:],
+        "stderr": (proc.stderr or "")[-1000:],
+        "script": str(script),
+    }
+
+
+@app.post("/ops/ollama-narration/preview")
+def ops_ollama_narration_preview(
+    theme: str = "default",
+    brand: str = "演示品牌",
+    hint: str = "真实现场记录，人物认真工作，展示服务细节",
+) -> dict[str, Any]:
+    """Dry-run Ollama narration rewrite (ops / smoke)."""
+    from engine.config.settings import load_settings
+    from engine.pack.ollama_narration import resolve_narration_model, rewrite_narration_with_ollama
+
+    settings = load_settings()
+    model = resolve_narration_model(settings)
+    result = rewrite_narration_with_ollama(
+        base_script="真实现场认真记录，用心服务更省心。",
+        visual_hints=[hint],
+        theme=theme,
+        brand=brand,
+        target_duration_sec=18.0,
+        model=model,
+        title="真实记录",
+        timeout=120.0,
+    )
+    return {"enabled": bool(settings.ollama_narration_enabled), "model": model, **result}
 
 
 @app.post("/ops/cache/clean")
@@ -3097,14 +4114,24 @@ def ops_service_control(name: str, action: str) -> dict[str, Any]:
 
 
 class ZSpaceEnsureCustomer(BaseModel):
+    model_config = {"populate_by_name": True}
     name: str
-    register: bool = True
+    # alias keeps API body `{register:true}`; avoid shadowing BaseModel.register
+    do_register: bool = Field(True, alias="register")
 
 
 class ZSpaceBind(BaseModel):
     username: str
     nas_id: str
     nas_name: str = ""
+
+
+class ZSpaceMediaSetSource(BaseModel):
+    """Team-space folder name -> local media library mapping (write into suying-sync.json only)."""
+
+    customer_name: str
+    remote_person: str
+    remote_base: str = "手机相册备份"
 
 
 @app.get("/ops/zspace-sync/status")
@@ -3148,25 +4175,76 @@ def ops_zspace_sync_install() -> dict[str, Any]:
 @app.post("/ops/zspace-sync/ensure-customer")
 def ops_zspace_sync_ensure_customer(body: ZSpaceEnsureCustomer) -> dict[str, Any]:
     """Create 速影客户/<name>/{01-片库,02-成片,03-词池} and register sync map."""
-    from engine.config.settings import PathConfig, load_settings, save_settings
     from engine.ops.suying_sync import ensure_customer_dirs
 
     try:
-        result = ensure_customer_dirs(body.name, register=body.register)
+        result = ensure_customer_dirs(body.name, register=body.do_register)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return result
+
+
+@app.get("/ops/zspace-sync/media-remote-folders")
+def ops_zspace_sync_media_remote_folders(remote_base: str = "手机相册备份") -> dict[str, Any]:
+    """List immediate remote folders under /public/<remote_base>/.
+
+    Returns only folder names (no hardcoded customer names).
+    """
+    from engine.ops.suying_sync import list_remote_folders
+
+    try:
+        folders = list_remote_folders(remote_base)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"ok": True, "remote_base": remote_base, "folders": folders}
+
+
+@app.post("/ops/zspace-sync/media-set-source")
+def ops_zspace_sync_media_set_source(body: ZSpaceMediaSetSource) -> dict[str, Any]:
+    """Upsert v3 media_sources mapping for a customer."""
+    from engine.ops.suying_sync import upsert_media_source
+
+    try:
+        return upsert_media_source(
+            customer_name=body.customer_name,
+            remote_person=body.remote_person,
+            remote_base_rel=body.remote_base,
+        )
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
-    paths = result["paths"]
-    settings = load_settings()
-    dumped = settings.paths.model_dump()
-    dumped.update(
-        {
-            "data_root": paths["data_root"],
-            "cache_root": paths["cache_root"],
-            "render_root": paths["render_root"],
-            "external_required": True,
-        }
-    )
-    settings.paths = PathConfig(**dumped)
-    save_settings(settings)
-    return result
+
+@app.get("/ops/zspace-sync/media-preview")
+def ops_zspace_sync_media_preview(
+    customer_name: str,
+    remote_person: str,
+    remote_base: str = "手机相册备份",
+) -> dict[str, Any]:
+    """Preview media source mapping change (no write)."""
+    from engine.ops.suying_sync import preview_media_source
+
+    try:
+        return preview_media_source(
+            customer_name=customer_name,
+            remote_person=remote_person,
+            remote_base_rel=remote_base,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@app.get("/ops/zspace-sync/reconcile")
+def ops_zspace_sync_reconcile() -> dict[str, Any]:
+    from engine.ops.suying_sync import reconcile_sync_customers
+
+    return reconcile_sync_customers()
+
+
+@app.post("/ops/zspace-sync/dry-run")
+def ops_zspace_sync_dry_run(pull_only: bool = True) -> dict[str, Any]:
+    from engine.ops.suying_sync import run_sync_dry_run
+
+    try:
+        return run_sync_dry_run(pull_only=pull_only)
+    except RuntimeError as e:
+        raise HTTPException(409, str(e)) from e

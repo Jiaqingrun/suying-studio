@@ -6,6 +6,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
+# GUI/launchd 可能缺 Homebrew；出片需要 ffmpeg / ollama CLI。
+for _bin in /opt/homebrew/bin /usr/local/bin; do
+  if [[ -d "$_bin" && ":${PATH}:" != *":${_bin}:"* ]]; then
+    export PATH="${_bin}:${PATH}"
+  fi
+done
+unset _bin
 
 # Prefer env / conda / brew over Apple CLT python (often missing deps).
 if [[ -n "${SUYING_PYTHON:-${MONTAGE_PYTHON:-}}" ]]; then

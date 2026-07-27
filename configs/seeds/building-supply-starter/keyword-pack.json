@@ -1,0 +1,32 @@
+{
+  "meta": {
+    "version": 1,
+    "source": "building-supply-starter"
+  },
+  "company_info": {
+    "display_name_preferred": "",
+    "positioning_one_liner": "本地一站式建筑材料服务"
+  },
+  "compliance": {
+    "blocked_terms": ["第一", "最好", "根治", "厂家直销"]
+  },
+  "keyword_pool": {
+    "flat_keywords": ["工地材料一站采购", "本地现货", "便捷配送", "工具耗材", "建筑材料"],
+    "themes": {
+      "default": {
+        "keywords": [
+          { "text": "工地材料一站采购", "weight": 3 },
+          { "text": "本地现货", "weight": 2 },
+          { "text": "便捷配送", "weight": 2 }
+        ]
+      },
+      "tools": {
+        "keywords": [
+          { "text": "工具耗材现货", "weight": 2 },
+          { "text": "常用工具组合", "weight": 1 }
+        ]
+      }
+    },
+    "hashtags": ["#建筑材料", "#工地采购", "#本地服务"]
+  }
+}

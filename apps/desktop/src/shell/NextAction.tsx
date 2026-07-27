@@ -42,7 +42,7 @@ export function computeNextAction(p: Props): NextAction | null {
       id: "path",
       label: "下一步：修复路径异常",
       kind: "warn",
-      run: () => p.onSetTab("assets"),
+      run: () => p.onSetTab("settings"),
     };
   }
   if (p.ttsBad > 0) {
@@ -66,7 +66,7 @@ export function computeNextAction(p: Props): NextAction | null {
       id: "pack",
       label: "下一步：导出物料 / 发布",
       kind: "primary",
-      run: () => p.onSetTab("pack"),
+      run: () => p.onSetTab("publish"),
     };
   }
   if (!p.hasTodayPlan && p.runningJobs === 0) {

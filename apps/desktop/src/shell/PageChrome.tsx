@@ -1,0 +1,154 @@
+import type { ReactNode } from "react";
+import type { Tab } from "../types";
+import { nextPipelineTab, TAB_BLURB } from "../types";
+
+type Props = {
+  title: string;
+  blurb?: string;
+  actions?: ReactNode;
+  guide?: ReactNode;
+};
+
+export function PageHeader({ title, blurb, actions, guide }: Props) {
+  return (
+    <div className="page-header">
+      <div className="page-header-main">
+        <div className="panel-head">
+          <h2>{title}</h2>
+          {actions}
+        </div>
+        {blurb ? <p className="page-blurb">{blurb}</p> : null}
+        {guide ? <div className="page-guide">{guide}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+type StepProps = {
+  current: Tab;
+  onJump: (t: Tab) => void;
+  primaryLabel?: string;
+  disabled?: boolean;
+  hint?: string;
+  extra?: ReactNode;
+};
+
+export function StepFooter({
+  current,
+  onJump,
+  primaryLabel,
+  disabled,
+  hint,
+  extra,
+}: StepProps) {
+  const next = nextPipelineTab(current);
+  if (!next && !extra) return null;
+  const label =
+    primaryLabel ||
+    (next === "produce"
+      ? "下一步：去生产"
+      : next === "review"
+        ? "下一步：去审片"
+        : next === "publish"
+          ? "下一步：去发布"
+          : next
+            ? `下一步：${TAB_BLURB[next]}`
+            : "");
+
+  return (
+    <div className="step-footer">
+      {hint ? <p className="hint">{hint}</p> : null}
+      <div className="actions">
+        {next ? (
+          <button
+            type="button"
+            className="primary"
+            disabled={disabled}
+            onClick={() => onJump(next)}
+          >
+            {label}
+          </button>
+        ) : null}
+        {current !== "overview" ? (
+          <button type="button" onClick={() => onJump("overview")}>
+            返回总览
+          </button>
+        ) : null}
+        {extra}
+      </div>
+    </div>
+  );
+}
+
+type SegItem<T extends string> = { id: T; label: string; badge?: number };
+
+type SegProps<T extends string> = {
+  items: SegItem<T>[];
+  value: T;
+  onChange: (v: T) => void;
+  ariaLabel?: string;
+};
+
+export function SegmentNav<T extends string>({ items, value, onChange, ariaLabel }: SegProps<T>) {
+  return (
+    <div className="segment-nav" role="tablist" aria-label={ariaLabel || "分区"}>
+      {items.map((it) => (
+        <button
+          key={it.id}
+          type="button"
+          role="tab"
+          aria-selected={value === it.id}
+          className={`segment-btn${value === it.id ? " active" : ""}`}
+          onClick={() => onChange(it.id)}
+        >
+          {it.label}
+          {it.badge && it.badge > 0 ? <em className="nav-badge">{it.badge}</em> : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+type StatProps = {
+  label: string;
+  value: ReactNode;
+  hint?: string;
+  warn?: boolean;
+  onClick?: () => void;
+};
+
+export function StatCard({ label, value, hint, warn, onClick }: StatProps) {
+  const Tag = onClick ? "button" : "div";
+  return (
+    <Tag
+      type={onClick ? "button" : undefined}
+      className={`stat${warn ? " is-warn" : ""}${onClick ? " is-clickable" : ""}`}
+      onClick={onClick}
+    >
+      <div className="stat-label">{label}</div>
+      <div className="stat-value">{value}</div>
+      {hint ? <div className="stat-hint">{hint}</div> : null}
+    </Tag>
+  );
+}
+
+type EmptyProps = {
+  title: string;
+  body?: string;
+  actionLabel?: string;
+  onAction?: () => void;
+};
+
+export function EmptyState({ title, body, actionLabel, onAction }: EmptyProps) {
+  return (
+    <div className="empty-state">
+      <strong>{title}</strong>
+      {body ? <p className="hint">{body}</p> : null}
+      {actionLabel && onAction ? (
+        <button type="button" className="primary" onClick={onAction}>
+          {actionLabel}
+        </button>
+      ) : null}
+    </div>
+  );
+}

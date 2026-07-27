@@ -19,6 +19,10 @@ class CreateJobRequest(BaseModel):
     theme: str = "default"
     category: str = "default"
     customer_name: str | None = None
+    strict_semantic_v1: bool = False
+    seed: int | None = Field(default=None, ge=1, le=2_000_000_000)
+    # One-shot expression overrides (not persisted to customer profile)
+    expression: dict[str, Any] | None = None
 
 
 def ensure_default_template(session: Session) -> None:
@@ -50,7 +54,15 @@ def create_job(session: Session, req: CreateJobRequest, *, customer_id: int | No
         "customer_name": req.customer_name,
         "template": template_def.model_dump(),
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "strict_semantic_v1": bool(req.strict_semantic_v1),
+        "seed": req.seed,
     }
+    if isinstance(req.expression, dict) and req.expression:
+        snap["expression"] = {
+            k: req.expression[k]
+            for k in ("voice_lang", "subtitle_lang", "subtitle_burn", "dual_secondary_lang")
+            if req.expression.get(k) is not None and str(req.expression.get(k)).strip() != ""
+        }
 
     job = Job(
         status="queued",
