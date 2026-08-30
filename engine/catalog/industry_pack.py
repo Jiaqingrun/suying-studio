@@ -61,6 +61,7 @@ def load_industry_pack(pack_id: str | None = None) -> dict[str, Any]:
     data.setdefault("content_to_pack", {"default": ["default"]})
     data.setdefault("template_bindings", {})
     data.setdefault("content_themes", ["default"])
+    data.setdefault("semantic_vision_notes", [])
     return data
 
 
@@ -70,6 +71,50 @@ def clear_pack_cache() -> None:
 
 def hooks_for_pack(pack_id: str | None = None) -> list[str]:
     return list(load_industry_pack(pack_id).get("hooks") or _FALLBACK["hooks"])
+
+
+def title_candidates_for_pack(pack_id: str | None = None) -> list[str]:
+    """On-screen title seeds from industry pack (not spoken)."""
+    raw = load_industry_pack(pack_id).get("title_candidates") or []
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        s = str(item or "").strip()
+        if not s or s in seen:
+            continue
+        seen.add(s)
+        out.append(s)
+    return out
+
+
+def narration_lines_for_theme(pack_id: str | None, theme: str | None = None) -> list[str]:
+    """Spoken body lines from industry pack ``narration_lines`` (theme → list)."""
+    bank = load_industry_pack(pack_id).get("narration_lines")
+    if not isinstance(bank, dict):
+        return []
+    theme_key = (theme or "default").strip() or "default"
+    raw: list[Any] = []
+    if theme_key in bank and isinstance(bank.get(theme_key), list):
+        raw = list(bank[theme_key] or [])
+    else:
+        for key, value in bank.items():
+            k = str(key)
+            if k != "default" and (k in theme_key or theme_key in k) and isinstance(value, list):
+                raw = list(value or [])
+                break
+    if not raw and isinstance(bank.get("default"), list):
+        raw = list(bank.get("default") or [])
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        s = str(item or "").strip()
+        if not s or s in seen:
+            continue
+        seen.add(s)
+        out.append(s)
+    return out
 
 
 def theme_rules_for_pack(pack_id: str | None = None) -> list[tuple[str, tuple[str, ...]]]:
@@ -87,6 +132,28 @@ def content_to_pack_map(pack_id: str | None = None) -> dict[str, list[str]]:
 
 def template_bindings_for_pack(pack_id: str | None = None) -> dict[str, str]:
     return {str(k).strip().lower(): str(v) for k, v in (load_industry_pack(pack_id).get("template_bindings") or {}).items()}
+
+
+def semantic_vision_notes_for_pack(pack_id: str | None = None) -> list[str]:
+    """Optional industry add-on lines for strict vision description style.
+
+    Global (cross-industry) writing rules live in the vision prompt. These notes
+    must stay customer-neutral: no shop names, no ``if customer.name``.
+    """
+    raw = load_industry_pack(pack_id).get("semantic_vision_notes") or []
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        s = str(item or "").strip()
+        if not s or s in seen or len(s) > 400:
+            continue
+        seen.add(s)
+        out.append(s)
+        if len(out) >= 12:
+            break
+    return out
 
 
 def piece_type_rules_for_pack(pack_id: str | None = None) -> dict[str, Any]:

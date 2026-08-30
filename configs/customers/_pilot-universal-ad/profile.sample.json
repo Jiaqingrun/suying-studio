@@ -1,0 +1,31 @@
+{
+  "industry_pack": "universal-ad-copy",
+  "locale": "zh-CN",
+  "note": "试点：全行业通用广告模式包 + copy_diversity 近窗 50；非生产客户，仅用于 OFFLINE 验收",
+  "brand": {
+    "display_name": "试点门店",
+    "primary_color": "#5B8C5A",
+    "logo_enabled": false,
+    "title_layout": "single"
+  },
+  "expression": {
+    "voice_lang": "zh",
+    "subtitle_lang": "zh",
+    "subtitle_burn": "burn_mono"
+  },
+  "compliance": {
+    "banned_terms": [
+      "第一",
+      "最好",
+      "保证",
+      "根治",
+      "疗效",
+      "厂家直销"
+    ],
+    "require_disclaimer": false
+  },
+  "publish": {
+    "platforms": ["douyin"],
+    "default_lang": "zh"
+  }
+}
