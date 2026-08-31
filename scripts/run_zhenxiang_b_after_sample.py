@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 import time
@@ -104,9 +105,25 @@ def twin_check(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def main() -> int:
-    n = int(sys.argv[1]) if len(sys.argv) > 1 else 5
+    parser = argparse.ArgumentParser(description="臻享丽人 B档 rush 抽样")
+    parser.add_argument("count", nargs="?", type=int, default=5, help="目标条数")
+    parser.add_argument(
+        "--interval",
+        type=float,
+        default=30.0,
+        help="每条完成后间隔秒数（默认 30，降低纸片近窗熔断）",
+    )
+    args = parser.parse_args()
+    n = max(1, int(args.count))
+    interval = max(0.0, float(args.interval))
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    report: dict[str, Any] = {"customer": CUSTOMER, "target": n, "jobs": [], "outputs": []}
+    report: dict[str, Any] = {
+        "customer": CUSTOMER,
+        "target": n,
+        "interval_sec": interval,
+        "jobs": [],
+        "outputs": [],
+    }
     try:
         req("POST", "/customers/activate", {"name": CUSTOMER})
         max_out = max((int(o["id"]) for o in req("GET", "/outputs?state=ready")), default=0)
@@ -147,6 +164,9 @@ def main() -> int:
                 out = fresh[-1]
                 max_out = int(out["id"])
                 report["outputs"].append(extract_row(out))
+            if i + 1 < n and interval > 0:
+                print(f"  … 间隔 {interval:.0f}s", flush=True)
+                time.sleep(interval)
         report["twin_check"] = twin_check(report["outputs"])
     except urllib.error.HTTPError as e:
         report["error"] = e.read().decode("utf-8", errors="replace")[:500]

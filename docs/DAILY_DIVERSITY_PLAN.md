@@ -185,6 +185,7 @@
 | 2026-08-21 | **B 档·北京始峰伟业（结构进度）**：D0/D2/D3 与改前改后对照见 `~/Suying/logs/daily-diversity-shifeng-20260821/`；轮换池收敛为规则 **38+90**；改后抽样含产品稳镜 + 配送装车景别；**未**宣称同质化已彻底解决 |
 | 2026-08-30 | **臻享丽人停留 A 档**：D0 改前基线见 `~/Suying/logs/daily-diversity-zhenxiang-20260830/`；rush 试产 job#487 仍 `circuit_open`（零产出）；C2 改后栏未填；**不得**宣称同质化已解决。引擎侧 `bedfd99`（模式卡 + 近窗门禁 + L20 v2）已入库，臻享 live 须先打通选片产出再跑 B 档对照 |
 | 2026-09-01 | **臻享 B 档·结构进度**：`0ce0faa` 修复 life-service `scene_aliases`（须重启引擎）；改后 5 条见 `~/Suying/logs/daily-diversity-zhenxiang-20260830/C2-after-sample.md`（out#663/665/666/670/672）；标题与配方主段已分化；hook 仍 L20 家族相似；连跑 rush 仍可能熔断；**未**宣称同质化已彻底解决 |
+| 2026-09-01 | **臻享 D3 第三 facet**：规则 **#99** `身体与形体 · 日更 · 晓晓` 入轮换；D1 矩阵见同目录 `D1-coverage-matrix.md`；间隔 rush out#677/#679 验证；C1「≥3 facet」达标；护肤护理仍 6/8 未入池 |
 
 ---
 
