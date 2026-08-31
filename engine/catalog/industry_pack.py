@@ -156,6 +156,51 @@ def semantic_vision_notes_for_pack(pack_id: str | None = None) -> list[str]:
     return out
 
 
+def scene_aliases_for_pack(pack_id: str | None = None) -> dict[str, list[str]]:
+    """Map canonical rule labels (company_image, office, …) to cliplet.scene tags."""
+    raw = load_industry_pack(pack_id).get("scene_aliases") or {}
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, list[str]] = {}
+    for key, value in raw.items():
+        label = str(key or "").strip()
+        if not label:
+            continue
+        if not isinstance(value, list):
+            continue
+        aliases: list[str] = []
+        seen: set[str] = set()
+        for item in [label, *value]:
+            s = str(item or "").strip()
+            if not s or s in seen:
+                continue
+            seen.add(s)
+            aliases.append(s)
+        if aliases:
+            out[label] = aliases
+            out[label.lower()] = aliases
+    return out
+
+
+def expand_prefer_scenes(pack_id: str | None, labels: list[str] | None) -> list[str]:
+    """Expand production-rule prefer_semantic_labels to cliplet.scene vocabulary."""
+    raw = [str(x).strip() for x in (labels or []) if str(x).strip()]
+    if not raw:
+        return []
+    aliases = scene_aliases_for_pack(pack_id)
+    out: list[str] = []
+    seen: set[str] = set()
+    for label in raw:
+        mapped = aliases.get(label) or aliases.get(label.lower()) or [label]
+        for scene in mapped:
+            s = str(scene).strip()
+            if not s or s in seen:
+                continue
+            seen.add(s)
+            out.append(s)
+    return out
+
+
 def piece_type_rules_for_pack(pack_id: str | None = None) -> dict[str, Any]:
     """Piece-type montage rules: slot prefer_scenes/objects + continuity."""
     raw = load_industry_pack(pack_id).get("piece_type_rules") or {}

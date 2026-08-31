@@ -1,0 +1,313 @@
+{
+  "id": "life-service",
+  "name": "生活服务·门店护理（养生美容等）",
+  "locale": "zh-CN",
+  "semantic_vision_notes": [],
+  "hooks": [
+    "来到门店",
+    "先感受服务",
+    "进门看看",
+    "店里很安静",
+    "到店先沟通",
+    "护理慢慢来",
+    "细节很到位",
+    "本地连锁店",
+    "欢迎来坐坐",
+    "服务讲清楚",
+    "欢迎来到",
+    "先进门看看",
+    "先安顿好",
+    "慢慢感受",
+    "灯光很柔和",
+    "动线很清楚",
+    "空间很规整",
+    "先倾听完",
+    "再安排项目",
+    "统一有标准",
+    "休息有茶点",
+    "态度看得见",
+    "来店详聊",
+    "欢迎来店"
+  ],
+  "content_themes": [
+    "门店形象",
+    "护肤护理",
+    "身体与形体",
+    "服务沟通",
+    "品牌故事",
+    "default"
+  ],
+  "theme_rules": [
+    {
+      "theme": "门店形象",
+      "keywords": [
+        "门头",
+        "招牌",
+        "店面",
+        "入口",
+        "外立面",
+        "门店",
+        "走廊",
+        "通道",
+        "接待区",
+        "休息区",
+        "大厅",
+        "拱门",
+        "店内",
+        "环境",
+        "装修",
+        "空间",
+        "storefront",
+        "interior"
+      ]
+    },
+    {
+      "theme": "护肤护理",
+      "keywords": [
+        "护肤",
+        "面部",
+        "肌肤",
+        "护理台",
+        "护理间",
+        "手法",
+        "涂抹",
+        "面膜",
+        "护理品",
+        "瓶装",
+        "精华",
+        "facial",
+        "product_closeup",
+        "product_use"
+      ]
+    },
+    {
+      "theme": "身体与形体",
+      "keywords": [
+        "身体护理",
+        "形体",
+        "放松护理",
+        "床位",
+        "护理床",
+        "身体",
+        "肩颈",
+        "body"
+      ]
+    },
+    {
+      "theme": "服务沟通",
+      "keywords": [
+        "接待",
+        "沟通",
+        "倾听",
+        "顾问",
+        "前台",
+        "咨询",
+        "欢迎",
+        "服务台",
+        "consultation",
+        "welcome"
+      ]
+    },
+    {
+      "theme": "品牌故事",
+      "keywords": [
+        "荣誉",
+        "奖状",
+        "锦旗",
+        "证书",
+        "标杆",
+        "冠军店",
+        "品牌墙",
+        "介绍墙",
+        "展板",
+        "团队风采",
+        "发展历程",
+        "company_image"
+      ]
+    }
+  ],
+  "pack_to_content": {
+    "门店形象": "门店形象",
+    "护肤护理": "护肤护理",
+    "身体与形体": "身体与形体",
+    "服务沟通": "服务沟通",
+    "品牌故事": "品牌故事",
+    "storefront": "门店形象",
+    "office": "门店形象",
+    "company_image": "品牌故事",
+    "product_closeup": "护肤护理",
+    "product_use": "护肤护理",
+    "people_activity": "服务沟通",
+    "default": "default"
+  },
+  "content_to_pack": {
+    "门店形象": ["门店形象", "storefront", "office"],
+    "护肤护理": ["护肤护理", "product_closeup", "product_use"],
+    "身体与形体": ["身体与形体"],
+    "服务沟通": ["服务沟通", "people_activity"],
+    "品牌故事": ["品牌故事", "company_image"],
+    "default": ["default", "门店形象"]
+  },
+  "template_bindings": {
+    "门店": "default-vertical",
+    "护理": "stable-product",
+    "产品": "stable-product",
+    "护肤": "stable-product",
+    "品牌": "default-vertical"
+  },
+  "piece_type_bindings": {
+    "门店形象": "门店实力",
+    "护肤护理": "单品介绍",
+    "身体与形体": "单品介绍",
+    "服务沟通": "综合日更",
+    "品牌故事": "门店实力",
+    "default": "综合日更"
+  },
+  "piece_type_rules": {
+    "门店实力": {
+      "template": "default-vertical",
+      "slots": {
+        "hook": {"prefer_scenes": ["storefront", "company_image"], "prefer_objects": []},
+        "body": {"prefer_scenes": ["office", "company_image", "storefront"], "prefer_objects": ["荣誉墙", "接待台"]},
+        "cta": {"prefer_scenes": ["storefront", "office"], "prefer_objects": []}
+      },
+      "continuity": {"require_scene_or_object": false, "max_object_kinds": 6}
+    },
+    "单品介绍": {
+      "template": "stable-product",
+      "slots": {
+        "hook": {"prefer_scenes": ["product_closeup", "product_use", "office"], "prefer_objects": ["护理品"]},
+        "body": {"prefer_scenes": ["product_use", "product_closeup", "office"], "prefer_objects": ["护理台", "护理品"]},
+        "cta": {"prefer_scenes": ["office", "storefront"], "prefer_objects": []}
+      },
+      "continuity": {"require_scene_or_object": false, "max_object_kinds": 6}
+    },
+    "综合日更": {
+      "template": "default-vertical",
+      "slots": {},
+      "continuity": {"require_scene_or_object": false, "max_object_kinds": 6}
+    }
+  },
+  "scene_aliases": {
+    "storefront": ["storefront", "entrance", "honor_wall"],
+    "company_image": ["company_image", "honor_wall", "culture_wall"],
+    "office": ["office", "corridor", "treatment_room", "vanity", "tea", "slippers", "culture_wall"],
+    "interior": ["interior", "corridor", "treatment_room", "vanity", "culture_wall"],
+    "product_use": ["product_use", "treatment_action", "treatment_bed"],
+    "product_closeup": ["product_closeup", "sterilize", "vanity", "supply"]
+  },
+  "scene_rules": [
+    {
+      "theme": "storefront",
+      "keywords": ["门头", "招牌", "店面", "入口", "外立面", "门口", "临街", "storefront"]
+    },
+    {
+      "theme": "company_image",
+      "keywords": ["荣誉", "奖状", "锦旗", "证书", "标杆", "冠军店", "品牌墙", "介绍墙", "展板", "团队风采", "发展历程", "文化墙", "company_image"]
+    },
+    {
+      "theme": "office",
+      "keywords": ["走廊", "通道", "接待", "休息区", "沙发", "大厅", "拱门", "店内", "前台", "茶歇", "等候", "interior", "lobby"]
+    },
+    {
+      "theme": "product_closeup",
+      "keywords": ["产品特写", "护理品", "瓶身", "瓶装", "器具", "托盘", "陈列", "特写", "product_closeup"]
+    },
+    {
+      "theme": "product_use",
+      "keywords": ["护理台", "护理过程", "手法", "涂抹", "操作台", "护理床", "护理间", "product_use"]
+    },
+    {
+      "theme": "people_activity",
+      "keywords": ["人员", "员工", "顾问", "客人", "人物", "正脸", "半身", "people_activity"]
+    }
+  ],
+  "object_rules": [
+    {
+      "theme": "门头招牌",
+      "keywords": ["门头", "招牌", "灯箱"]
+    },
+    {
+      "theme": "荣誉墙",
+      "keywords": ["荣誉", "奖状", "锦旗", "证书", "展柜", "奖杯"]
+    },
+    {
+      "theme": "接待台",
+      "keywords": ["前台", "接待台", "服务台"]
+    },
+    {
+      "theme": "休息区",
+      "keywords": ["沙发", "休息区", "茶点", "茶歇"]
+    },
+    {
+      "theme": "护理品",
+      "keywords": ["护理品", "瓶", "精华", "面霜", "产品"]
+    },
+    {
+      "theme": "护理台",
+      "keywords": ["护理台", "操作台", "护理床", "床位"]
+    },
+    {
+      "theme": "品牌展板",
+      "keywords": ["展板", "介绍墙", "品牌墙", "文化墙"]
+    }
+  ],
+  "action_rules": [
+    {
+      "theme": "陈列展示",
+      "keywords": ["陈列", "展示", "摆放", "展柜"]
+    },
+    {
+      "theme": "环境巡览",
+      "keywords": ["走廊", "通道", "巡览", "走进", "环顾"]
+    },
+    {
+      "theme": "护理操作",
+      "keywords": ["护理", "涂抹", "手法", "操作"]
+    },
+    {
+      "theme": "接待沟通",
+      "keywords": ["接待", "沟通", "咨询", "倾听"]
+    },
+    {
+      "theme": "整理备物",
+      "keywords": ["整理", "清洁", "备物", "收拾"]
+    }
+  ],
+  "narration_lines": {
+    "门店形象": [
+      "先进门，把店里的样子看清楚。",
+      "通道干净，走起来也不着急。",
+      "灯光柔和，坐着不刺眼。",
+      "店内空间规整，动线清楚。",
+      "休息区安静，适合慢慢待着。"
+    ],
+    "护肤护理": [
+      "护理台面干净，步骤所需都在顺手处。",
+      "用品整齐备好，动手前都准备妥当。",
+      "过程按步骤来，细致不慌。",
+      "护理细节都在眼前画面里。"
+    ],
+    "身体与形体": [
+      "床位收拾妥当，空间安静。",
+      "护理节奏放缓，方便好好放松。",
+      "环境整洁，细节看得见。"
+    ],
+    "服务沟通": [
+      "到店先安顿好，再慢慢说需求。",
+      "先听完想法，再一起商量安排。",
+      "接待有序，不催不赶。"
+    ],
+    "品牌故事": [
+      "荣誉墙上能看见这些年留下的痕迹。",
+      "品牌介绍一字排开，先把来历看明白。",
+      "本地连锁的样子，挂在墙上也清楚。"
+    ],
+    "default": [
+      "跟着镜头把店里看一遍。",
+      "可见的空间与细节都在画面里。",
+      "先看明白在场发生什么。",
+      "环境干净，节奏也不赶。"
+    ]
+  }
+}

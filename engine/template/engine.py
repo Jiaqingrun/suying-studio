@@ -515,6 +515,7 @@ def _pick_from_cliplets(
                 rows = [row for row in rows if semantic_gate_passed(row)]
             candidates = [(r, 0.0) for r in rows]
 
+    pre_hard_candidates = list(candidates)
     if hard_prefer_scenes and prefer_scenes:
         wanted = {str(s).strip() for s in prefer_scenes if str(s).strip()}
         scene_pool = [(c, s) for c, s in candidates if (c.scene or "") in wanted]
@@ -534,7 +535,11 @@ def _pick_from_cliplets(
                 if row.id not in seen:
                     scene_pool.append((row, 0.0))
                     seen.add(row.id)
-        candidates = scene_pool
+        if scene_pool:
+            candidates = scene_pool
+        elif pre_hard_candidates:
+            warnings.append("规则偏好场景与片库标签无交集，已降级为软偏好")
+            candidates = pre_hard_candidates
 
     def _ok(c: Cliplet, score: float) -> bool:
         if allowed_cliplet_ids is not None and c.id not in allowed_cliplet_ids:
@@ -1352,9 +1357,20 @@ def build_plan(
         ]
         warnings.append("商品稳镜：硬偏好 product_closeup，排除仓配/装车场景，禁止整片回退")
     elif prefer_scenes_job:
+        from engine.catalog.industry_pack import expand_prefer_scenes
+
+        expanded = expand_prefer_scenes(pack_id, prefer_scenes_job)
+        if expanded != prefer_scenes_job:
+            warnings.append(
+                "规则偏好场景已按行业包展开："
+                + "/".join(str(s) for s in expanded[:8])
+                + ("…" if len(expanded) > 8 else "")
+            )
+            prefer_scenes_job = expanded
         warnings.append(
             "风格硬切：仅使用规则偏好场景 "
             + "/".join(str(s) for s in prefer_scenes_job[:6])
+            + ("…" if len(prefer_scenes_job) > 6 else "")
             + "，禁止回退到其它画面"
         )
 
