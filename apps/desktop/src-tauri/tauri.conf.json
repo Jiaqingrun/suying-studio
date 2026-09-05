@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "速影",
-  "version": "0.2.0",
+  "productName": "速影 Studio",
+  "version": "0.8.11",
   "identifier": "com.qr.suying",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "速影",
+        "title": "速影 Studio",
         "width": 1280,
         "height": 860,
         "backgroundColor": "#F4F6F8"
@@ -23,7 +23,12 @@
       "assetProtocol": {
         "enable": true,
         "scope": {
-          "allow": ["$HOME/**/*", "/Volumes/**/*", "/Users/**/*", "/**/*"],
+          "allow": [
+            "$HOME/**/*",
+            "/Volumes/**/*",
+            "/Users/**/*",
+            "/**/*"
+          ],
           "deny": [],
           "requireLiteralLeadingDot": false
         }
@@ -32,10 +37,12 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app"],
+    "targets": [
+      "app"
+    ],
     "category": "Productivity",
-    "shortDescription": "速影 — 本地 AI 混剪工作台",
-    "longDescription": "速影一体包：素材入库、生产、审片、物料、发布与触达。日更引擎与创作运行时内嵌于 App；Ollama 与片库仍在本机。",
+    "shortDescription": "速影 Studio — 本地 AI 混剪工作台",
+    "longDescription": "速影 Studio 一体包：素材入库、FFmpeg 生产、审片、物料、发布与触达。日更引擎内嵌于 App；Ollama 与片库仍在本机。",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

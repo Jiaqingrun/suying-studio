@@ -1,3 +1,5 @@
+import { productionCategoryLabel, productionThemeLabel } from "../sceneTourLabels";
+
 /** Turn opaque API objects into short Chinese banners. */
 
 export function briefResult(prefix: string, data: unknown): string {
@@ -45,8 +47,8 @@ export function dryRunSummary(result: Record<string, unknown>): {
   });
   return {
     count,
-    theme: String(result.theme || "—"),
-    category: String(result.category || "—"),
+    theme: productionThemeLabel(String(result.theme || "—")),
+    category: productionCategoryLabel(String(result.category || "—")),
     samples,
   };
 }

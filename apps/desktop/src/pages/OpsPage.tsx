@@ -1,25 +1,39 @@
+import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { Customer, Health, ServicesStatus } from "../api";
+import {
+  getEngineSupervisor,
+  offlineClassLabel,
+  type SupervisorSnapshot,
+} from "../engineControl";
 import { CarrierOpsStrip } from "../CarrierOpsStrip";
-import { SemanticAnalysisProgress } from "../SemanticAnalysisProgress";
 import { briefResult } from "../shell/briefResult";
-import { PageHeader, SegmentNav, StepFooter } from "../shell/PageChrome";
-import type { OpsSection, SemanticBackfillStatus, Tab } from "../types";
-import type { NotifyFn, OllamaInfo } from "./pageTypes";
+import { PageHeader, StepFooter } from "../shell/PageChrome";
+import type { OpsSection, SettingsSection, Tab } from "../types";
+import type { AskConfirmFn, NotifyFn, OllamaInfo } from "./pageTypes";
+import { BackupControl } from "../BackupControl";
+import { DiskCleanupControl } from "../DiskCleanupControl";
+import { LogsPage } from "./LogsPage";
+import { VectorControl } from "../VectorControl";
+import { AdvancedOpsPanel } from "../AdvancedOpsPanel";
+import { SystemEventControlPanel } from "./SettingsPage";
 
 const OPS_SEGMENTS: Array<{ id: OpsSection; label: string }> = [
   { id: "ai", label: "本地 AI" },
   { id: "services", label: "服务" },
+  { id: "backup", label: "数据保护" },
   { id: "carrier", label: "T2S 载体" },
-  { id: "health", label: "健康" },
   { id: "logs", label: "日志" },
+  { id: "health", label: "健康" },
+  { id: "advanced", label: "高级" },
 ];
 
 export interface OpsPageProps {
   section: OpsSection;
   onSectionChange: (s: OpsSection) => void;
-  setTab: (t: Tab) => void;
+  setTab: (t: Tab, opts?: { settings?: SettingsSection; ops?: OpsSection }) => void;
   notify: NotifyFn;
+  askConfirm?: AskConfirmFn;
   actionBusy: string | null;
   setActionBusy: (v: string | null) => void;
   refreshAll: () => Promise<void>;
@@ -33,12 +47,7 @@ export interface OpsPageProps {
   setOllamaNarrationEmoji: (v: boolean) => void;
   ollamaNarrationModel: string;
   setOllamaNarrationModel: (v: string) => void;
-  vectorization: boolean;
-  enableVectorization: () => void | Promise<void>;
-  disableVectorization: () => Promise<void>;
   health: Health | null;
-  semanticStatus: SemanticBackfillStatus | null;
-  runSemanticBatch: (limit: number) => Promise<void> | void;
   syncStatus: Record<string, unknown> | null;
   setSyncStatus: (v: Record<string, unknown> | null) => void;
   syncDryRunBusy: boolean;
@@ -48,8 +57,23 @@ export interface OpsPageProps {
   services: ServicesStatus | null;
   setServices: (v: ServicesStatus | null) => void;
   events: Array<Record<string, unknown>>;
+  semanticMode: "off" | "on_demand";
+  semanticToggleEnabled: boolean;
+  semanticFullBackfill: boolean;
+  semanticPct: number;
+  onToggleSemanticMode: () => void;
+  onToggleSemanticFullBackfill: () => void;
+  engineOn: boolean;
+  engineBusy: boolean;
+  onEngineToggle: () => void;
   /** Optional: jump to settings for customer media-source edits */
   customers?: Customer[];
+  onLogNavigate?: (target: {
+    tab: Tab;
+    outputId?: number;
+    jobId?: number;
+    guideTarget?: string;
+  }) => void;
 }
 
 function syncStatusLines(syncStatus: Record<string, unknown>): string {
@@ -65,8 +89,8 @@ function syncStatusLines(syncStatus: Record<string, unknown>): string {
   return [
     `脚本: ${syncStatus.scripts_installed ? "已装" : "未装"}`,
     `LaunchAgent: ${syncStatus.launchd_loaded ? `已加载(${String(syncStatus.launchd_state)})` : "未加载"}`,
-    `外置盘同步根: ${syncStatus.local_root_exists ? "OK" : "未挂载"} · ${String(syncStatus.local_root || "")}`,
-    `工作区: ${syncStatus.work_root_exists ? "OK" : "无"} · ${String(syncStatus.work_root || "")}`,
+    `媒体根: ${syncStatus.local_root_exists ? "OK" : "缺失"} · ${String(syncStatus.local_root || "")}`,
+    `工作区(cache/render): ${syncStatus.work_root_exists ? "OK" : "无"} · ${String(syncStatus.work_root || "")}`,
     `极空间代理: ${syncStatus.zspace_proxy_ok ? `OK :${String(syncStatus.zspace_proxy_port)}` : "未通"}`,
     `账号绑定: ${
       syncStatus.zspace_match
@@ -101,6 +125,7 @@ export function OpsPage({
   onSectionChange,
   setTab,
   notify,
+  askConfirm,
   actionBusy,
   setActionBusy,
   refreshAll,
@@ -114,12 +139,7 @@ export function OpsPage({
   setOllamaNarrationEmoji,
   ollamaNarrationModel,
   setOllamaNarrationModel,
-  vectorization,
-  enableVectorization,
-  disableVectorization,
   health,
-  semanticStatus,
-  runSemanticBatch,
   syncStatus,
   setSyncStatus,
   syncDryRunBusy,
@@ -128,8 +148,48 @@ export function OpsPage({
   setSyncDryRunHint,
   services,
   setServices,
-  events,
+  semanticMode,
+  semanticToggleEnabled,
+  semanticFullBackfill,
+  semanticPct,
+  onToggleSemanticMode,
+  onToggleSemanticFullBackfill,
+  engineOn,
+  engineBusy,
+  onEngineToggle,
+  onLogNavigate,
 }: OpsPageProps) {
+  const [seeds, setSeeds] = useState<
+    Array<{ id: string; name: string; description?: string }>
+  >([]);
+  const [seedId, setSeedId] = useState("");
+  const [seedBusy, setSeedBusy] = useState(false);
+  const [superv, setSuperv] = useState<SupervisorSnapshot | null>(null);
+
+  useEffect(() => {
+    if (section !== "carrier") return;
+    void api
+      .carrierSeeds()
+      .then((r) => setSeeds(r.seeds || []))
+      .catch(() => setSeeds([]));
+  }, [section]);
+
+  useEffect(() => {
+    if (section !== "services") return;
+    let cancelled = false;
+    const tick = () => {
+      void getEngineSupervisor().then((s) => {
+        if (!cancelled) setSuperv(s);
+      });
+    };
+    tick();
+    const id = window.setInterval(tick, 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [section, engineOn, engineBusy]);
+
   const mediaSources = Array.isArray(syncStatus?.media_sources)
     ? (syncStatus.media_sources as Array<Record<string, string>>)
     : [];
@@ -140,46 +200,74 @@ export function OpsPage({
   const reconcileErrs = (reconcile?.errors as Array<Record<string, string>>) || [];
 
   return (
-    <section>
+    <section className="page-stack ops-page">
       <PageHeader
         title="运维"
-        blurb="本机服务、本地 AI 与载体同步"
+        blurb="本机服务、本地 AI 与载体同步。首装路径与危险配置请到「设置 · 高级」。"
         actions={
-          <button type="button" onClick={() => void refreshAll()}>
-            刷新
-          </button>
+          <>
+            <button type="button" onClick={() => onSectionChange("logs")}>查看日志</button>
+            <button type="button" onClick={() => onSectionChange("advanced")}>高级功能</button>
+            <button type="button" onClick={() => void refreshAll()}>刷新</button>
+          </>
         }
       />
 
-      <SegmentNav
-        items={OPS_SEGMENTS}
-        value={section}
-        onChange={onSectionChange}
-        ariaLabel="运维分区"
-      />
+      <div
+        className="ops-grid"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(148px, 1fr))",
+          gap: 10,
+          marginBottom: 16,
+        }}
+      >
+        {OPS_SEGMENTS.map((it) => (
+          <button
+            key={it.id}
+            type="button"
+            className={section === it.id ? "primary" : undefined}
+            onClick={() => onSectionChange(it.id)}
+            data-guide={`ops-${it.id}`}
+          >
+            {it.label}
+          </button>
+        ))}
+      </div>
 
-      <div className="workspace-split">
-        <nav className="side-nav" aria-label="运维侧栏">
-          {OPS_SEGMENTS.map((it) => (
-            <button
-              key={it.id}
-              type="button"
-              className={`side-nav-btn${section === it.id ? " active" : ""}`}
-              onClick={() => onSectionChange(it.id)}
-            >
-              {it.label}
-            </button>
-          ))}
-        </nav>
-
+      <div className="ops-panel">
         <div>
           {section === "ai" && (
             <>
               <h3 className="section-title">本地 AI（Ollama）</h3>
+              <div className="actions" style={{ marginBottom: 12 }}>
+                <button
+                  type="button"
+                  className={semanticMode === "on_demand" ? "primary" : undefined}
+                  onClick={onToggleSemanticMode}
+                >
+                  {semanticMode === "on_demand" ? "按需画面分析：已开启" : "按需画面分析：已关闭"}
+                </button>
+                <button
+                  type="button"
+                  className={semanticFullBackfill ? "primary" : undefined}
+                  disabled={!semanticToggleEnabled}
+                  onClick={onToggleSemanticFullBackfill}
+                  title="开启后对本机片库做严格语义.v1 全库回填（9B），逐步拉高覆盖率；关闭即停。不写入客户机默认配置。"
+                >
+                  {semanticFullBackfill ? "严格语义：已开启" : "严格语义：已关闭"}
+                </button>
+                <span className="hint">
+                  {semanticToggleEnabled
+                    ? `严格画面信息覆盖 ${semanticPct}%${
+                        semanticFullBackfill ? " · 回填运行中" : ""
+                      }`
+                    : "当前设备暂未安装画面分析能力，点击可查看原因"}
+                </span>
+              </div>
+              <VectorControl notify={notify} />
               <p className="hint" style={{ marginBottom: 10 }}>
-                语义检索与画面理解依赖本机 Ollama。安装时请先完成 Python 环境，再装 Ollama，最后按本机内存下载推荐模型。
-                命令行也可运行：
-                <code style={{ marginLeft: 4 }}>~/Suying/montage-studio/scripts/install-runtime.sh</code>
+                本地 AI 用于理解画面和改写旁白。点击推荐安装即可，速影会按本机性能选择合适版本。
               </p>
               {ollamaInfo?.host ? (
                 <p className="hint" style={{ marginBottom: 8 }}>
@@ -234,6 +322,25 @@ export function OpsPage({
                     级联 关
                   </span>
                 )}
+              </div>
+              <div className="actions" style={{ marginBottom: 8 }}>
+                <span
+                  className={`health-line${ollamaInfo?.inference_available ? "" : " is-warn"}`}
+                  title="服务在线且模型已装不代表能推理；此项来自最近一次后台探针缓存"
+                >
+                  推理 {ollamaInfo?.inference_available ? "可用" : "不可用"}
+                </span>
+                <span
+                  className={`health-line${ollamaInfo?.circuit_open ? " is-warn" : ""}`}
+                  title={
+                    ollamaInfo?.circuit
+                      ? `连续失败 ${ollamaInfo.circuit.consecutive_failures ?? 0} 次` +
+                        (ollamaInfo.circuit.last_error ? ` · ${ollamaInfo.circuit.last_error}` : "")
+                      : undefined
+                  }
+                >
+                  熔断 {ollamaInfo?.circuit_open ? "已触发，暂停自动重试" : "未触发"}
+                </span>
               </div>
               <p className="hint" style={{ marginBottom: 10 }}>
                 {ollamaInfo?.message || "打开本页后点「刷新状态」检测。"}
@@ -382,34 +489,6 @@ export function OpsPage({
                 {ollamaNarrationModel ? ` · 模型 ${ollamaNarrationModel}` : ""}
                 {ollamaNarrationEmoji ? " · 表情烧录开" : " · 表情烧录关"}
               </p>
-
-              <h3 className="section-title">向量化</h3>
-              <div className="actions">
-                {vectorization ? (
-                  <button
-                    type="button"
-                    onClick={() => void disableVectorization().catch((e: unknown) => notify(String(e), "err"))}
-                  >
-                    关闭向量化
-                  </button>
-                ) : (
-                  <button type="button" className="primary" onClick={() => void enableVectorization()}>
-                    手动开启向量化
-                  </button>
-                )}
-                <span className="hint">
-                  {vectorization
-                    ? `增量模式已开${health?.vectorization_enabled_at ? ` · ${health.vectorization_enabled_at}` : ""}`
-                    : ollamaInfo?.embed_ready
-                      ? "本地 AI 已就绪；开启后仅增量补缺口"
-                      : "请先完成上方本地 AI；默认关闭向量化"}
-                </span>
-              </div>
-              <SemanticAnalysisProgress
-                status={semanticStatus}
-                busy={actionBusy === "captions"}
-                onRunBatch={(limit) => void runSemanticBatch(limit)}
-              />
             </>
           )}
 
@@ -417,13 +496,25 @@ export function OpsPage({
             <>
               <h3 className="section-title">服务开关</h3>
               <p className="hint" style={{ marginBottom: 10 }}>
-                控制本机片库监视、任务 Worker 与调度器。客户路径请在「设置」修改。
+                控制素材发现、视频生产和自动任务。日常使用无需调整。
               </p>
               <div className="actions">
+                <button
+                  type="button"
+                  className={engineOn ? undefined : "primary"}
+                  disabled={engineBusy}
+                  onClick={onEngineToggle}
+                >
+                  {engineBusy
+                    ? "处理中…"
+                    : engineOn
+                      ? "停止设备服务"
+                      : "启动设备服务"}
+                </button>
                 {(
                   [
                     ["watcher", "片库监视"],
-                    ["worker", "任务 Worker"],
+                    ["worker", "生产服务"],
                     ["scheduler", "调度器"],
                   ] as const
                 ).map(([name, label]) => {
@@ -451,10 +542,29 @@ export function OpsPage({
               </div>
               <ul className="meta">
                 <li>
-                  监视 {services?.watcher || health?.watcher_running ? "开" : "关"} · Worker{" "}
+                  素材发现 {services?.watcher || health?.watcher_running ? "开" : "关"} · 生产服务{" "}
                   {services?.worker || health?.worker_running ? "开" : "关"} · 调度{" "}
                   {services?.scheduler || health?.scheduler_running ? "开" : "关"}
                 </li>
+                {superv && (
+                  <li>
+                    引擎分层：监听 {superv.listen ? "是" : "否"} · 控制面{" "}
+                    {superv.health_ok ? "是" : "否"} · 业务就绪{" "}
+                    {superv.business_ready ? "是" : "否"} · LaunchAgent{" "}
+                    {superv.agent_loaded ? "已加载" : superv.agent_plist_exists ? "未加载" : "未安装"}
+                    {superv.offline_class && superv.offline_class !== "ok"
+                      ? ` · ${offlineClassLabel({
+                          running: superv.listen,
+                          healthy: superv.business_ready,
+                          repo: "",
+                          offline_class: superv.offline_class,
+                          offline_detail: superv.offline_detail,
+                          control_plane: superv.health_ok,
+                        })}`
+                      : ""}
+                  </li>
+                )}
+                {superv?.offline_detail ? <li className="hint">{superv.offline_detail}</li> : null}
               </ul>
               <div className="actions" style={{ marginTop: 12 }}>
                 <button
@@ -473,15 +583,33 @@ export function OpsPage({
                   立即按日历开跑
                 </button>
               </div>
+              <h3 className="section-title">睡眠与锁屏</h3>
+              <p className="hint">
+                可在电脑睡眠、熄屏或锁屏时安全暂停；恢复时只继续本次系统暂停的任务。
+              </p>
+              <SystemEventControlPanel notify={notify} />
             </>
           )}
+
+          {section === "backup" && (
+            <>
+              <BackupControl notify={notify} />
+              <DiskCleanupControl notify={notify} askConfirm={askConfirm} />
+            </>
+          )}
+
+          {section === "logs" && <LogsPage embedded onNavigate={onLogNavigate} />}
+
+          {section === "advanced" && <AdvancedOpsPanel notify={notify} />}
 
           {section === "carrier" && (
             <>
               <h3 className="section-title">极空间 · T2S 载体（默认）</h3>
               <p className="hint" style={{ marginBottom: 10 }}>
                 默认只同步 T2S「速影载体/」（安装包 / 种子 / 配置备份 / 更新）。片库与成片留在本机。相册↔片库团队文件同步为
-                legacy，默认关闭。先绑定对方极空间账号 + T2S 设备。新建客户与更换来源请到「设置」。
+                legacy，默认关闭。先绑定对方极空间账号 + T2S 设备。新建客户默认不必绑远端文件夹；启用
+                media 同步后再到「设置」更换来源。
+                下方可向<strong>当前客户</strong>导入配置种子（品牌/词池等，不含视频与密钥）。
               </p>
               <div className="actions">
                 <button
@@ -517,6 +645,71 @@ export function OpsPage({
                   去设置：客户与来源
                 </button>
               </div>
+
+              <h3 className="section-title">导入客户配置种子</h3>
+              <p className="hint" style={{ marginBottom: 10 }}>
+                将载体上的行业/品牌配置合并进<strong>当前客户</strong>（词池、profile 等）。默认不覆盖已有文件；不含视频、数据库或密钥。
+              </p>
+              <div className="actions" style={{ flexWrap: "wrap", marginBottom: 16 }}>
+                <select
+                  value={seedId}
+                  onChange={(e) => setSeedId(e.target.value)}
+                  disabled={seedBusy || seeds.length === 0}
+                  style={{ minWidth: 200 }}
+                >
+                  <option value="">{seeds.length ? "选择配置种子" : "暂无可用种子"}</option>
+                  {seeds.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={seedBusy || !seedId}
+                  onClick={() => {
+                    void (async () => {
+                      setSeedBusy(true);
+                      try {
+                        const r = await api.importCarrierSeed(seedId, false);
+                        notify(
+                          `已导入种子：复制 ${r.copied.length} · 跳过 ${r.skipped.length}`,
+                          "ok",
+                        );
+                        await refreshAll();
+                      } catch (e: unknown) {
+                        notify(String(e), "err");
+                      } finally {
+                        setSeedBusy(false);
+                      }
+                    })();
+                  }}
+                >
+                  {seedBusy ? "导入中…" : "导入到当前客户"}
+                </button>
+                <button
+                  type="button"
+                  disabled={seedBusy}
+                  onClick={() =>
+                    void api
+                      .carrierSeeds()
+                      .then((r) => {
+                        setSeeds(r.seeds || []);
+                        notify(`已刷新种子列表：${(r.seeds || []).length} 项`, "ok");
+                      })
+                      .catch((e: unknown) => notify(String(e), "err"))
+                  }
+                >
+                  刷新种子列表
+                </button>
+              </div>
+              {seedId ? (
+                <p className="hint" style={{ marginTop: -8, marginBottom: 16 }}>
+                  {seeds.find((s) => s.id === seedId)?.description || "仅导入配置文件"}
+                </p>
+              ) : null}
+
               {syncStatus ? (
                 <div className="hint" style={{ margin: "8px 0 12px", whiteSpace: "pre-wrap" }}>
                   {syncStatusLines(syncStatus)}
@@ -599,10 +792,10 @@ export function OpsPage({
                           | Record<string, unknown>
                           | undefined;
                         const msg = pull
-                          ? `dry-run 完成：待拉 ${pull.downloaded ?? 0} · 跳过 ${pull.skipped ?? 0} · 未映射跳过 ${pull.unmapped_skipped ?? 0}`
+                          ? `检查完成：待同步 ${pull.downloaded ?? 0} · 已跳过 ${pull.skipped ?? 0}`
                           : r.ok
-                            ? "dry-run 完成"
-                            : `dry-run 失败 (exit ${r.exit_code})`;
+                            ? "同步内容检查完成"
+                            : "同步内容检查失败";
                         setSyncDryRunHint(msg);
                         notify(msg, r.ok ? "ok" : "warn");
                         await api.zspaceSyncStatus().then(setSyncStatus);
@@ -614,7 +807,7 @@ export function OpsPage({
                     })();
                   }}
                 >
-                  {syncDryRunBusy ? "dry-run 中…" : "dry-run 同步（仅拉取）"}
+                  {syncDryRunBusy ? "检查中…" : "检查可同步内容"}
                 </button>
                 {syncDryRunHint ? <span className="hint">{syncDryRunHint}</span> : null}
               </div>
@@ -627,7 +820,7 @@ export function OpsPage({
               {health ? (
                 <div className="hint" style={{ marginBottom: 12, whiteSpace: "pre-wrap" }}>
                   {[
-                    `引擎 ${health.status} · ${health.product_name || "速影"} ${health.engine_version}`,
+                    `引擎 ${health.status} · ${health.product_name || "速影 Studio"} ${health.engine_version}`,
                     `客户 ${health.active_customer || "—"}`,
                     `磁盘剩余 ${health.path_health.free_disk_gb.toFixed(1)} GB · 路径 ${
                       health.path_health.ok ? "正常" : "异常"
@@ -635,6 +828,13 @@ export function OpsPage({
                     ...(health.path_health.errors || []).map((e) => `错误: ${e}`),
                     ...(health.path_health.warnings || []).map((w) => `警告: ${w}`),
                     `向量化 ${health.vectorization_enabled ? "开" : "关"}`,
+                    health.orientation_hard_lock !== false
+                      ? `横竖屏硬审核 开 · 竖可用 ${
+                          health.orientation_lock?.ready_by_orientation?.portrait ?? "—"
+                        } · 横可用 ${
+                          health.orientation_lock?.ready_by_orientation?.landscape ?? "—"
+                        } · 方向拒收 ${health.orientation_lock?.rejected_orientation ?? 0}`
+                      : "横竖屏硬审核 异常",
                     `本地 AI 旁白 ${health.ollama_narration_enabled ? "开" : "关"}`,
                   ].join("\n")}
                 </div>
@@ -654,42 +854,6 @@ export function OpsPage({
             </>
           )}
 
-          {section === "logs" && (
-            <>
-              <h3 className="section-title">日志</h3>
-              <div className="actions" style={{ marginBottom: 8 }}>
-                <button type="button" onClick={() => void api.exportEvents()}>
-                  导出事件 CSV
-                </button>
-                <button type="button" onClick={() => void api.exportRenders()}>
-                  导出成片 CSV
-                </button>
-                <button type="button" onClick={() => void refreshAll()}>
-                  刷新
-                </button>
-              </div>
-              <table>
-                <thead>
-                  <tr>
-                    <th>时间</th>
-                    <th>Job</th>
-                    <th>级别</th>
-                    <th>消息</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {events.slice(0, 40).map((e) => (
-                    <tr key={String(e.id)}>
-                      <td>{String(e.created_at)}</td>
-                      <td>{String(e.job_id)}</td>
-                      <td>{String(e.level)}</td>
-                      <td>{String(e.message)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </>
-          )}
         </div>
       </div>
 

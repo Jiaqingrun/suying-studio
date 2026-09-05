@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, Customer, Health, ReportSummary, ServicesStatus } from "./api";
-import { getEngineStatus, isTauri, startEngine, stopEngine, type EngineStatus } from "./engineControl";
+import { getEngineStatus, isTauri, offlineClassLabel, startEngine, stopEngine, type EngineStatus } from "./engineControl";
 import {
   BUILTIN_REACH_PLATFORMS,
   BUILTIN_SLOT_COUNTS,
@@ -13,26 +13,44 @@ import {
 } from "./reachCatalog";
 import { brandFromProfile, type BrandLogoState } from "./BrandLogoPanel";
 import { CommandPalette, type CmdItem } from "./shell/CommandPalette";
-import { NextActionPill } from "./shell/NextAction";
 import { AppDialog } from "./shell/AppDialog";
 import { AppShell } from "./shell/AppShell";
 import { CarrierInstallWizard } from "./CarrierInstallWizard";
-import { AssistantChat } from "./AssistantChat";
 import {
   ensureNotificationPermission,
   getNotificationPermission,
-  notifyReachMessage,
   playReachMessageSound,
   type NotificationPermissionState,
 } from "./notifications";
 import {
+  AppNotifyHub,
+  useNotifyHub,
+  type NotifyOptions,
+  type NotifyTarget,
+} from "./AppNotifyHub";
+import { listenSystemState } from "./systemEvents";
+import {
+  DEFAULT_PREFS as WORKSPACE_DEFAULT_PREFS,
+  getWorkspaceSnapshot,
+  getWorkspaceSyncPrefs,
+  listenWorkspaceState,
+  reconnectWorkspaceNow,
+  setWorkspaceSyncPrefs,
+  type WorkspaceProbeView,
+  type WorkspaceStateSnapshot,
+  type WorkspaceSyncPrefs,
+} from "./workspaceSync";
+import { POLL_BUDGET_MS, POLL_TICK } from "./pollBudget";
+import { remainingProductionCount as countRemainingProduction } from "./taskMetrics";
+import {
   TAB_BLURB,
   TABS,
   type FlashKind,
-  type LayoutDensityPref,
+  type ChromeProfile,
   type OpsSection,
   type ProduceWorkspace,
   type PublishWorkspace,
+  type MessageListQuery,
   type ReachMessage,
   type ReachMessageAccount,
   type ReachMessageScanStatus,
@@ -53,11 +71,10 @@ import {
   SettingsPage,
 } from "./pages";
 import type { ActivityItem } from "./shell/ActivityTicker";
+import { VideoRuleWorkbench } from "./VideoRuleWorkbench";
 import {
   settingsPasswordStatus,
-  settingsPasswordCreate,
   settingsPasswordVerify,
-  settingsPasswordChange,
   settingsPasswordLock,
   type SettingsPasswordStatus,
 } from "./settingsLock";
@@ -70,14 +87,45 @@ import {
   BarChart3,
   Wrench,
   Settings2,
-  Bot,
+  SlidersHorizontal,
   type LucideIcon,
 } from "lucide-react";
 import "./App.css";
 
+const CONTENT_CHROME_SYNC_EVENT = "suying:content-chrome-profiles";
+
+function broadcastContentChromeProfiles(snapshot: unknown) {
+  if (typeof window === "undefined" || !snapshot) return;
+  window.dispatchEvent(new CustomEvent(CONTENT_CHROME_SYNC_EVENT, { detail: snapshot }));
+}
+
+function notifyTargetFromDeepLink(value: unknown): NotifyTarget {
+  const raw = String(value || "").trim();
+  if (!raw) return { tab: "publish", section: "desk", guideTarget: "publish-next-step" };
+  try {
+    const url = new URL(raw);
+    const area = url.hostname || url.pathname.replace(/^\/+/, "");
+    if (area === "messages") {
+      return { tab: "messages" };
+    }
+    if (area === "publish") {
+      const run = url.searchParams.get("run");
+      return {
+        tab: "publish",
+        section: "desk",
+        guideTarget: run ? `publish-run-${run}` : "publish-next-step",
+      };
+    }
+  } catch {
+    // Unknown legacy links safely fall back to the publishing workspace.
+  }
+  return { tab: "publish", section: "desk", guideTarget: "publish-next-step" };
+}
+
 const TAB_ICONS: Record<Tab, LucideIcon> = {
   overview: LayoutDashboard,
   produce: Clapperboard,
+  rules: SlidersHorizontal,
   review: ScanSearch,
   publish: Send,
   messages: MessageCircle,
@@ -88,11 +136,11 @@ const TAB_ICONS: Record<Tab, LucideIcon> = {
 
 function App() {
   const [tab, setTab] = useState<Tab>("overview");
+  const [mountedTabs, setMountedTabs] = useState<Tab[]>(["overview"]);
   const [produceWorkspace, setProduceWorkspace] = useState<ProduceWorkspace>("tasks");
   const [publishWorkspace, setPublishWorkspace] = useState<PublishWorkspace>("desk");
   const [opsSection, setOpsSection] = useState<OpsSection>("ai");
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("paths");
-  const [assistantOpen, setAssistantOpen] = useState(false);
   const [passwordStatus, setPasswordStatus] = useState<SettingsPasswordStatus>({
     configured: false,
     unlocked: false,
@@ -101,26 +149,98 @@ function App() {
   });
   const layout = useLayoutDensity();
 
-  const goTab = useCallback((t: Tab, opts?: { produce?: ProduceWorkspace; publish?: PublishWorkspace; settings?: SettingsSection; ops?: OpsSection }) => {
-    setTab(t);
-    if (opts?.produce) setProduceWorkspace(opts.produce);
-    if (opts?.publish) setPublishWorkspace(opts.publish);
-    if (opts?.settings) setSettingsSection(opts.settings);
-    if (opts?.ops) setOpsSection(opts.ops);
-    if (t !== "overview") setAssistantOpen(false);
+  const goTab = useCallback((t: Tab, opts?: { produce?: ProduceWorkspace; publish?: PublishWorkspace; settings?: SettingsSection; ops?: OpsSection; section?: string; guideTarget?: string }) => {
+    startTransition(() => {
+      setMountedTabs((tabs) => (tabs.includes(t) ? tabs : [...tabs, t]));
+      setTab(t);
+      if (opts?.produce) setProduceWorkspace(opts.produce);
+      if (opts?.publish) setPublishWorkspace(opts.publish);
+      if (opts?.settings) setSettingsSection(opts.settings);
+      if (opts?.ops) setOpsSection(opts.ops);
+      if (opts?.section && t === "produce" && ["tasks", "assets"].includes(opts.section)) {
+        setProduceWorkspace(opts.section as ProduceWorkspace);
+      }
+      if (opts?.section && t === "publish" && ["pack", "articles", "desk", "reach"].includes(opts.section)) {
+        setPublishWorkspace(opts.section as PublishWorkspace);
+      }
+      if (opts?.section && t === "settings") setSettingsSection(opts.section as SettingsSection);
+      if (
+        opts?.section &&
+        t === "ops" &&
+        ["ai", "services", "backup", "carrier", "logs", "health", "advanced"].includes(opts.section)
+      ) {
+        setOpsSection(opts.section as OpsSection);
+      }
+      if (typeof window !== "undefined") {
+        const query = new URLSearchParams({ tab: t });
+        if (opts?.section) query.set("section", opts.section);
+        window.history.replaceState(null, "", `#${query.toString()}`);
+      }
+      if (opts?.guideTarget) {
+        const spotlightWhenMounted = (attemptsLeft: number) => {
+          const el = document.querySelector<HTMLElement>(`[data-guide="${opts.guideTarget}"]`);
+          if (!el) {
+            if (attemptsLeft > 0) {
+              window.setTimeout(() => spotlightWhenMounted(attemptsLeft - 1), 50);
+            }
+            return;
+          }
+          el.classList.add("guide-spotlight");
+          el.scrollIntoView({ block: "center", behavior: "smooth" });
+          window.setTimeout(() => el.classList.remove("guide-spotlight"), 4500);
+        };
+        window.setTimeout(() => spotlightWhenMounted(20), 50);
+      }
+    });
   }, []);
+
+  useEffect(() => {
+    const applyHash = () => {
+      const hash = window.location.hash.replace(/^#/, "");
+      const query = new URLSearchParams(hash);
+      const initialTab = query.get("tab") as Tab | null;
+      if (query.get("tab") === "logs") {
+        goTab("ops", { section: "logs", guideTarget: "operation-logs" });
+        return;
+      }
+      if (query.get("tab") === "settings" && query.get("section") === "advanced") {
+        goTab("ops", { section: "advanced", guideTarget: "ops-advanced" });
+        return;
+      }
+      if (initialTab && TABS.some(([candidate]) => candidate === initialTab)) {
+        goTab(initialTab, { section: query.get("section") || undefined });
+      }
+    };
+    applyHash();
+    window.addEventListener("hashchange", applyHash);
+    return () => window.removeEventListener("hashchange", applyHash);
+  }, [goTab]);
 
   const [health, setHealth] = useState<Health | null>(null);
   const [services, setServices] = useState<ServicesStatus | null>(null);
   const [engine, setEngine] = useState<EngineStatus | null>(null);
-  const [error, setError] = useState("");
-  const [flash, setFlash] = useState<{
-    kind: FlashKind;
-    text: string;
-    actionLabel?: string;
-    actionTab?: Tab;
-  } | null>(null);
-  const flashTimerRef = useRef(0);
+  const [workspacePrefs, setWorkspacePrefs] = useState<WorkspaceSyncPrefs>({ ...WORKSPACE_DEFAULT_PREFS });
+  const [workspacePhase, setWorkspacePhase] = useState("idle");
+  const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [workspaceProbe, setWorkspaceProbe] = useState<WorkspaceProbeView | null>(null);
+  const [workspaceBusy, setWorkspaceBusy] = useState(false);
+  const workspaceSyncingRef = useRef(false);
+  const notifyHub = useNotifyHub();
+  const {
+    toasts,
+    celebration,
+    banner,
+    notify: hubNotify,
+    dismissToast,
+    dismissCelebration,
+    dismissBanner,
+  } = notifyHub;
+  const [jobsFlash, setJobsFlash] = useState(false);
+  const prevRunningJobsRef = useRef<number | null>(null);
+  const activeJobIdsRef = useRef<Set<number>>(new Set());
+  const notifiedOutputIdsRef = useRef<Set<number>>(new Set());
+  const jobsFlashTimerRef = useRef(0);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [reviewBusyId, setReviewBusyId] = useState<number | null>(null);
   const [assets, setAssets] = useState<Array<Record<string, unknown>>>([]);
@@ -157,6 +277,9 @@ function App() {
     hooks_count: number;
     max_chars_per_line?: number;
     version?: number;
+    revision?: number;
+    sha256?: string;
+    schema?: string;
   } | null>(null);
   const [cacheRoot, setCacheRoot] = useState("");
   const [renderRoot, setRenderRoot] = useState("");
@@ -165,13 +288,27 @@ function App() {
   const [customerName, setCustomerName] = useState("");
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [activeCustomerId, setActiveCustomerId] = useState<number | null>(null);
+  const [jobRuleProfileId, setJobRuleProfileId] = useState<number | null>(null);
+  const [activeRuleSummary, setActiveRuleSummary] = useState("");
+  const [ruleRotation, setRuleRotation] = useState(true);
+  const [rotationPoolCount, setRotationPoolCount] = useState(0);
+  const [ruleOptions, setRuleOptions] = useState<
+    Array<{ id: number; label: string; contentCategory: string }>
+  >([]);
   /** Bump on customer switch so <video>/<img> remount and bypass poisoned media cache. */
   const [mediaEpoch, setMediaEpoch] = useState(0);
   const [brandLogo, setBrandLogo] = useState<BrandLogoState>(() => brandFromProfile(null));
   const [brandBusy, setBrandBusy] = useState(false);
   const [theme, setTheme] = useState("default");
   const [category, setCategory] = useState("default");
+  const [assetCategory, setAssetCategory] = useState("");
+  const [topicMode, setTopicMode] = useState("");
+  const [topicClusterIds, setTopicClusterIds] = useState("");
+  const [topicEvidenceIds, setTopicEvidenceIds] = useState("");
   const [targetCount, setTargetCount] = useState(5);
+  const [productionOrientation, setProductionOrientation] = useState<
+    "portrait" | "landscape"
+  >("portrait");
   const [reviewNote, setReviewNote] = useState("");
   const [reviewReason, setReviewReason] = useState("other");
   const [reviewReasons, setReviewReasons] = useState<Array<{ code: string; label: string }>>([
@@ -179,11 +316,6 @@ function App() {
   ]);
   const [packBusyId, setPackBusyId] = useState<number | null>(null);
   const [packLast, setPackLast] = useState<string>("");
-  const [voiceLang, setVoiceLang] = useState("zh");
-  const [subtitleLang, setSubtitleLang] = useState("zh");
-  const [subtitleBurn, setSubtitleBurn] = useState("external");
-  const [dualSecondaryLang, setDualSecondaryLang] = useState("en");
-  const [exprSaveBusy, setExprSaveBusy] = useState(false);
   const [langCatalog, setLangCatalog] = useState<
     Array<{
       code: string;
@@ -202,30 +334,30 @@ function App() {
   const [reachMessageUnread, setReachMessageUnread] = useState(0);
   const [reachMessageStatus, setReachMessageStatus] = useState<ReachMessageScanStatus | null>(null);
   const [reachMessageBusy, setReachMessageBusy] = useState(false);
+  const reachMessageQueryRef = useRef<MessageListQuery>({ unread: true, limit: 100 });
   const [reachNtfyConfig, setReachNtfyConfig] = useState<ReachNtfyConfig | null>(null);
+  const [replyDrafts, setReplyDrafts] = useState<Array<Record<string, unknown>>>([]);
+  const [replyDraftMessageId, setReplyDraftMessageId] = useState<number | null>(null);
+  const [contentMessageAccounts, setContentMessageAccounts] = useState<ReachMessageAccount[]>([]);
+  const [contentMessages, setContentMessages] = useState<ReachMessage[]>([]);
+  const [contentMessageUnread, setContentMessageUnread] = useState(0);
+  const [contentMessageStatus, setContentMessageStatus] = useState<ReachMessageScanStatus | null>(null);
+  const [contentMessageBusy, setContentMessageBusy] = useState(false);
+  const contentMessageQueryRef = useRef<MessageListQuery>({ unread: true, limit: 100 });
+  const [contentReplyDrafts, setContentReplyDrafts] = useState<Array<Record<string, unknown>>>([]);
+  const [contentReplyDraftMessageId, setContentReplyDraftMessageId] = useState<number | null>(null);
   const [notificationPermission, setNotificationPermission] =
     useState<NotificationPermissionState>("unavailable");
-  const [reachQuota, setReachQuota] = useState<Record<string, unknown> | null>(null);
-  const [quotaTotal, setQuotaTotal] = useState(5);
-  const [quotaByPlatform, setQuotaByPlatform] = useState<Record<string, number>>({});
-  const [quotaSplit, setQuotaSplit] = useState(false);
-  const [quotaBusy, setQuotaBusy] = useState(false);
   const [reachPackDir, setReachPackDir] = useState("");
   const [chromeBusy, setChromeBusy] = useState(false);
   const [coverBusy, setCoverBusy] = useState(false);
   const [queueBusy, setQueueBusy] = useState(false);
   const [reachMsg, setReachMsg] = useState("");
-  const [chromeProfiles, setChromeProfiles] = useState<
-    Array<{ name: string; path: string; platform?: string | null; label?: string | null }>
-  >([]);
+  const [chromeProfiles, setChromeProfiles] = useState<ChromeProfile[]>([]);
   const [chromeSelected, setChromeSelected] = useState("");
   const [chromeCreatePlatform, setChromeCreatePlatform] = useState("douyin");
-  const [chromeCreateCount, setChromeCreateCount] = useState(1);
   const [chromeRoot, setChromeRoot] = useState("");
   const [chromeInstalled, setChromeInstalled] = useState(false);
-  const [autoUploadPhase, setAutoUploadPhase] = useState("");
-  const [autoUploadMsg, setAutoUploadMsg] = useState("");
-  const [autoUploadBusy, setAutoUploadBusy] = useState(false);
   const [coverTemplates, setCoverTemplates] = useState<Array<Record<string, unknown>>>([]);
   const [coverSelectedId, setCoverSelectedId] = useState<string | null>(null);
   const [coverSlotCounts, setCoverSlotCounts] = useState<Record<string, number>>(() => ({
@@ -243,8 +375,11 @@ function App() {
   const [coverPreviewMsg, setCoverPreviewMsg] = useState("");
   const [autoDaily, setAutoDaily] = useState(false);
   const [autoHour, setAutoHour] = useState(9);
-  const [vectorization, setVectorization] = useState(false);
   const [semanticStatus, setSemanticStatus] = useState<SemanticBackfillStatus | null>(null);
+  const [semanticMode, setSemanticMode] = useState<"off" | "on_demand">("on_demand");
+  const [semanticToggleEnabled, setSemanticToggleEnabled] = useState(true);
+  const [semanticFullBackfill, setSemanticFullBackfill] = useState(false);
+  const [vectorPending, setVectorPending] = useState(0);
   const semanticPollFastRef = useRef(false);
   const [ollamaNarration, setOllamaNarration] = useState(false);
   const [ollamaNarrationEmoji, setOllamaNarrationEmoji] = useState(true);
@@ -275,10 +410,22 @@ function App() {
       reason?: string;
     };
     setup_steps?: Array<{ id: string; title: string; ok: boolean; detail: string }>;
+    inference_available?: boolean;
+    circuit_open?: boolean;
+    status_layers?: {
+      service_reachable?: boolean;
+      model_present?: boolean;
+      inference_available?: boolean;
+      circuit_open?: boolean;
+    };
+    circuit?: {
+      state?: string;
+      consecutive_failures?: number;
+      open_remaining_sec?: number;
+      last_error?: string;
+      last_error_kind?: string;
+    };
   } | null>(null);
-  const [cursorApiKeyInput, setCursorApiKeyInput] = useState("");
-  const [cursorKeyConfigured, setCursorKeyConfigured] = useState(false);
-  const [cursorKeyHint, setCursorKeyHint] = useState("");
   const [showWizard, setShowWizard] = useState(false);
   const [wizName, setWizName] = useState("");
   const [wizLib, setWizLib] = useState("");
@@ -300,7 +447,10 @@ function App() {
   const formSyncPausedRef = useRef(false);
   /** 5s health poll — heavy customer/keyword sync only every ~30s. */
   const healthTickRef = useRef(0);
-  const exprBaselineRef = useRef({ voice: "zh", sub: "zh", burn: "external", dual: "en" });
+  /** Throttle health-failure toasts so a down engine does not spam every 5s. */
+  const healthNotifyRef = useRef({ lastAt: 0, lastText: "" });
+  /** Bounded heal when control plane drops; no permanent abandon (agent KeepAlive is backstop). */
+  const engineHealRef = useRef({ lastAttemptMs: 0, failCount: 0, busy: false });
   const pathsBaselineRef = useRef({ lib: "", libs: "", out: "", kw: "", cache: "", render: "", data: "" });
   const scheduleBaselineRef = useRef({ autoDaily: false, autoHour: 9 });
 
@@ -375,15 +525,20 @@ function App() {
   const pickFile = useCallback(async (): Promise<string | null> => {
     if (!isTauri()) {
       return askPrompt({
-        title: "词池文件",
-        body: "请输入词池文件路径 (.json/.md)",
-        placeholder: "/path/to/keyword-pack.json",
+        title: "本地文件",
+        body: "请输入文件绝对路径",
+        placeholder: "/path/to/file",
         confirmLabel: "使用此路径",
       });
     }
     const selected = await open({
       multiple: false,
-      filters: [{ name: "词池", extensions: ["json", "md", "txt"] }],
+      filters: [
+        {
+          name: "可用文件",
+          extensions: ["json", "md", "txt", "wav", "m4a", "mp3", "aac", "flac"],
+        },
+      ],
     });
     return typeof selected === "string" ? selected : null;
   }, [askPrompt]);
@@ -404,16 +559,6 @@ function App() {
     return typeof selected === "string" ? selected : null;
   }, [askPrompt]);
 
-  const exprDirty = useMemo(() => {
-    const b = exprBaselineRef.current;
-    return (
-      voiceLang !== b.voice ||
-      subtitleLang !== b.sub ||
-      subtitleBurn !== b.burn ||
-      dualSecondaryLang !== b.dual
-    );
-  }, [voiceLang, subtitleLang, subtitleBurn, dualSecondaryLang]);
-
   const pathsDirty = useMemo(() => {
     const b = pathsBaselineRef.current;
     return (
@@ -433,8 +578,8 @@ function App() {
   }, [autoDaily, autoHour]);
 
   useEffect(() => {
-    formSyncPausedRef.current = exprDirty || pathsDirty || scheduleDirty;
-  }, [exprDirty, pathsDirty, scheduleDirty]);
+    formSyncPausedRef.current = pathsDirty || scheduleDirty;
+  }, [pathsDirty, scheduleDirty]);
 
   useEffect(() => {
     void settingsPasswordStatus()
@@ -465,27 +610,10 @@ function App() {
   }, [tab]);
 
   const notify = useCallback(
-    (
-      text: string,
-      kind: FlashKind = "info",
-      opts?: { actionLabel?: string; actionTab?: Tab; holdMs?: number },
-    ) => {
-      setFlash({
-        text,
-        kind,
-        actionLabel: opts?.actionLabel,
-        actionTab: opts?.actionTab,
-      });
-      if (kind === "err") setError(text);
-      else setError("");
-      window.clearTimeout(flashTimerRef.current);
-      const hold = opts?.holdMs ?? (kind === "err" ? 10000 : opts?.actionLabel ? 8000 : 4200);
-      flashTimerRef.current = window.setTimeout(
-        () => setFlash((cur) => (cur?.text === text ? null : cur)),
-        hold,
-      );
+    (text: string, kind: FlashKind = "info", opts?: NotifyOptions) => {
+      hubNotify(text, kind, opts);
     },
-    [],
+    [hubNotify],
   );
 
   const refreshEngine = useCallback(async () => {
@@ -505,25 +633,28 @@ function App() {
     const syncCustomer = opts?.syncCustomer !== false;
     try {
       const h = await api.health();
-      // Healthy poll: clear transport/connection sticky errors only — do not wipe action feedback.
-      setError((prev) => {
-        if (!prev) return prev;
-        return /Failed to fetch|NetworkError|ECONNREFUSED|引擎启动|引擎已启动|无法连接速影引擎|fetch failed|Load failed|CORS/i.test(
-          prev,
-        )
-          ? ""
-          : prev;
-      });
       setHealth(h);
-      setVectorization(Boolean(h.vectorization_enabled));
       setOllamaNarration(Boolean(h.ollama_narration_enabled));
       setOllamaNarrationEmoji(h.ollama_narration_burn_emoji !== false);
       setOllamaNarrationModel(String(h.ollama_narration_model || ""));
+      if (h.workspace_state === "missing" || h.workspace_state === "mismatch" || h.status === "blocked") {
+        setWorkspacePhase(h.workspace_state === "mismatch" ? "error" : "waiting_for_disk");
+        setWorkspaceProbe({
+          ok: false,
+          state: String(h.workspace_state || "missing"),
+          data_root: h.workspace?.data_root || (h.paths?.data_root ? String(h.paths.data_root) : null),
+          reasons: h.workspace?.reasons || h.path_health?.errors || [],
+          workspace_id: h.workspace?.workspace_id || null,
+          volume_uuid: h.workspace?.volume_uuid || null,
+          engine_status: h.status,
+          engine_healthy: false,
+        });
+        setServices(null);
+        return;
+      }
       if (h.ollama) {
         setOllamaInfo((prev) => ({ ...(prev || {}), ...h.ollama }));
       }
-      setCursorKeyConfigured(Boolean(h.cursor_api_key_configured));
-      setCursorKeyHint(String(h.cursor_api_key_hint || ""));
       if (!formSyncPausedRef.current) {
         const ad = Boolean(h.auto_daily_enabled);
         const ah = Number(h.auto_daily_hour ?? 9);
@@ -552,11 +683,6 @@ function App() {
         const custs = await api.listCustomers();
         setCustomers(custs);
         const active = custs.find((c) => c.name === h.active_customer) ?? custs[0];
-        const configured = Boolean(
-          h.setup_complete ||
-            (active && active.library_root && active.output_root) ||
-            custs.some((c) => c.library_root && c.output_root),
-        );
         if (active) {
           setActiveCustomerId(active.id);
           setCustomerName(active.name);
@@ -571,16 +697,6 @@ function App() {
             setOutputRoot(out);
             setKeywordPackPath(kw);
             setBrandLogo(brandFromProfile(active.profile || null));
-            const expr = (active.profile?.expression || {}) as Record<string, unknown>;
-            const voice = expr.voice_lang ? String(expr.voice_lang) : "zh";
-            const sub = expr.subtitle_lang ? String(expr.subtitle_lang) : "zh";
-            const burn = expr.subtitle_burn ? String(expr.subtitle_burn) : "external";
-            const dual = expr.dual_secondary_lang ? String(expr.dual_secondary_lang) : "en";
-            if (expr.voice_lang) setVoiceLang(voice);
-            if (expr.subtitle_lang) setSubtitleLang(sub);
-            if (expr.subtitle_burn) setSubtitleBurn(burn);
-            if (expr.dual_secondary_lang) setDualSecondaryLang(dual);
-            exprBaselineRef.current = { voice, sub, burn, dual };
             pathsBaselineRef.current = {
               ...pathsBaselineRef.current,
               lib,
@@ -599,6 +715,9 @@ function App() {
                 hooks_count: s.hooks_count,
                 max_chars_per_line: s.max_chars_per_line,
                 version: s.version,
+                revision: s.revision,
+                sha256: s.sha256,
+                schema: s.schema,
               }),
             )
             .catch(() => setTitlePoolSummary(null));
@@ -608,13 +727,13 @@ function App() {
           setWizKw((prev) => prev || String(active.keyword_pack_path || ""));
         }
         // First-run wizard only until setup is complete (never reopen every poll)
-        if (h.onboarded || configured) {
+        if (h.onboarded) {
           setShowWizard(false);
         } else if (!wizardDismissedRef.current) {
           setShowWizard(true);
         }
 
-      } else if (h.onboarded || h.setup_complete) {
+      } else if (h.onboarded) {
         setShowWizard(false);
       }
 
@@ -624,37 +743,29 @@ function App() {
         setServices(null);
       }
     } catch (e) {
-      notify(String(e), "err");
+      const text = String(e);
+      const now = Date.now();
+      const prev = healthNotifyRef.current;
+      if (text !== prev.lastText || now - prev.lastAt > 60_000) {
+        prev.lastText = text;
+        prev.lastAt = now;
+        notify(text, "err");
+      }
       setHealth(null);
     }
   }, []);
 
   const refreshReach = useCallback(async () => {
     try {
-      const [list, inbox, quota, chrome, covers, platforms] = await Promise.all([
+      const [list, inbox, chrome, covers, platforms] = await Promise.all([
         api.reachList(),
         api.reachInbox(),
-        api.reachQuota(),
         api.reachChromeProfiles().catch(() => null),
         api.coverTemplatesList().catch(() => null),
         api.reachPlatforms().catch(() => null),
       ]);
       setReachItems(list.items || []);
       setReachInbox({ unread_count: inbox.unread_count || 0, notices: inbox.notices || [] });
-      setReachQuota(quota);
-      {
-        const total = Number(quota?.daily_quota ?? 5);
-        setQuotaTotal(Number.isFinite(total) ? total : 5);
-        const pq = (quota?.platform_quotas || {}) as Record<string, number>;
-        const hasSplit = Boolean(pq && Object.keys(pq).length > 0);
-        setQuotaSplit(hasSplit);
-        const plats = mergeReachPlatforms(platforms?.platforms);
-        const next: Record<string, number> = {};
-        for (const p of plats) {
-          next[p.id] = hasSplit ? Number(pq[p.id] ?? 0) : 0;
-        }
-        setQuotaByPlatform(next);
-      }
       // Always merge API into built-in catalog — never shrink to old 3–5 platforms.
       setReachPlatforms(mergeReachPlatforms(platforms?.platforms));
       if (platforms?.slot_specs) {
@@ -664,10 +775,11 @@ function App() {
         setChromeProfiles(chrome.profiles || []);
         setChromeRoot(chrome.root || "");
         setChromeInstalled(Boolean(chrome.chrome_installed));
-        const sel = chrome.selected || chrome.profiles?.[0]?.name || "";
-        setChromeSelected((prev) => prev || sel);
+        setChromeSelected(chrome.selected || chrome.profiles?.[0]?.name || "");
         if (chrome.selected_platform) {
           setChromeCreatePlatform(String(chrome.selected_platform));
+        } else if (chrome.profiles?.[0]?.platform) {
+          setChromeCreatePlatform(String(chrome.profiles[0].platform));
         }
       }
       if (covers) {
@@ -684,17 +796,25 @@ function App() {
     }
   }, []);
 
-  const refreshReachMessages = useCallback(async (claimNotifications = false) => {
+  const refreshReachMessages = useCallback(async (
+    claimNotifications = false,
+    query = reachMessageQueryRef.current,
+  ) => {
+    reachMessageQueryRef.current = query;
     try {
       const [accounts, messages, status] = await Promise.all([
         api.reachMessageAccounts(),
-        api.reachMessages(),
+        api.reachMessages(query),
         api.reachMessageScanStatus(),
       ]);
       const messageRows = messages.messages || [];
       setReachMessageAccounts(accounts.accounts || []);
       setReachMessages(messageRows);
-      setReachMessageUnread(messageRows.filter((message) => message.unread).length);
+      setReachMessageUnread(
+        typeof messages.unread_count === "number"
+          ? messages.unread_count
+          : messageRows.filter((message) => message.unread).length,
+      );
       setReachMessageStatus(status.worker || null);
       setReachMessageBusy(Boolean(status.worker?.active));
       try {
@@ -711,33 +831,57 @@ function App() {
             "info",
           );
           const appSound = playReachMessageSound();
-          await api.reachNotificationReport(
-            message.id,
-            "app",
-            appSound ? "sent" : "failed",
-            appSound ? "" : "应用内提示音不可用",
-          ).catch(() => undefined);
-          const nativeSent = await notifyReachMessage(
-            `${message.platform} · ${message.notification_sender || "新消息"}`,
-            `${message.notification_summary || "有新的平台消息，请进入速影查看。"}\n${message.reply_url}`,
-          );
-          await api.reachNotificationReport(
-            message.id,
-            "macos",
-            nativeSent ? "sent" : "permission_denied",
-          ).catch(() => undefined);
+          await api
+            .reachNotificationReport(
+              message.id,
+              "app",
+              appSound ? "sent" : "failed",
+              appSound ? "" : "应用内提示音不可用",
+            )
+            .catch(() => undefined);
+          await api
+            .reachNotificationReport(message.id, "macos", "skipped_in_app_only")
+            .catch(() => undefined);
         }
       }
     } catch {
-      // Older engines do not expose G7 message APIs.
+      /* older engines */
     }
   }, [notify]);
+
+  const refreshContentMessages = useCallback(async (
+    query = contentMessageQueryRef.current,
+  ) => {
+    contentMessageQueryRef.current = query;
+    try {
+      const [accounts, messages, status] = await Promise.all([
+        api.contentMessageAccounts(),
+        api.contentMessages(query),
+        api.contentMessageScanStatus(),
+      ]);
+      const messageRows = messages.messages || [];
+      setContentMessageAccounts(accounts.accounts || []);
+      setContentMessages(messageRows);
+      setContentMessageUnread(
+        typeof messages.unread_count === "number"
+          ? messages.unread_count
+          : messageRows.filter((m) => m.unread).length,
+      );
+      setContentMessageStatus(status.worker || null);
+      setContentMessageBusy(Boolean(status.worker?.active));
+    } catch {
+      /* content message API may be unavailable */
+    }
+  }, []);
 
   const refreshSemanticStatus = useCallback(async () => {
     try {
       const st = await api.captionsStatus();
       setSemanticStatus(st);
-      semanticPollFastRef.current = st.remaining > 0 || st.claimed > 0;
+      if (typeof st.full_backfill_enabled === "boolean") {
+        setSemanticFullBackfill(st.full_backfill_enabled);
+      }
+      semanticPollFastRef.current = st.claimed > 0 || Boolean(st.full_backfill_enabled);
       return st;
     } catch {
       setSemanticStatus(null);
@@ -746,25 +890,6 @@ function App() {
     }
   }, []);
 
-  const runSemanticBatch = useCallback(
-    async (limit: number) => {
-      setActionBusy("captions");
-      try {
-        const r = await api.runCaptionsBatch(limit, true);
-        const passed = Number(r.passed ?? 0);
-        const rejected = Number(r.rejected ?? 0);
-        notify(`语义批次完成：通过 ${passed}，拒绝 ${rejected}`, passed > 0 ? "ok" : "info");
-        semanticPollFastRef.current = true;
-        await refreshSemanticStatus();
-      } catch (e) {
-        notify(String(e), "err");
-      } finally {
-        setActionBusy(null);
-      }
-    },
-    [notify, refreshSemanticStatus],
-  );
-
   const refreshAll = useCallback(async () => {
     await refreshHealth();
     try {
@@ -772,7 +897,11 @@ function App() {
       setJobs(await api.listJobs());
       setEvents(await api.listEvents());
       setOutputs(await api.listOutputs());
-      setReport(await api.reportSummary());
+      try {
+        setReport(await api.reportSummary());
+      } catch {
+        setReport(null);
+      }
       try {
         setOpsReport(await api.reportOps());
       } catch {
@@ -792,56 +921,457 @@ function App() {
       }
       await refreshReach();
       await refreshReachMessages();
+      await refreshContentMessages();
+      try {
+        broadcastContentChromeProfiles(await api.contentChromeProfiles());
+      } catch (e) {
+        notify(`软文登录态同步失败：${String(e)}`, "warn");
+      }
       await refreshSemanticStatus();
+      try {
+        const st = await api.getSettings();
+        const mode = String(st.semantic_analysis_mode || "on_demand").toLowerCase();
+        setSemanticMode(mode === "off" ? "off" : "on_demand");
+        setSemanticToggleEnabled(st.semantic_toggle_enabled !== false);
+        setSemanticFullBackfill(st.semantic_full_backfill_enabled === true);
+      } catch {
+        /* older engines */
+      }
+      try {
+        const vs = (await api.vectorizationStatus()) as {
+          pending_assets?: number;
+          pending_cliplets?: number;
+        };
+        const pending = Number(vs.pending_assets ?? vs.pending_cliplets ?? 0);
+        setVectorPending(Number.isFinite(pending) ? Math.max(0, pending) : 0);
+      } catch {
+        setVectorPending(0);
+      }
+      try {
+        const pr = await api.productionRulesList(
+          false,
+          category || "default",
+          productionOrientation,
+        );
+        if (
+          activeCustomerId != null &&
+          pr.customer_id != null &&
+          Number(pr.customer_id) !== Number(activeCustomerId)
+        ) {
+          // Stale response after customer switch — keep current tenant cards empty rather than leak.
+          setRuleOptions([]);
+          setActiveRuleSummary("未启用");
+          setRuleRotation(true);
+          setRotationPoolCount(0);
+        } else {
+          const rows = (pr.rules || []) as Array<Record<string, unknown>>;
+          setRuleOptions(
+            rows
+              .filter((r) => String(r.status) === "approved")
+              .map((r) => ({
+                id: Number(r.id),
+                contentCategory: String(r.content_category || "default"),
+                label: `${String(r.name || "规则")} · r${Number(r.revision || 1)} · ${String(
+                  r.content_category || "default",
+                )}${
+                  pr.active_by_category?.[String(r.content_category || "default")] === Number(r.id)
+                    ? " · 该类别默认"
+                    : ""
+                }`,
+              })),
+          );
+          const active = rows.find((r) => Number(r.id) === pr.active_id);
+          const orientLabel =
+            productionOrientation === "landscape" ? "横屏" : "竖屏";
+          const cat = String(active?.content_category || category || "default");
+          setActiveRuleSummary(
+            active
+              ? `${String(active.name)} · r${Number(active.revision || 1)} · ${orientLabel} · ${cat}`
+              : "未启用",
+          );
+          setRuleRotation(pr.rotation_policy !== false);
+          setRotationPoolCount((pr.rotation_pool || []).length);
+        }
+      } catch {
+        setRuleOptions([]);
+        setActiveRuleSummary("未启用");
+        setRuleRotation(true);
+        setRotationPoolCount(0);
+      }
     } catch (e) {
       notify(String(e), "err");
     }
-  }, [refreshHealth, refreshReach, refreshReachMessages, refreshSemanticStatus, notify]);
+  }, [
+    refreshHealth,
+    refreshReach,
+    refreshReachMessages,
+    refreshContentMessages,
+    refreshSemanticStatus,
+    notify,
+    productionOrientation,
+    category,
+    activeCustomerId,
+  ]);
 
+  // Boot once: never re-run heal loop when refreshAll/notify identity churns.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       if (isTauri()) {
         setEngineBusy(true);
         try {
-          const st = await getEngineStatus();
-          if (!cancelled && !st.healthy) {
-            await startEngine();
+          // GCustomerUX: bounded boot heal — retry start a few times after reboot/port races.
+          let lastErr: unknown = null;
+          for (let attempt = 1; attempt <= 3 && !cancelled; attempt++) {
+            try {
+              const st = await getEngineStatus();
+              if (st.healthy) break;
+              await startEngine();
+              await new Promise((r) => window.setTimeout(r, 800 * attempt));
+              const again = await getEngineStatus();
+              if (again.healthy) break;
+              lastErr = again.message || "引擎未就绪";
+            } catch (e) {
+              lastErr = e;
+              await new Promise((r) => window.setTimeout(r, 600 * attempt));
+            }
           }
           if (!cancelled) await refreshEngine();
+          const finalSt = await getEngineStatus();
+          if (!cancelled && !finalSt.healthy) {
+            notify(
+              `引擎启动失败（已重试）：${String(lastErr || finalSt.message || "请到运维页检查")}`,
+              "err",
+              { placement: "toast", actionTab: "ops" },
+            );
+          }
         } catch (e) {
-          if (!cancelled) notify(`引擎启动: ${e}`, "err");
+          if (!cancelled) notify(`引擎启动: ${e}`, "err", { placement: "toast" });
         } finally {
           if (!cancelled) setEngineBusy(false);
         }
       }
       if (!cancelled) await refreshAll();
     })();
-    const t = setInterval(() => {
-      healthTickRef.current += 1;
-      // Light health every 5s; customer/keyword sync ~every 30s (pulse must not hammer DB)
-      void refreshHealth({ syncCustomer: healthTickRef.current % 6 === 0 });
-      void refreshEngine();
-    }, 5000);
     return () => {
       cancelled = true;
-      clearInterval(t);
     };
-  }, [refreshAll, refreshEngine, refreshHealth]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only boot; polling is separate
+  }, []);
+
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+      healthTickRef.current += 1;
+      // Poll budget: docs/APP_POLL_BUDGET.md — do not add ≤1s full polls here.
+      void refreshHealth({
+        syncCustomer: healthTickRef.current % POLL_TICK.customerSyncEvery === 0,
+      });
+      void refreshEngine().then(async () => {
+        if (!isTauri()) return;
+        const heal = engineHealRef.current;
+        if (heal.busy) return;
+        const st = await getEngineStatus();
+        // Prefer control_plane (HTTP up) as heal success; business healthy may wait on disk.
+        if (st.healthy || st.control_plane) {
+          heal.failCount = 0;
+          return;
+        }
+        const now = Date.now();
+        if (now - heal.lastAttemptMs < 12_000) return;
+        // Soft ceiling for toast only — keep retrying forever (reset every 20 attempts).
+        heal.lastAttemptMs = now;
+        heal.failCount += 1;
+        if (heal.failCount > 20) heal.failCount = 1;
+        heal.busy = true;
+        setEngineBusy(true);
+        try {
+          await startEngine();
+        } catch (e) {
+          if (heal.failCount >= 3 && heal.failCount % 3 === 0) {
+            const label = offlineClassLabel(st);
+            notify(`引擎自愈失败（${label}）：${String(e)}`, "err", { placement: "toast", actionTab: "ops" });
+          }
+        } finally {
+          heal.busy = false;
+          setEngineBusy(false);
+          await refreshEngine();
+        }
+      });
+      void api
+        .listJobs()
+        .then((r) => setJobs(Array.isArray(r) ? r : []))
+        .catch(() => undefined);
+      if (healthTickRef.current % POLL_TICK.reportOpsEvery === 0) {
+        void api
+          .reportOps()
+          .then((r) => setOpsReport(r))
+          .catch(() => undefined);
+      }
+      if (healthTickRef.current % POLL_TICK.humanAlertsEvery === 0) {
+        void api
+          .humanAlerts()
+          .then((r) => {
+            for (const alert of r.alerts || []) {
+              const kind = String(alert.kind || "");
+              if (
+                kind === "publish_soft_skip_exhausted" ||
+                kind === "login_required" ||
+                kind === "verification_required"
+              ) {
+                notify(String(alert.summary || "需要人工介入"), "err", {
+                  placement: "toast",
+                  action: notifyTargetFromDeepLink(alert.deep_link),
+                  holdMs: 15_000,
+                  sound: true,
+                });
+                void api.acknowledgeHumanAlert(Number(alert.id)).catch(() => undefined);
+              }
+            }
+          })
+          .catch(() => undefined);
+      }
+    }, POLL_BUDGET_MS.health);
+    return () => {
+      window.clearInterval(t);
+    };
+  }, [refreshEngine, refreshHealth, notify]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    let lastErrAt = 0;
+    let lastErrText = "";
+    void listenSystemState((snap) => {
+      if (cancelled) return;
+      const kind = snap.last_kind || "";
+      if (snap.delivery_ok === false) {
+        const text = String(snap.delivery_error || kind || "未知错误");
+        const now = Date.now();
+        // Rust already rate-limits emits; keep a UI floor so retries do not spam.
+        if (text !== lastErrText || now - lastErrAt > 60_000) {
+          lastErrText = text;
+          lastErrAt = now;
+          notify(`系统事件未被引擎确认：${text}`, "err");
+        }
+        return;
+      }
+      if (kind === "will_sleep" || kind === "screens_sleep" || kind === "session_inactive" || kind === "will_power_off") {
+        notify(`系统事件：${kind} → 引擎已确认安全暂停`, "info");
+      } else if (kind === "did_wake" || kind === "session_active" || kind === "screens_wake") {
+        notify(`系统事件：${kind} → 引擎已确认恢复检查`, "info");
+        window.setTimeout(() => {
+          void refreshAll();
+        }, 1200);
+      }
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [notify, refreshAll]);
+
+  const applyWorkspaceSnapshot = useCallback((snap: WorkspaceStateSnapshot) => {
+    setWorkspacePrefs(snap.prefs || WORKSPACE_DEFAULT_PREFS);
+    setWorkspacePhase(snap.phase || "idle");
+    setWorkspaceMessage(snap.message || null);
+    setWorkspaceError(snap.error || null);
+    if (snap.probe) setWorkspaceProbe(snap.probe);
+  }, []);
+
+  const runWorkspaceSync = useCallback(
+    async (source: "manual" | "auto") => {
+      if (workspaceSyncingRef.current) return;
+      workspaceSyncingRef.current = true;
+      setWorkspaceBusy(true);
+      setWorkspaceError(null);
+      setWorkspacePhase("checking");
+      setWorkspaceMessage(source === "manual" ? "手动同步：检查工作区…" : "自动同步：检查工作区…");
+      try {
+        let snap = await reconnectWorkspaceNow();
+        applyWorkspaceSnapshot(snap);
+        if (snap.phase === "error" || snap.error) {
+          const msg = String(snap.error || snap.message || "工作区同步失败");
+          setWorkspacePhase("error");
+          setWorkspaceError(msg);
+          setWorkspaceMessage(null);
+          notify(msg, "err");
+          return;
+        }
+        if (snap.phase === "needs_engine_restart" || (snap.probe && !snap.probe.engine_healthy)) {
+          setWorkspacePhase("reconnecting");
+          setWorkspaceMessage("重启引擎以挂载权威工作区…");
+          try {
+            if (isTauri()) {
+              await stopEngine().catch(() => undefined);
+              await startEngine();
+            }
+          } catch (e) {
+            const msg = String(e);
+            setWorkspacePhase("error");
+            setWorkspaceError(msg);
+            setWorkspaceMessage(null);
+            notify(msg, "err");
+            return;
+          }
+          snap = await getWorkspaceSnapshot();
+          applyWorkspaceSnapshot(snap);
+          if (snap.phase === "error" || snap.error || (snap.probe && !snap.probe.engine_healthy)) {
+            const msg = String(snap.error || snap.message || "引擎已重启，但工作区仍未就绪");
+            setWorkspacePhase("error");
+            setWorkspaceError(msg);
+            setWorkspaceMessage(null);
+            notify(msg, "err");
+            return;
+          }
+        }
+        setWorkspacePhase("refreshing");
+        setWorkspaceMessage("刷新 App 数据…");
+        await refreshAll();
+        await refreshEngine();
+        setWorkspacePhase("ready");
+        setWorkspaceMessage("工作区已同步");
+        notify(source === "manual" ? "已重新连接工作区并刷新数据" : "路径变化后已自动刷新工作区", "ok");
+      } catch (e) {
+        const msg = String(e);
+        setWorkspacePhase("error");
+        setWorkspaceError(msg);
+        setWorkspaceMessage(null);
+        notify(msg, "err");
+      } finally {
+        workspaceSyncingRef.current = false;
+        setWorkspaceBusy(false);
+      }
+    },
+    [applyWorkspaceSnapshot, notify, refreshAll, refreshEngine],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const prefs = await getWorkspaceSyncPrefs();
+      if (!cancelled) setWorkspacePrefs(prefs);
+      const snap = await getWorkspaceSnapshot();
+      if (!cancelled) applyWorkspaceSnapshot(snap);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [applyWorkspaceSnapshot]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    void listenWorkspaceState((snap) => {
+      if (cancelled) return;
+      applyWorkspaceSnapshot(snap);
+      const kind = snap.last_kind || "";
+      if (kind === "did_unmount") {
+        // Only warn when authority lives on a removable volume (not main-disk local).
+        const st = snap.probe?.state || "";
+        if (st && st !== "local") {
+          notify("外接路径已卸载，请改回主盘工作区或重新接入路径", "warn");
+        }
+        return;
+      }
+      if (kind === "did_mount" && snap.prefs?.auto_reconnect_on_mount) {
+        if (snap.phase === "ready" && snap.probe?.ok && !workspaceSyncingRef.current) {
+          // Native side already probed; finish with engine restart + refresh if needed.
+          if (snap.probe && !snap.probe.engine_healthy) {
+            void runWorkspaceSync("auto");
+          } else if (snap.message && /已同步|就绪|已刷新/.test(snap.message)) {
+            void (async () => {
+              setWorkspacePhase("refreshing");
+              await refreshAll();
+              setWorkspacePhase("ready");
+              notify("路径变化后已自动刷新工作区", "ok");
+            })();
+          }
+        } else if (snap.phase === "needs_engine_restart") {
+          void runWorkspaceSync("auto");
+        }
+      }
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [applyWorkspaceSnapshot, notify, refreshAll, runWorkspaceSync]);
+
+  const onWorkspaceToggleAuto = useCallback(
+    async (enabled: boolean) => {
+      const next = { ...workspacePrefs, auto_reconnect_on_mount: enabled };
+      setWorkspacePrefs(next);
+      try {
+        const saved = await setWorkspaceSyncPrefs(next);
+        setWorkspacePrefs(saved);
+        notify(enabled ? "已开启路径变化时自动重连" : "已关闭路径变化时自动重连", "info");
+      } catch (e) {
+        notify(String(e), "err");
+      }
+    },
+    [notify, workspacePrefs],
+  );
 
   useEffect(() => {
     let cancelled = false;
     const tick = async () => {
+      if (document.visibilityState === "hidden") return;
       if (!cancelled) {
         await refreshReachMessages(true);
+        await refreshContentMessages();
       }
     };
-    const timer = window.setInterval(() => void tick(), 30_000);
+    const timer = window.setInterval(() => void tick(), POLL_BUDGET_MS.messages);
+    const onVis = () => {
+      if (document.visibilityState === "visible") void tick();
+    };
+    document.addEventListener("visibilitychange", onVis);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVis);
     };
-  }, [refreshReachMessages]);
+  }, [refreshReachMessages, refreshContentMessages]);
+
+  // Publish / account login sync on open + when returning to foreground.
+  // Force video + content login probes (list endpoints already DOM-probe when Chrome is managed).
+  useEffect(() => {
+    const syncPublishState = () => {
+      if (document.visibilityState !== "visible") return;
+      void (async () => {
+        try {
+          await Promise.all([
+            refreshReach(),
+            refreshContentMessages(),
+            api
+              .contentChromeProfiles()
+              .then((snapshot) => {
+                broadcastContentChromeProfiles(snapshot);
+                return snapshot;
+              })
+              .catch((e: unknown) => {
+                notify(`软文登录态同步失败：${String(e)}`, "warn");
+                return null;
+              }),
+          ]);
+        } catch (e) {
+          notify(`发布登录态同步失败：${String(e)}`, "warn");
+        }
+      })();
+    };
+    document.addEventListener("visibilitychange", syncPublishState);
+    window.addEventListener("focus", syncPublishState);
+    syncPublishState();
+    return () => {
+      document.removeEventListener("visibilitychange", syncPublishState);
+      window.removeEventListener("focus", syncPublishState);
+    };
+  }, [notify, refreshReach, refreshContentMessages]);
 
   useEffect(() => {
     let cancelled = false;
@@ -850,7 +1380,12 @@ function App() {
       if (cancelled || !engine?.healthy) return;
       await refreshSemanticStatus();
       if (!cancelled) {
-        timer = window.setTimeout(tick, semanticPollFastRef.current ? 3000 : 15000);
+        timer = window.setTimeout(
+          tick,
+          semanticPollFastRef.current
+            ? POLL_BUDGET_MS.semanticFast
+            : POLL_BUDGET_MS.semanticIdle,
+        );
       }
     };
     void tick();
@@ -872,24 +1407,30 @@ function App() {
 
   useEffect(() => {
     let cancelled = false;
+    const FALLBACK = [
+      { code: "zh", label_zh: "中文（简体）", label_native: "简体中文", region: "东亚" },
+      { code: "en", label_zh: "英语", label_native: "English", region: "欧美" },
+      { code: "none", label_zh: "关闭", label_native: "Off", region: "其他" },
+    ];
     void api
       .listExpressionLanguages()
       .then((res) => {
-        if (!cancelled && Array.isArray(res.languages)) setLangCatalog(res.languages);
+        if (cancelled) return;
+        if (Array.isArray(res.languages) && res.languages.length > 0) {
+          setLangCatalog(res.languages);
+        }
       })
       .catch(() => {
         if (!cancelled) {
-          setLangCatalog([
-            { code: "zh", label_zh: "中文（简体）", label_native: "简体中文", region: "东亚" },
-            { code: "en", label_zh: "英语", label_native: "English", region: "欧美" },
-            { code: "none", label_zh: "关闭", label_native: "Off", region: "其他" },
-          ]);
+          // Only seed tiny fallback when we still have no full catalog.
+          setLangCatalog((prev) => (prev.length > 3 ? prev : FALLBACK));
         }
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+    // Re-fetch after engine comes up; boot often races the language catalog API.
+  }, [engine?.healthy]);
 
   async function onEngineToggle() {
     if (engine?.healthy) {
@@ -904,7 +1445,6 @@ function App() {
       }
     }
     setEngineBusy(true);
-    setError("");
     try {
       if (engine?.healthy) {
         await stopEngine();
@@ -940,7 +1480,8 @@ function App() {
         });
       }
       await api.updateSettings({
-        external_required: true,
+        // Local-first: never re-force external disk when saving paths.
+        external_required: false,
         auto_daily_enabled: autoDaily,
         auto_daily_hour: autoHour,
         ...(cacheRoot.trim() ? { cache_root: cacheRoot.trim() } : {}),
@@ -960,56 +1501,6 @@ function App() {
       scheduleBaselineRef.current = { autoDaily, autoHour };
       formSyncPausedRef.current = false;
       notify("路径与调度设置已保存", "ok");
-    } catch (e) {
-      notify(String(e), "err");
-    } finally {
-      setActionBusy(null);
-    }
-  }
-
-  async function enableVectorization() {
-    let ollama = ollamaInfo;
-    try {
-      ollama = await api.ollamaHealth();
-      setOllamaInfo(ollama);
-    } catch {
-      /* keep cached */
-    }
-    if (!ollama?.embed_ready) {
-      const goOps = await askConfirm({
-        title: "本地 AI 未就绪",
-        body:
-          (ollama?.message || "未检测到向量模型。") +
-          "\n\n请先在「运维」→「本地 AI」安装 Ollama 并拉取向量模型，再开启向量化。\n" +
-          "仍要强制开启？（将使用弱质量 hash 降级）",
-        confirmLabel: "仍要开启",
-        danger: true,
-      });
-      if (!goOps) {
-        goTab("settings", { settings: "paths" });
-        return;
-      }
-    }
-    const ok = await askConfirm({
-      title: "开启向量化",
-      body:
-        "开启增量向量化：已有向量会保留，只补齐尚未索引的素材。\n" +
-        "新片库会自然跑完全部缺口；老片库不会整库重算。\n" +
-        "需要本机 Ollama 与向量模型。确定开启？",
-      confirmLabel: "开启",
-    });
-    if (!ok) return;
-    setActionBusy("vecOn");
-    try {
-      const r = await api.enableVectorization(true, 50);
-      setVectorization(true);
-      const gaps = r.gaps || {};
-      const gapPart =
-        gaps.ready_assets != null
-          ? ` 已完成 ${gaps.complete_assets ?? "?"} / 就绪 ${gaps.ready_assets ?? "?"}，缺口素材 ${gaps.gap_assets ?? "?"}。`
-          : " 后台正在增量补齐缺口。";
-      notify(`${r.message}${gapPart}`, "ok");
-      await refreshHealth();
     } catch (e) {
       notify(String(e), "err");
     } finally {
@@ -1077,97 +1568,6 @@ function App() {
     }
   }
 
-  async function disableVectorization() {
-    const ok = await askConfirm({
-      title: "关闭向量化",
-      body: "关闭后新入库素材不再自动补向量索引；已有向量会保留。确定关闭？",
-      confirmLabel: "关闭向量化",
-      danger: true,
-    });
-    if (!ok) return;
-    setActionBusy("vecOff");
-    try {
-      await api.updateSettings({ vectorization_enabled: false });
-      setVectorization(false);
-      notify("已关闭向量化", "ok");
-      await refreshHealth();
-    } catch (e) {
-      notify(String(e), "err");
-    } finally {
-      setActionBusy(null);
-    }
-  }
-
-  async function saveCursorApiKey() {
-    const key = cursorApiKeyInput.trim();
-    if (!key) {
-      notify("请先粘贴 API Key", "err");
-      return;
-    }
-    setActionBusy("cursorKey");
-    try {
-      const r = (await api.updateSettings({ cursor_api_key: key })) as {
-        cursor_api_key_configured?: boolean;
-        cursor_api_key_hint?: string;
-      };
-      setCursorKeyConfigured(Boolean(r.cursor_api_key_configured));
-      setCursorKeyHint(String(r.cursor_api_key_hint || ""));
-      setCursorApiKeyInput("");
-      notify(`已保存 Cursor API Key${r.cursor_api_key_hint ? `（${r.cursor_api_key_hint}）` : ""}`, "ok");
-      await refreshHealth();
-    } catch (e) {
-      notify(String(e), "err");
-    } finally {
-      setActionBusy(null);
-    }
-  }
-
-  async function verifyCursorApiKey() {
-    const typed = cursorApiKeyInput.trim();
-    if (!typed && !cursorKeyConfigured) {
-      notify("请先填写 API Key", "err");
-      return;
-    }
-    setActionBusy("cursorVerify");
-    try {
-      const r = await api.verifyCursorKey(typed || undefined);
-      setCursorKeyConfigured(Boolean(r.cursor_api_key_configured ?? true));
-      setCursorKeyHint(String(r.cursor_api_key_hint || cursorKeyHint));
-      if (typed) setCursorApiKeyInput("");
-      notify(r.message || "验证通过", "ok");
-      await refreshHealth();
-    } catch (e) {
-      notify(String(e), "err");
-    } finally {
-      setActionBusy(null);
-    }
-  }
-
-  async function clearCursorApiKey() {
-    if (
-      !(await askConfirm({
-        title: "清除 API Key",
-        body: "清除已保存的 Cursor API Key？",
-        confirmLabel: "清除",
-        danger: true,
-      }))
-    )
-      return;
-    setActionBusy("cursorClear");
-    try {
-      await api.updateSettings({ cursor_api_key: "" });
-      setCursorKeyConfigured(false);
-      setCursorKeyHint("");
-      setCursorApiKeyInput("");
-      notify("已清除 Cursor API Key", "ok");
-      await refreshHealth();
-    } catch (e) {
-      notify(String(e), "err");
-    } finally {
-      setActionBusy(null);
-    }
-  }
-
   async function finishWizard(enableVec: boolean, seedId?: string) {
     if (!wizName.trim()) {
       notify("请填写客户名", "err");
@@ -1186,7 +1586,7 @@ function App() {
       notify(`无法校验极空间绑定: ${e}`, "err");
       return;
     }
-    // 标准外置盘布局：自动建目录（片库仍在本机；默认同步仅载体）
+    // 主盘标准布局：~/Movies/速影工作区/速影客户/<名>/…（默认同步仅载体）
     let lib = wizLib.trim();
     let out = wizOut.trim();
     let kw = wizKw.trim();
@@ -1200,14 +1600,14 @@ function App() {
       setWizOut(out);
       if (kw) setWizKw(kw);
     } catch (e) {
-      // 外置盘未挂载时仍允许手填路径
+      // 自动建目录失败时仍允许手填路径
       if (!lib || !out) {
-        notify(`标准布局创建失败（可手填路径）: ${e}`, "err");
+        notify(`本机工作区目录创建失败（可手填路径）: ${e}`, "err");
         return;
       }
     }
     if (!lib || !out) {
-      notify("请填写片库与输出目录，或先插入外置盘后使用标准布局", "err");
+      notify("请填写片库与输出目录，或留空由向导在主盘 Movies 工作区自动创建", "err");
       return;
     }
     const c = await api.createCustomer({
@@ -1258,7 +1658,6 @@ function App() {
     if (enableVec) {
       try {
         const r = await api.enableVectorization(true, 50);
-        setVectorization(true);
         const gaps = r.gaps || {};
         notify(
           `${r.message} 已完成 ${gaps.complete_assets ?? "?"} / 就绪 ${gaps.ready_assets ?? "?"}，缺口 ${gaps.gap_assets ?? "?"}。`,
@@ -1296,22 +1695,20 @@ function App() {
       reviewBusyId != null ||
       packBusyId != null ||
       batchBusy ||
-      exprSaveBusy ||
       brandBusy ||
       chromeBusy ||
       coverBusy ||
       queueBusy ||
-      autoUploadBusy ||
       reachMessageBusy ||
       engineBusy
     ) {
       notify("有操作进行中，请稍后再切换客户", "warn");
       return;
     }
-    if (exprDirty || pathsDirty || scheduleDirty) {
+    if (pathsDirty || scheduleDirty) {
       const ok = await askConfirm({
         title: "未保存的更改",
-        body: "当前有未保存的表达设置、路径或调度修改。切换客户将丢弃这些本地未保存更改。",
+        body: "当前有未保存的路径或调度修改。切换客户将丢弃这些本地未保存更改。",
         confirmLabel: "仍要切换",
         cancelLabel: "留下",
         danger: true,
@@ -1325,12 +1722,29 @@ function App() {
       setOutputs([]);
       setAssets([]);
       setJobs([]);
+      activeJobIdsRef.current.clear();
+      notifiedOutputIdsRef.current.clear();
+      prevRunningJobsRef.current = null;
       setReachMessageAccounts([]);
       setReachMessages([]);
       setReachMessageUnread(0);
       setReachNtfyConfig(null);
       setReachMessageStatus(null);
+      setContentMessageAccounts([]);
+      setContentMessages([]);
+      setContentMessageUnread(0);
+      setContentMessageStatus(null);
+      setContentReplyDrafts([]);
+      setContentReplyDraftMessageId(null);
+      setReplyDrafts([]);
+      setReplyDraftMessageId(null);
+      setChromeSelected("");
       setMediaEpoch((n) => n + 1);
+      setJobRuleProfileId(null);
+      setActiveRuleSummary("");
+      setRuleOptions([]);
+      setRuleRotation(true);
+      setRotationPoolCount(0);
       try {
         const locked = await settingsPasswordLock();
         setPasswordStatus(locked);
@@ -1374,12 +1788,33 @@ function App() {
   async function runDryRun() {
     setActionBusy("dryRun");
     try {
-      const result = await api.dryRun({ customer_name: customerName, theme, category });
+      const body: Record<string, unknown> = {
+        customer_name: customerName,
+        theme,
+        content_category: category,
+        category,
+        orientation: productionOrientation,
+        use_active_rule: true,
+        rule_rotation: ruleRotation,
+      };
+      if (assetCategory.trim()) {
+        body.asset_category = assetCategory.trim();
+      }
+      if (topicMode) {
+        body.topic_intent = {
+          mode: topicMode,
+          cluster_ids: topicClusterIds.split(",").map(Number).filter((id) => id > 0),
+          official_evidence_ids: topicEvidenceIds.split(",").map(Number).filter((id) => id > 0),
+          similarity_threshold: 0.82,
+          requested_uses: [],
+        };
+      }
+      const result = await api.dryRun(body);
       setDryResult(result);
       const n = Array.isArray(result.candidates)
         ? result.candidates.length
         : Number(result.candidate_count ?? result.count ?? 0);
-      notify(n > 0 ? `Dry-run 完成：约 ${n} 条候选` : "Dry-run 完成", "ok");
+      notify(n > 0 ? `选片预览完成：约 ${n} 条候选` : "选片预览完成", "ok");
     } catch (e) {
       notify(String(e), "err");
     } finally {
@@ -1387,18 +1822,95 @@ function App() {
     }
   }
 
-  async function createJob() {
-    setActionBusy("createJob");
+  async function createJob(opts?: { rush?: boolean; count?: number }) {
+    const rush = Boolean(opts?.rush);
+    const count = opts?.count ?? targetCount;
+    setActionBusy(rush ? "rushJob" : "createJob");
     try {
-      await api.createJob({
+      const body: Record<string, unknown> = {
         mode: "count",
-        target_count: targetCount,
+        target_count: count,
         customer_name: customerName,
         theme,
+        content_category: category,
         category,
-        template_name: "default-vertical",
-      });
-      notify(`已创建生产任务：目标 ${targetCount} 条`, "ok");
+        orientation: productionOrientation,
+        use_active_rule: true,
+        rush,
+        rule_rotation: ruleRotation,
+      };
+      if (assetCategory.trim()) {
+        body.asset_category = assetCategory.trim();
+      }
+      if (topicMode) {
+        body.topic_intent = {
+          mode: topicMode,
+          cluster_ids: topicClusterIds.split(",").map(Number).filter((id) => id > 0),
+          official_evidence_ids: topicEvidenceIds.split(",").map(Number).filter((id) => id > 0),
+          similarity_threshold: 0.82,
+          requested_uses: [],
+        };
+      }
+      const created = await api.createJob(body);
+      const jobId = Number(created.id);
+      const ahead = Number(created.queued_ahead ?? 0);
+      const runningId = created.running_job_id;
+      void jobId;
+      if (rush) {
+        notify(
+          runningId
+            ? `立即生产：已插队（当前条收尾后开跑）· 目标 ${count} 条 · 自动过审`
+            : `立即生产：即将开跑 · 目标 ${count} 条 · 自动过审`,
+          "ok",
+        );
+      } else if (ahead > 0 || runningId) {
+        notify(
+          `生产已入队：前面还有 ${ahead} 条排队` +
+            (runningId ? "，当前有任务在跑" : "") +
+            `。点「立即生产 1 条」可插队。`,
+          "warn",
+        );
+      } else {
+        notify(`生产已开始：目标 ${count} 条（门禁通过后自动过审）`, "ok");
+      }
+      setTab("produce");
+      await refreshAll();
+    } catch (e) {
+      notify(String(e), "err");
+    } finally {
+      setActionBusy(null);
+    }
+  }
+
+  async function createJobQuick() {
+    setTargetCount(1);
+    await createJob({ rush: true, count: 1 });
+  }
+
+  async function createSceneTourJob() {
+    setActionBusy("sceneTourJob");
+    try {
+      const body: Record<string, unknown> = {
+        mode: "count",
+        target_count: 1,
+        customer_name: customerName,
+        theme: "scene_tour",
+        content_category: "scene_tour",
+        category: "scene_tour",
+        orientation: productionOrientation,
+        use_active_rule: true,
+        rush: true,
+        rule_rotation: false,
+      };
+      const created = await api.createJob(body);
+      const runningId = created.running_job_id;
+      notify(
+        runningId
+          ? "跟镜精品已插队：当前条收尾后开跑；旁白不走词池金句"
+          : "跟镜精品即将开跑；旁白不走词池金句",
+        "ok",
+      );
+      setTab("produce");
       await refreshAll();
     } catch (e) {
       notify(String(e), "err");
@@ -1410,23 +1922,53 @@ function App() {
   async function decideReview(id: number, status: "approved" | "rejected", rerender = false) {
     setReviewBusyId(id);
     try {
-      await api.reviewOutput(id, status, reviewNote, {
+      const row = outputs.find((o) => Number(o.id) === id);
+      const label =
+        String(row?.display_label || "").trim() ||
+        (row?.display_no != null ? `#${String(row.display_no).padStart(3, "0")}` : "成片");
+      const result = await api.reviewOutput(id, status, reviewNote, {
         reason: status === "rejected" ? reviewReason : undefined,
         rerender: status === "rejected" && rerender,
       });
+      let packReady = false;
+      let packError = "";
+      if (status === "approved") {
+        try {
+          await api.exportPublishPack(id);
+          packReady = true;
+        } catch (e) {
+          packError = String(e);
+        }
+      }
       setReviewNote("");
+      const human = Boolean((result as { human_review?: boolean } | undefined)?.human_review);
+      const purged =
+        status === "rejected"
+          ? Number((result as { purge?: { removed?: number } } | undefined)?.purge?.removed || 0)
+          : 0;
       const msg =
         status === "approved"
-          ? `成片 #${id} 已通过，可去「发布」台复制文案`
-          : rerender
-            ? `成片 #${id} 已打回并排队重渲`
-            : `成片 #${id} 已打回`;
+          ? packReady
+            ? `${label} 已通过并准备好发布物料`
+            : `${label} 已通过，但发布物料准备失败：${packError}`
+          : `${label} 未通过：已删除成片并释放素材占用${purged ? `（清理 ${purged} 项文件）` : ""}${
+              human ? "；需人工复核" : ""
+            }`;
       notify(
         status === "approved" ? `${msg}（仍留在审片，可继续下一条）` : msg,
-        "ok",
+        status === "approved" && !packReady ? "warn" : "ok",
         status === "approved"
-          ? { actionLabel: "去发布", actionTab: "publish", holdMs: 9000 }
-          : undefined,
+          ? {
+              action: {
+                tab: "publish",
+                section: "pack",
+                guideTarget: `publish-output-${id}`,
+              },
+              holdMs: 15_000,
+            }
+          : {
+              holdMs: 12_000,
+            },
       );
       await refreshAll();
       setMediaEpoch((n) => n + 1);
@@ -1441,8 +1983,12 @@ function App() {
   async function rerenderOnly(id: number) {
     setReviewBusyId(id);
     try {
+      const row = outputs.find((o) => Number(o.id) === id);
+      const label =
+        String(row?.display_label || "").trim() ||
+        (row?.display_no != null ? `#${String(row.display_no).padStart(3, "0")}` : "成片");
       await api.rerenderOutput(id, reviewReason);
-      notify(`成片 #${id} 已排队重渲`, "ok");
+      notify(`${label} 已排队重渲`, "ok");
       await refreshAll();
       setMediaEpoch((n) => n + 1);
     } catch (e) {
@@ -1452,84 +1998,11 @@ function App() {
     }
   }
 
-  async function saveExpressionPrefs() {
-    if (!activeCustomerId) {
-      notify("请先选择客户", "err");
-      return;
-    }
-    setExprSaveBusy(true);
-    try {
-      const updated = await api.updateCustomer(activeCustomerId, {
-        expression: {
-          voice_lang: voiceLang,
-          subtitle_lang: subtitleLang,
-          subtitle_burn: subtitleBurn,
-          dual_secondary_lang: dualSecondaryLang,
-        },
-      });
-      const expr = ((updated as { profile?: Record<string, unknown> }).profile?.expression ||
-        {}) as Record<string, unknown>;
-      if (expr.voice_lang) setVoiceLang(String(expr.voice_lang));
-      if (expr.subtitle_lang) setSubtitleLang(String(expr.subtitle_lang));
-      if (expr.subtitle_burn) setSubtitleBurn(String(expr.subtitle_burn));
-      if (expr.dual_secondary_lang) setDualSecondaryLang(String(expr.dual_secondary_lang));
-      const burn = String(expr.subtitle_burn || subtitleBurn);
-      const v = String(expr.voice_lang || voiceLang);
-      const s = String(expr.subtitle_lang || subtitleLang);
-      const d = String(expr.dual_secondary_lang || dualSecondaryLang);
-      exprBaselineRef.current = { voice: v, sub: s, burn, dual: d };
-      formSyncPausedRef.current = false;
-      notify(
-        `已保存表达设置：旁白 ${v} / 字幕 ${s} / ${burn}${
-          burn === "burn_dual" ? `（双语副语言 ${d}）` : ""
-        }。下次生产/重渲生效。`,
-        "ok",
-      );
-    } catch (e) {
-      notify(String(e), "err");
-    } finally {
-      setExprSaveBusy(false);
-    }
-  }
-
   async function exportPack(id: number) {
     setPackBusyId(id);
     setPackLast("");
     try {
-      if (activeCustomerId) {
-        if (exprDirty) {
-          const ok = await askConfirm({
-            title: "导出将保存表达设置",
-            body: "当前表达设置尚未点「保存」。继续导出会一并写入客户配置（旁白/字幕/烧录）。",
-            confirmLabel: "保存并导出",
-            cancelLabel: "取消",
-          });
-          if (!ok) {
-            setPackBusyId(null);
-            return;
-          }
-        }
-        await api.updateCustomer(activeCustomerId, {
-          expression: {
-            voice_lang: voiceLang,
-            subtitle_lang: subtitleLang,
-            subtitle_burn: subtitleBurn,
-            dual_secondary_lang: dualSecondaryLang,
-          },
-        });
-        exprBaselineRef.current = {
-          voice: voiceLang,
-          sub: subtitleLang,
-          burn: subtitleBurn,
-          dual: dualSecondaryLang,
-        };
-      }
-      const res = await api.exportPublishPack(id, {
-        voice_lang: voiceLang,
-        subtitle_lang: subtitleLang,
-        subtitle_burn: subtitleBurn,
-        dual_secondary_lang: dualSecondaryLang,
-      });
+      const res = await api.exportPublishPack(id);
       const dir = String((res.manifest || {}).pack_dir || "");
       const expr = (res.manifest?.expression || {}) as Record<string, unknown>;
       const ok = Boolean(res.manifest?.compliance_passed !== false);
@@ -1547,14 +2020,20 @@ function App() {
         ? `已导出：${dir}${exprHint}${burnNote}`
         : `已导出但合规未过：${dir}${exprHint}${burnNote}`;
       setPackLast(summary);
-      notify(
-        ok
-          ? burned
-            ? `物料包已导出并烧录字幕 #${id}`
-            : `物料包已导出 #${id}`
-          : `物料已导出但合规未过 #${id}`,
-        ok ? "ok" : "warn",
-      );
+      {
+        const row = outputs.find((o) => Number(o.id) === id);
+        const label =
+          String(row?.display_label || "").trim() ||
+          (row?.display_no != null ? `#${String(row.display_no).padStart(3, "0")}` : "成片");
+        notify(
+          ok
+            ? burned
+              ? `${label} 物料包已导出并烧录字幕`
+              : `${label} 物料包已导出`
+            : `${label} 物料已导出但合规未过`,
+          ok ? "ok" : "warn",
+        );
+      }
       if (dir) setReachPackDir(dir);
       await refreshAll();
     } catch (e) {
@@ -1598,7 +2077,7 @@ function App() {
   async function reachMarkPublished(id: number) {
     try {
       await api.reachSetStatus(id, "published", "human_confirmed");
-      notify(`触达 #${id} 已标记为已发布`, "ok");
+      notify("该条触达已标记为已发布", "ok");
       await refreshReach();
     } catch (e) {
       notify(String(e), "err");
@@ -1645,9 +2124,202 @@ function App() {
   }
 
   async function reachMessageRead(message: ReachMessage) {
+    setReachMessages((current) => current.filter((item) => item.id !== message.id));
+    setReachMessageUnread((current) => Math.max(0, current - (message.unread ? 1 : 0)));
     try {
       await api.reachMessageRead(message.id);
+    } catch (e) {
       await refreshReachMessages(false);
+      notify(String(e), "err");
+    }
+  }
+
+  async function reachMessageCreateAccount(platform: string, displayName: string) {
+    try {
+      await api.reachMessageAccountCreate({ platform, display_name: displayName });
+      notify(`已创建视频消息账号“${displayName}”`, "ok");
+      await refreshReachMessages(false);
+    } catch (e) {
+      notify(String(e), "err");
+      throw e;
+    }
+  }
+
+  async function reachMessageOpenAccount(account: ReachMessageAccount) {
+    try {
+      await api.reachMessageAccountOpen(account);
+      notify("已打开视频消息账号登录页", "ok");
+    } catch (e) {
+      notify(String(e), "err");
+      throw e;
+    }
+  }
+
+  async function reachMessageDeleteAccount(account: ReachMessageAccount) {
+    try {
+      await api.reachMessageAccountsDelete([account.id]);
+      notify(`已删除视频消息账号“${account.display_name}”`, "ok");
+      await refreshReachMessages(false);
+    } catch (e) {
+      notify(String(e), "err");
+      throw e;
+    }
+  }
+
+  async function reachMessagesReadAll(accountId?: number) {
+    try {
+      await api.reachMessagesReadAll(accountId);
+      await refreshReachMessages(false);
+    } catch (e) {
+      notify(String(e), "err");
+      throw e;
+    }
+  }
+
+  async function suggestReplyDrafts(message: ReachMessage, extraContext: string) {
+    setReachMessageBusy(true);
+    try {
+      const res = await api.reachReplyDrafts(message.id, extraContext);
+      setReplyDraftMessageId(message.id);
+      setReplyDrafts(res.drafts || []);
+      notify(res.warning || "已生成回复草稿（不会自动发送）", "ok");
+    } catch (e) {
+      notify(String(e), "err");
+    } finally {
+      setReachMessageBusy(false);
+    }
+  }
+
+  async function copyReplyDraft(draftId: number, body: string) {
+    try {
+      await navigator.clipboard.writeText(body);
+      await api.reachMarkReplyCopied(draftId);
+      notify("已复制回复草稿，请到官方页粘贴发送", "ok");
+    } catch (e) {
+      notify(String(e), "err");
+    }
+  }
+
+  async function contentMessageScanStart() {
+    setContentMessageBusy(true);
+    try {
+      const res = await api.contentMessageScanStart();
+      setContentMessageStatus({
+        active: res.queued > 0,
+        phase: res.queued > 0 ? "queued" : "idle",
+        message: res.queued > 0 ? `已排队 ${res.queued} 个软文账号` : "没有新增待检查账号",
+      });
+      notify("已启动软文消息检查", "info");
+      window.setTimeout(() => void refreshContentMessages(), 1500);
+    } catch (e) {
+      setContentMessageBusy(false);
+      notify(String(e), "err");
+    }
+  }
+
+  async function contentMessageScanCancel() {
+    try {
+      await api.contentMessageScanCancel();
+      notify("已请求停止软文消息检查", "info");
+      await refreshContentMessages();
+    } catch (e) {
+      notify(String(e), "err");
+    }
+  }
+
+  async function contentMessageOpen(message: ReachMessage) {
+    try {
+      const res = await api.contentMessageOpen(message.id);
+      notify(
+        res.opened?.opened ? "已用软文账号打开官方消息页" : "已请求打开官方消息页",
+        "ok",
+      );
+    } catch (e) {
+      notify(String(e), "err");
+    }
+  }
+
+  async function contentMessagePreview(message: ReachMessage) {
+    setContentMessages((current) => current.filter((item) => item.id !== message.id));
+    setContentMessageUnread((current) => Math.max(0, current - (message.unread ? 1 : 0)));
+    try {
+      await api.contentMessageRead(message.id);
+    } catch (e) {
+      await refreshContentMessages();
+      notify(String(e), "err");
+    }
+  }
+
+  async function contentMessageCreateAccount(platform: string, displayName: string) {
+    try {
+      await api.contentMessageAccountCreate({ platform, display_name: displayName });
+      notify(`已创建软文消息账号“${displayName}”`, "ok");
+      await refreshContentMessages();
+    } catch (e) {
+      notify(String(e), "err");
+      throw e;
+    }
+  }
+
+  async function contentMessageOpenAccount(account: ReachMessageAccount) {
+    try {
+      await api.contentMessageAccountOpen(account);
+      notify("已打开软文消息账号登录页", "ok");
+    } catch (e) {
+      notify(String(e), "err");
+      throw e;
+    }
+  }
+
+  async function contentMessageDeleteAccount(account: ReachMessageAccount) {
+    try {
+      await api.contentMessageAccountsDelete([account.id]);
+      notify(`已删除软文消息账号“${account.display_name}”`, "ok");
+      await refreshContentMessages();
+    } catch (e) {
+      notify(String(e), "err");
+      throw e;
+    }
+  }
+
+  async function contentMessagesReadAll(accountId?: number) {
+    try {
+      await api.contentMessagesReadAll(accountId);
+      await refreshContentMessages();
+    } catch (e) {
+      notify(String(e), "err");
+      throw e;
+    }
+  }
+
+  async function contentMessageToggleAccount(account: ReachMessageAccount) {
+    try {
+      await api.contentMessageAccountUpdate(account.id, { enabled: !account.enabled });
+      await refreshContentMessages();
+    } catch (e) {
+      notify(String(e), "err");
+    }
+  }
+
+  async function suggestContentReplyDrafts(message: ReachMessage, extraContext: string) {
+    setContentMessageBusy(true);
+    try {
+      const res = await api.contentReplyDrafts(message.id, extraContext);
+      setContentReplyDraftMessageId(message.id);
+      setContentReplyDrafts(res.drafts || []);
+      notify(res.warning || "已生成软文回复草稿（不会自动发送）", "ok");
+    } catch (e) {
+      notify(String(e), "err");
+    } finally {
+      setContentMessageBusy(false);
+    }
+  }
+
+  async function copyContentReplyDraft(draftId: number, body: string) {
+    try {
+      await navigator.clipboard.writeText(body);
+      await api.contentMarkReplyCopied(draftId);
+      notify("已复制软文回复草稿，请到官方页粘贴发送", "ok");
     } catch (e) {
       notify(String(e), "err");
     }
@@ -1694,43 +2366,6 @@ function App() {
     notify("ntfy 测试通知已发送", "ok");
   }
 
-  async function saveReachQuota() {
-    const total = Math.max(0, Math.min(500, Math.floor(Number(quotaTotal) || 0)));
-    const plats: Record<string, number> = {};
-    if (quotaSplit) {
-      for (const p of reachPlatforms) {
-        plats[p.id] = Math.max(0, Math.floor(Number(quotaByPlatform[p.id]) || 0));
-      }
-      const sum = Object.values(plats).reduce((a, b) => a + b, 0);
-      if (sum > total) {
-        notify(`平台合计 ${sum} 超过日总额 ${total}`, "err");
-        return;
-      }
-    }
-    setQuotaBusy(true);
-    try {
-      const res = await api.updateReachQuota({
-        daily_quota: total,
-        platform_quotas: quotaSplit ? plats : {},
-      });
-      setReachQuota(res);
-      setQuotaTotal(Number(res.daily_quota ?? total));
-      const pq = (res.platform_quotas || {}) as Record<string, number>;
-      setQuotaSplit(Object.keys(pq).length > 0);
-      notify(
-        quotaSplit
-          ? `配额已保存：总额 ${res.daily_quota}，已分配 ${res.allocated ?? Object.values(plats).reduce((a, b) => a + b, 0)}`
-          : `配额已保存：仅总额 ${res.daily_quota}（不限单平台）`,
-        "ok",
-      );
-      await refreshReach();
-    } catch (e) {
-      notify(String(e), "err");
-    } finally {
-      setQuotaBusy(false);
-    }
-  }
-
   function chromeProfilePlatform(name: string): string | undefined {
     const hit = chromeProfiles.find((p) => p.name === name);
     return hit?.platform || undefined;
@@ -1745,23 +2380,6 @@ function App() {
       const res = await api.reachChromeSelect(name, plat);
       if (res.platform) setChromeCreatePlatform(res.platform);
       setReachMsg(`已选配置「${name}」${res.platform ? ` · 平台 ${res.platform}` : ""}`);
-    } catch (e) {
-      notify(String(e), "err");
-    } finally {
-      setChromeBusy(false);
-    }
-  }
-
-  async function reachCreateChromeProfiles() {
-    const count = Math.max(1, Math.min(10, Number(chromeCreateCount) || 1));
-    setChromeBusy(true);
-    try {
-      const res = await api.reachChromeCreate({ platform: chromeCreatePlatform, count });
-      const names = (res.created || []).map((c) => c.name).join("、");
-      setReachMsg(res.note || `已创建 ${res.label || res.platform} ×${res.count}：${names}`);
-      if (res.selected) setChromeSelected(res.selected);
-      await refreshReach();
-      if (res.selected) setChromeSelected(res.selected);
     } catch (e) {
       notify(String(e), "err");
     } finally {
@@ -1807,73 +2425,6 @@ function App() {
       notify(String(e), "err");
     } finally {
       setChromeBusy(false);
-    }
-  }
-
-  async function pollAutoUploadOnce() {
-    try {
-      const st = await api.reachAutoUploadStatus();
-      setAutoUploadPhase(st.phase || "");
-      setAutoUploadMsg(st.message || st.error || "");
-      const active = Boolean(st.active) && !["done", "failed", "cancelled", "idle", "awaiting_confirm", "need_human"].includes(st.phase || "");
-      setAutoUploadBusy(active);
-      if (st.phase === "done" || st.phase === "awaiting_confirm") {
-        setReachMsg(st.message || "自动上传流程结束");
-        await refreshReach();
-      }
-      if (st.phase === "need_human") {
-        setReachMsg(st.message || "需要你在 Chrome 完成验证后再试");
-      }
-      return st;
-    } catch {
-      return null;
-    }
-  }
-
-  async function reachStartAutoUpload(queueId?: number) {
-    if (!chromeSelected) {
-      notify("请先选择 Chrome 本地配置", "err");
-      return;
-    }
-    setAutoUploadBusy(true);
-    setAutoUploadPhase("starting");
-    setAutoUploadMsg("启动中…");
-    try {
-      const plat = chromeProfilePlatform(chromeSelected) || chromeCreatePlatform;
-      await api.reachChromeSelect(chromeSelected, plat);
-      const res = await api.reachAutoUploadStart({
-        chrome_profile: chromeSelected,
-        queue_id: queueId,
-        platform: plat,
-        accept_risk: true,
-        timeout_sec: 300,
-      });
-      setAutoUploadPhase(res.phase || "waiting_login");
-      setAutoUploadMsg(res.message || res.disclaimer || "等待登录就绪…");
-      setReachMsg(res.disclaimer || "已启动：登录就绪后自动上传当前队列项（风控自负）");
-      for (let i = 0; i < 180; i++) {
-        await new Promise((r) => setTimeout(r, 2000));
-        const st = await pollAutoUploadOnce();
-        const phase = st?.phase || "";
-        if (["done", "failed", "cancelled", "need_human", "awaiting_confirm", "idle"].includes(phase)) {
-          break;
-        }
-      }
-      await refreshReach();
-    } catch (e) {
-      notify(String(e), "err");
-      setAutoUploadBusy(false);
-    }
-  }
-
-  async function reachCancelAutoUpload() {
-    try {
-      await api.reachAutoUploadCancel();
-      setAutoUploadBusy(false);
-      setAutoUploadPhase("cancelled");
-      setAutoUploadMsg("已取消");
-    } catch (e) {
-      notify(String(e), "err");
     }
   }
 
@@ -2012,63 +2563,137 @@ function App() {
     }
   }
 
-  const readyOutputs = outputs.filter((o) => {
-    const stateOk = o.state === "ready" || o.state === "review";
-    if (!stateOk) return false;
-    if (reviewFilter === "missing_voice") return !o.has_voice;
-    if (reviewFilter === "missing_sub") return !o.subtitle_burned;
-    if (reviewFilter === "tts_bad") return Boolean(o.tts_noncompliant) || o.tts_compliant === false;
-    return true;
-  });
-  const missingVoiceCount = outputs.filter(
-    (o) => (o.state === "ready" || o.state === "review") && !o.has_voice,
-  ).length;
-  const ttsBadCount = outputs.filter(
-    (o) =>
-      (o.state === "ready" || o.state === "review") &&
-      (Boolean(o.tts_noncompliant) || o.tts_compliant === false),
-  ).length;
+  const openUncertainOutputs = useMemo(
+    () =>
+      outputs.filter(
+        (o) =>
+          o.state === "review" &&
+          (o.review_status == null ||
+            o.review_status === "uncertain" ||
+            o.review_status === "pending"),
+      ),
+    [outputs],
+  );
+  const readyOutputs = useMemo(
+    () =>
+      openUncertainOutputs.filter((o) => {
+        if (reviewFilter === "missing_voice") return !o.has_voice;
+        if (reviewFilter === "missing_sub") return !o.subtitle_burned;
+        if (reviewFilter === "tts_bad") return Boolean(o.tts_noncompliant) || o.tts_compliant === false;
+        return true;
+      }),
+    [openUncertainOutputs, reviewFilter],
+  );
+  const missingVoiceCount = useMemo(
+    () => openUncertainOutputs.filter((o) => !o.has_voice).length,
+    [openUncertainOutputs],
+  );
+  const ttsBadCount = useMemo(
+    () =>
+      openUncertainOutputs.filter(
+        (o) => Boolean(o.tts_noncompliant) || o.tts_compliant === false,
+      ).length,
+    [openUncertainOutputs],
+  );
   const tabLabel = TABS.find(([t]) => t === tab)?.[1] ?? "";
   const engineOn = Boolean(engine?.healthy);
-  const engineHint = engineBusy
-    ? "处理中…"
-    : engineOn
-      ? engine?.bundled
-        ? "一体包 · :8766"
-        : "运行中 · :8766"
-      : engine?.running
-        ? "启动中…"
-        : "已停止";
   const statusSummary = !engineOn
-    ? "引擎离线"
-    : [
-        engine?.bundled ? "一体包" : null,
-        services?.watcher ? "监视" : null,
-        services?.worker ? "Worker" : null,
-        services?.scheduler ? "调度" : null,
-      ]
-        .filter(Boolean)
-        .join(" · ") || "已连接";
+    ? "设备未连接"
+    : health?.runtime_state && health.runtime_state !== "ACTIVE"
+      ? "任务已暂停"
+      : health?.path_health?.ok === false
+        ? "存储位置需检查"
+        : "可正常使用";
   const engineDetail =
     engine?.message ||
     (engine?.python ? `Python: ${engine.python}` : "") ||
     engine?.repo ||
     "";
 
-  const pendingReviewCount = outputs.filter(
-    (o) =>
-      (o.state === "ready" || o.state === "review") &&
-      o.review_status !== "approved" &&
-      o.review_status !== "rejected",
-  ).length;
-  const readyCount = Number(opsReport?.ready ?? report?.ready ?? 0);
-  const runningJobs = jobs.filter((j) => {
-    const s = String(j.status || "");
-    return s === "running" || s === "queued" || s === "pending";
-  }).length;
-  const semanticAnalyzing = Boolean(
-    semanticStatus && (semanticStatus.remaining > 0 || semanticStatus.claimed > 0 || actionBusy === "captions"),
+  const pendingReviewCount = useMemo(
+    () => openUncertainOutputs.length,
+    [openUncertainOutputs],
   );
+  const readyCount = useMemo(
+    () => Number(opsReport?.ready_available ?? report?.ready_available ?? 0),
+    [opsReport, report],
+  );
+  const runningJobs = useMemo(
+    () =>
+      jobs.filter((j) => {
+        const s = String(j.status || "");
+        return s === "running" || s === "queued" || s === "pending";
+      }).length,
+    [jobs],
+  );
+  const remainingProductionCount = useMemo(
+    () => countRemainingProduction(jobs),
+    [jobs],
+  );
+
+  useEffect(() => {
+    const prev = prevRunningJobsRef.current;
+    const currentActiveIds = new Set(
+      jobs
+        .filter((job) => ["running", "queued", "pending"].includes(String(job.status || "")))
+        .map((job) => Number(job.id))
+        .filter(Number.isFinite),
+    );
+    const finishedJobIds = new Set(
+      [...activeJobIdsRef.current].filter((jobId) => !currentActiveIds.has(jobId)),
+    );
+    if (prev !== null && prev !== runningJobs) {
+      setJobsFlash(true);
+      window.clearTimeout(jobsFlashTimerRef.current);
+      jobsFlashTimerRef.current = window.setTimeout(() => setJobsFlash(false), 1200);
+      if (prev > 0 && runningJobs === 0) {
+        const previousIds = new Set(outputs.map((row) => Number(row.id)).filter(Number.isFinite));
+        void api
+          .listOutputs()
+          .then((fresh) => {
+            setOutputs(fresh);
+            const completed = fresh
+              .filter(
+                (row) =>
+                  !notifiedOutputIdsRef.current.has(Number(row.id)) &&
+                  (finishedJobIds.has(Number(row.job_id)) ||
+                    !previousIds.has(Number(row.id))) &&
+                  (row.display_no != null || Boolean(row.display_label)),
+              )
+              .sort((a, b) => Number(a.display_no || 0) - Number(b.display_no || 0));
+            if (!completed.length) {
+              notify("本组任务已结束，未发现新的可用成片，请查看任务结果", "warn", {
+                action: { tab: "produce", section: "tasks", guideTarget: "production-jobs" },
+              });
+              return;
+            }
+            for (const row of completed.slice(-5)) {
+              notifiedOutputIdsRef.current.add(Number(row.id));
+              const label =
+                String(row.display_label || "").trim() ||
+                `#${String(row.display_no).padStart(3, "0")}`;
+              const jobId = Number(row.job_id);
+              notify(`混剪完成 ${label} · 点击查看对应任务`, "ok", {
+                holdMs: 15_000,
+                action: {
+                  tab: "produce",
+                  section: "tasks",
+                  guideTarget: Number.isFinite(jobId) ? `job-row-${jobId}` : "production-jobs",
+                },
+              });
+            }
+          })
+          .catch((reason: unknown) =>
+            notify(`任务已结束，但成片结果刷新失败：${String(reason)}`, "warn", {
+              action: { tab: "produce", section: "tasks", guideTarget: "production-jobs" },
+            }),
+          );
+      }
+    }
+    prevRunningJobsRef.current = runningJobs;
+    activeJobIdsRef.current = currentActiveIds;
+  }, [jobs, runningJobs, notify, outputs]);
+  const semanticRunning = Boolean(semanticStatus && semanticStatus.claimed > 0);
   const semanticPct = semanticStatus
     ? Math.min(
         100,
@@ -2077,73 +2702,162 @@ function App() {
         ),
       )
     : 0;
-  const pathBlocked = Boolean(health && health.path_health && !health.path_health.ok);
-  const pipelineNodes = [
-    { id: "produce" as Tab, label: "生产", count: runningJobs, warn: runningJobs > 0 },
-    {
-      id: "review" as Tab,
-      label: "审片",
-      count: pendingReviewCount,
-      warn: ttsBadCount > 0,
-      blocked: ttsBadCount > 0,
-    },
-    {
-      id: "publish" as Tab,
-      label: "发布",
-      count: readyCount + Number(reachInbox?.unread_count ?? 0),
-      warn: Number(reachInbox?.unread_count ?? 0) > 0,
-    },
-  ];
+  const pathBlocked = Boolean(
+    (health && health.path_health && !health.path_health.ok) ||
+      health?.status === "blocked" ||
+      health?.workspace_state === "missing" ||
+      health?.workspace_state === "mismatch",
+  );
+  const pipelineNodes = useMemo(
+    () => [
+      {
+        id: "produce" as Tab,
+        label: "混剪剩余",
+        count: remainingProductionCount,
+        warn: remainingProductionCount > 0,
+      },
+      {
+        id: "review" as Tab,
+        label: "审片剩余",
+        count: pendingReviewCount,
+        warn: ttsBadCount > 0,
+        blocked: ttsBadCount > 0,
+      },
+      {
+        id: "publish" as Tab,
+        label: "上传剩余",
+        count: readyCount,
+        warn: readyCount > 0,
+      },
+      {
+        id: "data" as Tab,
+        label: "向量剩余",
+        count: vectorPending,
+        warn: vectorPending > 0,
+      },
+      {
+        id: "messages" as Tab,
+        label: "消息待办",
+        count: reachMessageUnread + contentMessageUnread,
+        warn: reachMessageUnread + contentMessageUnread > 0,
+      },
+    ],
+    [
+      contentMessageUnread,
+      pendingReviewCount,
+      reachMessageUnread,
+      readyCount,
+      remainingProductionCount,
+      runningJobs,
+      ttsBadCount,
+      vectorPending,
+    ],
+  );
+
+  async function toggleSemanticMode() {
+    if (!semanticToggleEnabled) {
+      notify("当前机型档位未开放语义按需（lite 请升配或补装视觉包）", "warn");
+      return;
+    }
+    const next = semanticMode === "on_demand" ? "off" : "on_demand";
+    try {
+      await api.updateSettings({ semantic_analysis_mode: next });
+      setSemanticMode(next);
+      notify(next === "on_demand" ? "已开启语义按需" : "已关闭语义按需", "ok");
+      await refreshSemanticStatus();
+    } catch (e) {
+      notify(String(e), "err");
+    }
+  }
+
+  async function toggleSemanticFullBackfill() {
+    if (!semanticToggleEnabled) {
+      notify("当前机型档位未开放严格语义（lite 请升配或补装视觉包）", "warn");
+      return;
+    }
+    const next = !semanticFullBackfill;
+    try {
+      const st = (await api.updateSettings({
+        semantic_full_backfill_enabled: next,
+      })) as Record<string, unknown>;
+      const enabled = st.semantic_full_backfill_enabled === true;
+      setSemanticFullBackfill(enabled);
+      notify(
+        enabled
+          ? "已开启严格语义全库回填（本机 lab，逐步拉高覆盖）"
+          : "已关闭严格语义全库回填",
+        "ok",
+      );
+      await refreshSemanticStatus();
+    } catch (e) {
+      notify(String(e), "err");
+    }
+  }
 
   const activityItems: ActivityItem[] = useMemo(() => {
     const items: ActivityItem[] = [];
     if (!engineOn) items.push({ id: "eng", text: "引擎离线 — 点击启动后开始日更", kind: "err", tab: "overview" });
-    if (pathBlocked) items.push({ id: "path", text: "路径异常，请到设置修复片库/成片目录", kind: "warn", tab: "settings" });
+    if (pathBlocked) {
+      const wsReason =
+        health?.workspace_state === "missing"
+          ? "工作区路径不可用：请回到主盘 ~/Suying/data 或修正路径后点「刷新工作区」"
+          : health?.workspace_state === "mismatch"
+            ? "工作区身份不符：请确认路径与绑定卷一致"
+            : "路径异常，请到设置修复片库/成片目录";
+      items.push({
+        id: "path",
+        text: wsReason,
+        kind: "warn",
+        tab: health?.workspace_state === "missing" || health?.workspace_state === "mismatch" ? "overview" : "settings",
+      });
+    }
     if (runningJobs > 0) items.push({ id: "jobs", text: `生产中：${runningJobs} 个任务进行中`, kind: "info", tab: "produce" });
     if (pendingReviewCount > 0) items.push({ id: "rev", text: `待审片 ${pendingReviewCount} 条，可前往审片`, kind: "info", tab: "review" });
     if (ttsBadCount > 0) items.push({ id: "tts", text: `音色违规 ${ttsBadCount} 条，需批量修复`, kind: "warn", tab: "review" });
-    if (reachMessageUnread > 0) items.push({ id: "msg", text: `平台消息未读 ${reachMessageUnread}`, kind: "warn", tab: "messages" });
-    if (readyCount > 0 && pendingReviewCount === 0) items.push({ id: "ready", text: `待发 Ready ${readyCount}，可去发布`, kind: "ok", tab: "publish" });
-    if (semanticStatus && semanticStatus.remaining > 0) {
+    if (reachMessageUnread > 0) items.push({ id: "msg", text: `视频消息未读 ${reachMessageUnread}`, kind: "warn", tab: "messages" });
+    if (contentMessageUnread > 0) items.push({ id: "cmsg", text: `软文消息未读 ${contentMessageUnread}`, kind: "warn", tab: "messages" });
+    if (readyCount > 0 && pendingReviewCount === 0) items.push({ id: "ready", text: `待发 ${readyCount} 条，可去发布`, kind: "ok", tab: "publish" });
+    if (semanticStatus && semanticRunning) {
       items.push({
         id: "sem",
-        text: `语义分析剩余 ${semanticStatus.remaining}（进度 ${semanticPct}%）`,
+        text: `候选片段正在进行 9B 按需验证（严格覆盖 ${semanticPct}%）`,
         kind: "info",
         tab: "produce",
       });
     }
     if (!items.length) items.push({ id: "idle", text: "产线空闲 · 可从生产开跑或检查日历", kind: "ok", tab: "produce" });
     return items;
-  }, [engineOn, pathBlocked, runningJobs, pendingReviewCount, ttsBadCount, reachMessageUnread, readyCount, semanticStatus, semanticPct]);
+  }, [engineOn, pathBlocked, health, runningJobs, pendingReviewCount, ttsBadCount, reachMessageUnread, contentMessageUnread, readyCount, semanticStatus, semanticPct, semanticRunning]);
 
   const cmdExtra: CmdItem[] = [
     {
-      id: "assistant-open",
-      label: "打开助手",
-      run: () => setAssistantOpen(true),
+      id: "backup-center",
+      label: "数据保护与备份",
+      run: () => goTab("ops", { ops: "backup", guideTarget: "ops-backups" }),
     },
     {
-      id: "engine-toggle",
-      label: engineOn ? "停止引擎" : "启动引擎",
-      run: () => {
-        void onEngineToggle();
-      },
+      id: "operation-logs",
+      label: "运行日志",
+      run: () => goTab("ops", { ops: "logs", guideTarget: "operation-logs" }),
     },
     {
-      id: "refresh",
-      label: "刷新全部数据",
-      run: () => {
-        void refreshAll();
-      },
+      id: "published-cleanup",
+      label: "已发布视频保留",
+      run: () =>
+        goTab("settings", {
+          settings: "storage",
+          guideTarget: "settings-published-cleanup",
+        }),
     },
     {
-      id: "density",
-      label: layout.pref === "compact" ? "布局：舒适" : layout.pref === "comfort" ? "布局：自动" : "布局：紧凑",
-      run: () => {
-        const order: LayoutDensityPref[] = ["auto", "comfort", "compact"];
-        const i = order.indexOf(layout.pref);
-        layout.setPref(order[(i + 1) % order.length]!);
-      },
+      id: "advanced-settings",
+      label: "高级功能",
+      run: () => goTab("ops", { ops: "advanced", guideTarget: "ops-advanced" }),
+    },
+    {
+      id: "rule-history",
+      label: "规则版本与文字生成",
+      run: () => goTab("rules", { guideTarget: "rule-history" }),
     },
     {
       id: "shortcuts",
@@ -2154,7 +2868,7 @@ function App() {
           title: "快捷键",
           body:
             "⌘/Ctrl+K  命令面板\n" +
-            "1–7       切换七个页签\n" +
+            "1–9       切换九个页签\n" +
             "审片页：J/K 上下条 · A 通过 · R 重渲 · F 影院\n" +
             "?         打开本说明",
           confirmLabel: "知道了",
@@ -2180,7 +2894,7 @@ function App() {
             title: "快捷键",
             body:
               "⌘/Ctrl+K  命令面板\n" +
-              "1–7       切换七个页签\n" +
+              "1–9       切换九个页签\n" +
               "审片页：J/K 上下条 · A 通过 · R 重渲 · F 影院\n" +
               "?         打开本说明",
             confirmLabel: "知道了",
@@ -2196,7 +2910,7 @@ function App() {
         tag === "SELECT" ||
         (e.target as HTMLElement)?.isContentEditable;
       if (typing || cmdOpen || dialog) return;
-      if (e.key >= "1" && e.key <= "7") {
+      if (e.key >= "1" && e.key <= String(TABS.length)) {
         const idx = Number(e.key) - 1;
         if (TABS[idx]) {
           e.preventDefault();
@@ -2217,7 +2931,12 @@ function App() {
         }
         if ((e.key === "a" || e.key === "A") && cur) {
           e.preventDefault();
-          void decideReview(cur, "approved");
+          const row = readyOutputs.find((o) => Number(o.id) === cur);
+          if (row?.ready_gate_ok === true) {
+            void decideReview(cur, "approved");
+          } else {
+            notify("门禁未证，不能快捷通过；请点「重验门禁」", "warn");
+          }
         }
         if ((e.key === "r" || e.key === "R") && cur) {
           e.preventDefault();
@@ -2246,129 +2965,70 @@ function App() {
       badges={{
         review: pendingReviewCount,
         publish: Number(reachInbox?.unread_count ?? 0),
-        messages: reachMessageUnread,
+        messages: reachMessageUnread + contentMessageUnread,
       }}
       brandSlot={
         <div className="brand-mark">
-          <h1 className="brand-name">速影</h1>
+          <h1 className="brand-name">速影 Studio</h1>
           <span className="brand-ver">SUYING</span>
         </div>
       }
       railFoot={
         <div className="rail-foot">
-          <div className="rail-power">
-            <button
-              type="button"
-              className={`toggle toggle--rail${engineOn ? " on" : ""}${engineBusy ? " is-busy" : ""}`}
-              role="switch"
-              aria-checked={engineOn}
-              disabled={engineBusy}
-              title={engineOn ? "停止引擎（关 App 不会杀引擎）" : `启动本地混剪引擎\n${engineDetail}`}
-              onClick={() => onEngineToggle().catch((e) => notify(String(e), "err"))}
-            >
-              <span className="toggle-track" aria-hidden="true">
-                <span className="toggle-thumb" />
-              </span>
-              <span className="toggle-label">
-                <span className="toggle-title">引擎</span>
-                <span className="toggle-state">{engineHint}</span>
-              </span>
-            </button>
-          </div>
           <div className="foot-label">
-            <span>系统状态</span>
+            <span>运行状态</span>
             <span title={engineDetail}>{statusSummary}</span>
           </div>
           <div className="rail-health">
             <div className="rail-health-row">
               <span className={`health-dot ${engineOn ? "ok" : engineBusy || engine?.running ? "warn" : "err"}`} />
-              引擎 {engineOn ? "在线" : engineBusy || engine?.running ? "启动中" : "离线"}
+              {engineOn ? "设备正常" : engineBusy || engine?.running ? "正在启动" : "需要检查"}
             </div>
-            {engineOn && !layout.isCompact ? (
-              <>
-                <div className="rail-health-row">
-                  <span className={`health-dot ${services?.watcher ? "ok" : "warn"}`} />
-                  监视 {services?.watcher ? "开" : "停"}
-                </div>
-                <div className="rail-health-row">
-                  <span className={`health-dot ${services?.worker ? "ok" : "warn"}`} />
-                  Worker {services?.worker ? "开" : "停"}
-                </div>
-                <div className="rail-health-row">
-                  <span className={`health-dot ${vectorization ? "ok" : "warn"}`} />
-                  向量化 {vectorization ? "开" : "关"}
-                </div>
-              </>
+            {health?.runtime_state && health.runtime_state !== "ACTIVE" ? (
+              <div className="rail-health-row">
+                <span className={`health-dot ${health.runtime_state === "PAUSED_BLOCKED" ? "err" : "warn"}`} />
+                {health.runtime_state === "PAUSED_BLOCKED" ? "等待处理" : "已暂停"}
+              </div>
             ) : null}
           </div>
-          <div className="rail-port" title={engine?.python || ""}>
-            :8766 · LOCAL
-          </div>
+          <button type="button" onClick={() => goTab("ops", { ops: "health" })}>
+            查看设备状态
+          </button>
         </div>
       }
       topbarTitle={
         <>
           <h2>{tabLabel}</h2>
           <span>
-            {TAB_BLURB[tab]} · {customerName || "未选择客户"} · 布局{" "}
-            {layout.pref === "auto" ? "自动" : layout.pref === "comfort" ? "舒适" : "紧凑"}
+            {TAB_BLURB[tab]} · {customerName || "未选择客户"}
           </span>
         </>
       }
       topbarActions={
         <>
           <div className="pulse-bar" aria-label="实时脉冲">
-            <button type="button" className="pulse-chip" onClick={() => goTab("publish", { publish: "desk" })}>
-              Ready {readyCount}
+            <button
+              type="button"
+              className={`pulse-chip${jobsFlash ? " pulse-chip--flash" : ""}`}
+              onClick={() => goTab("produce")}
+            >
+              生产 {runningJobs}
             </button>
-            <button type="button" className="pulse-chip" onClick={() => goTab("produce")}>
-              任务 {runningJobs}
-            </button>
-            {semanticStatus && semanticStatus.eligible > 0 ? (
-              <button
-                type="button"
-                className={`pulse-chip${semanticAnalyzing ? " pulse-chip--live" : ""}`}
-                onClick={() => goTab("produce", { produce: "assets" })}
-                title={`语义分析 ${semanticPct}%`}
-              >
-                分析 {semanticPct}%
-              </button>
-            ) : null}
             <button type="button" className="pulse-chip" onClick={() => goTab("review")}>
-              TTS {ttsBadCount}
+              待审 {pendingReviewCount}
+            </button>
+            <button type="button" className="pulse-chip" onClick={() => goTab("publish", { publish: "desk" })}>
+              待发 {readyCount}
+            </button>
+            <button type="button" className="pulse-chip" onClick={() => goTab("messages")}>
+              消息 {reachMessageUnread + contentMessageUnread}
+            </button>
+            <button type="button" className="pulse-chip" onClick={() => goTab("ops", { ops: "ai" })}>
+              向量待处理 {vectorPending}
             </button>
           </div>
-          <NextActionPill
-            engineOn={engineOn}
-            engineBusy={engineBusy}
-            health={health}
-            engine={engine}
-            readyCount={readyCount}
-            pendingReview={pendingReviewCount}
-            ttsBad={ttsBadCount}
-            runningJobs={runningJobs}
-            hasTodayPlan={Boolean(todayPlan)}
-            onStartEngine={() => {
-              void onEngineToggle();
-            }}
-            onSetTab={goTab}
-          />
-          <button type="button" title="助手" onClick={() => setAssistantOpen(true)}>
-            <Bot size={16} aria-hidden /> 助手
-          </button>
           <button type="button" title="命令面板 ⌘K" onClick={() => setCmdOpen(true)}>
             ⌘K
-          </button>
-          <button
-            type="button"
-            title="布局密度"
-            onClick={() => {
-              const order: LayoutDensityPref[] = ["auto", "comfort", "compact"];
-              const i = order.indexOf(layout.pref);
-              layout.setPref(order[(i + 1) % order.length]!);
-            }}
-          >
-            {layout.pref === "auto" ? "自动" : layout.pref === "comfort" ? "舒适" : "紧凑"}
           </button>
           <label className="field-inline">
             客户
@@ -2387,49 +3047,32 @@ function App() {
         </>
       }
     >
-      {(flash || error) && (
-        <div
-          className={`banner ${flash ? (flash.kind === "err" ? "error" : flash.kind) : "error"}`}
-          role="status"
-          aria-live="polite"
-        >
-          <span className="banner-text">{flash?.text || error}</span>
-          {flash?.actionLabel && flash.actionTab ? (
-            <button
-              type="button"
-              className="banner-action"
-              onClick={() => {
-                goTab(flash.actionTab!);
-                setFlash(null);
-              }}
-            >
-              {flash.actionLabel}
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="banner-dismiss"
-            aria-label="关闭提示"
-            onClick={() => {
-              setFlash(null);
-              if (!flash) setError("");
-              else if (flash.kind === "err") setError("");
-            }}
-          >
-            ×
-          </button>
-        </div>
-      )}
-      {!vectorization && health && (
-        <div className="banner warn">
-          向量化尚未开启。入库只会做规范化；语义检索与自动增量补索引需在「运维」手动开启（不会整库重算）。
-        </div>
-      )}
+      <AppNotifyHub
+        toasts={toasts}
+        celebration={celebration}
+        banner={banner}
+        onDismissToast={dismissToast}
+        onDismissCelebration={dismissCelebration}
+        onDismissBanner={dismissBanner}
+        onAction={(target: NotifyTarget) => {
+          if (target.outputId && target.tab === "review") {
+            setReviewFocusId(target.outputId);
+          }
+          goTab(target.tab, {
+            section: target.section,
+            guideTarget: target.guideTarget,
+          });
+        }}
+      />
       {!engineOn && !engineBusy && (
         <div className="banner warn engine-offline-banner">
-          <span>引擎离线 — 生产、扫描与审片同步需先启动引擎。</span>
-          <button type="button" className="primary" onClick={() => void onEngineToggle()}>
-            启动引擎
+          <span>
+            {engine?.control_plane || engine?.listen
+              ? `${offlineClassLabel(engine)}${engine?.offline_detail ? `：${engine.offline_detail}` : "。生产和审片暂不可用。"}`
+              : `${offlineClassLabel(engine)}${engine?.offline_detail ? `：${engine.offline_detail}` : "，生产和审片暂不可用。"}`}
+          </span>
+          <button type="button" className="primary" onClick={() => goTab("ops", { ops: "services" })}>
+            去设备服务
           </button>
         </div>
       )}
@@ -2460,18 +3103,19 @@ function App() {
       )}
 
       <main className="panel">
-        {tab === "overview" && (
-          <OverviewPage
+        {mountedTabs.includes("overview") && (
+          <div className="tab-pane" hidden={tab !== "overview"} aria-hidden={tab !== "overview"}>
+            <OverviewPage
             pipelineNodes={pipelineNodes}
             pathBlocked={pathBlocked}
+            active={tab === "overview"}
             setTab={goTab}
             refreshAll={refreshAll}
             report={report}
             opsReport={opsReport}
             assets={assets}
-            reachQuota={reachQuota}
+            recentOutputs={outputs}
             health={health}
-            services={services}
             todayPlan={todayPlan}
             actionBusy={actionBusy}
             setActionBusy={setActionBusy}
@@ -2480,14 +3124,30 @@ function App() {
             autoHour={autoHour}
             setShowWizard={setShowWizard}
             activityItems={activityItems}
-          />
+            workspacePhase={workspacePhase}
+            workspaceMessage={workspaceMessage}
+            workspaceError={workspaceError}
+            workspaceProbe={workspaceProbe}
+            workspacePrefs={workspacePrefs}
+            workspaceBusy={workspaceBusy}
+            onWorkspaceToggleAuto={(v) => void onWorkspaceToggleAuto(v)}
+            onWorkspaceSyncNow={() => void runWorkspaceSync("manual")}
+            />
+          </div>
         )}
-        {tab === "produce" && (
-          <ProductionPage
+        {mountedTabs.includes("produce") && (
+          <div className="tab-pane" hidden={tab !== "produce"} aria-hidden={tab !== "produce"}>
+            <ProductionPage
             workspace={produceWorkspace}
             onWorkspaceChange={setProduceWorkspace}
             setTab={goTab}
             customerName={customerName}
+            activeCustomerId={activeCustomerId}
+            productionOrientation={productionOrientation}
+            setProductionOrientation={(value) => {
+              setProductionOrientation(value);
+              setJobRuleProfileId(null);
+            }}
             brandLogo={brandLogo}
             brandBusy={brandBusy}
             saveBrandLogo={saveBrandLogo}
@@ -2496,14 +3156,25 @@ function App() {
             setTheme={setTheme}
             category={category}
             setCategory={setCategory}
+            assetCategory={assetCategory}
+            setAssetCategory={setAssetCategory}
+            topicMode={topicMode}
+            setTopicMode={setTopicMode}
+            topicClusterIds={topicClusterIds}
+            setTopicClusterIds={setTopicClusterIds}
+            topicEvidenceIds={topicEvidenceIds}
+            setTopicEvidenceIds={setTopicEvidenceIds}
             targetCount={targetCount}
             setTargetCount={setTargetCount}
             actionBusy={actionBusy}
             setActionBusy={setActionBusy}
             runDryRun={runDryRun}
             createJob={createJob}
+            createJobQuick={createJobQuick}
+            createSceneTourJob={createSceneTourJob}
             dryResult={dryResult}
             jobs={jobs}
+            outputs={outputs}
             refreshAll={refreshAll}
             calDay={calDay}
             setCalDay={setCalDay}
@@ -2517,13 +3188,74 @@ function App() {
             askConfirm={askConfirm}
             calendar={calendar}
             semanticStatus={semanticStatus}
-            runSemanticBatch={runSemanticBatch}
             assets={assets}
-            vectorization={vectorization}
-          />
+            jobRuleProfileId={jobRuleProfileId}
+            setJobRuleProfileId={setJobRuleProfileId}
+            activeRuleSummary={activeRuleSummary}
+            ruleRotation={ruleRotation}
+            onRuleRotationChange={(enabled) => {
+              const prev = ruleRotation;
+              setRuleRotation(enabled);
+              void api
+                .productionRulesSetRotationPolicy(enabled)
+                .then(() => refreshAll())
+                .catch((e: unknown) => {
+                  setRuleRotation(prev);
+                  notify(String(e), "err");
+                });
+            }}
+            rotationPoolCount={rotationPoolCount}
+            ruleOptions={ruleOptions}
+            pathHealthOk={health?.path_health?.ok !== false}
+            pathHealthErrors={health?.path_health?.errors || []}
+            onOpenJobOutput={({ outputId, needsReview, jobId }) => {
+              if (outputId) {
+                setReviewFocusId(outputId);
+                goTab(needsReview ? "review" : "publish", {
+                  publish: needsReview ? undefined : "desk",
+                  guideTarget: needsReview
+                    ? `review-output-${outputId}`
+                    : `publish-output-${outputId}`,
+                });
+              } else {
+                goTab("produce", {
+                  produce: "tasks",
+                  guideTarget: `job-row-${jobId}`,
+                });
+              }
+            }}
+            />
+          </div>
         )}
-        {tab === "review" && (
-          <ReviewPage
+        {mountedTabs.includes("rules") && (
+          <div className="tab-pane" hidden={tab !== "rules"} aria-hidden={tab !== "rules"}>
+            <section className="page-stack rules-page">
+              <VideoRuleWorkbench
+                notify={notify}
+                activeCustomerId={activeCustomerId}
+                customerName={customerName}
+                orientation={productionOrientation}
+                onOrientationChange={(value) => {
+                  setProductionOrientation(value);
+                  setJobRuleProfileId(null);
+                }}
+                pickFile={pickFile}
+                languages={langCatalog}
+                selectedRuleId={jobRuleProfileId}
+                onSelectedRuleIdChange={setJobRuleProfileId}
+                onGoTasks={() => goTab("produce", { produce: "tasks" })}
+                runDryRunWithRule={(id) => {
+                  setJobRuleProfileId(id);
+                  goTab("produce", { produce: "tasks", guideTarget: "production-create" });
+                }}
+              />
+            </section>
+          </div>
+        )}
+        {mountedTabs.includes("review") && (
+          <div className="tab-pane" hidden={tab !== "review"} aria-hidden={tab !== "review"}>
+            <ReviewPage
+            active={tab === "review"}
             setTab={goTab}
             readyOutputs={readyOutputs}
             cinemaMode={cinemaMode}
@@ -2549,10 +3281,12 @@ function App() {
             reviewBusyId={reviewBusyId}
             decideReview={decideReview}
             rerenderOnly={rerenderOnly}
-          />
+            />
+          </div>
         )}
-        {tab === "publish" && (
-          <PublishPage
+        {mountedTabs.includes("publish") && (
+          <div className="tab-pane" hidden={tab !== "publish"} aria-hidden={tab !== "publish"}>
+            <PublishPage
             workspace={publishWorkspace}
             onWorkspaceChange={setPublishWorkspace}
             setTab={goTab}
@@ -2560,19 +3294,7 @@ function App() {
             refreshAll={refreshAll}
             outputs={outputs}
             mediaEpoch={mediaEpoch}
-            voiceLang={voiceLang}
-            setVoiceLang={setVoiceLang}
-            subtitleLang={subtitleLang}
-            setSubtitleLang={setSubtitleLang}
-            subtitleBurn={subtitleBurn}
-            setSubtitleBurn={setSubtitleBurn}
-            dualSecondaryLang={dualSecondaryLang}
-            setDualSecondaryLang={setDualSecondaryLang}
-            langCatalog={langCatalog}
-            exprSaveBusy={exprSaveBusy}
-            exprDirty={exprDirty}
             activeCustomerId={activeCustomerId}
-            saveExpressionPrefs={saveExpressionPrefs}
             packLast={packLast}
             packBusyId={packBusyId}
             exportPack={exportPack}
@@ -2580,16 +3302,7 @@ function App() {
             reachInbox={reachInbox}
             reachItems={reachItems}
             reachMessageAccounts={reachMessageAccounts}
-            reachQuota={reachQuota}
-            quotaTotal={quotaTotal}
-            setQuotaTotal={setQuotaTotal}
-            quotaSplit={quotaSplit}
-            setQuotaSplit={setQuotaSplit}
-            quotaByPlatform={quotaByPlatform}
-            setQuotaByPlatform={setQuotaByPlatform}
-            quotaBusy={quotaBusy}
             reachPlatforms={reachPlatforms}
-            saveReachQuota={saveReachQuota}
             coverTemplates={coverTemplates}
             coverEditId={coverEditId}
             coverSelectedId={coverSelectedId}
@@ -2608,25 +3321,15 @@ function App() {
             coverDeleteTemplate={coverDeleteTemplate}
             coverSetSlot={coverSetSlot}
             coverPreviewResolve={coverPreviewResolve}
-            chromeCreatePlatform={chromeCreatePlatform}
-            setChromeCreatePlatform={setChromeCreatePlatform}
-            chromeCreateCount={chromeCreateCount}
-            setChromeCreateCount={setChromeCreateCount}
             chromeBusy={chromeBusy}
-            reachCreateChromeProfiles={reachCreateChromeProfiles}
             chromeSelected={chromeSelected}
             reachSelectChromeProfile={reachSelectChromeProfile}
             chromeProfiles={chromeProfiles}
             chromeInstalled={chromeInstalled}
             reachOpenChromeProfile={reachOpenChromeProfile}
             reachBindMessageAccount={reachBindMessageAccount}
-            autoUploadBusy={autoUploadBusy}
-            reachStartAutoUpload={reachStartAutoUpload}
-            reachCancelAutoUpload={reachCancelAutoUpload}
             refreshReach={refreshReach}
             chromeRoot={chromeRoot}
-            autoUploadPhase={autoUploadPhase}
-            autoUploadMsg={autoUploadMsg}
             reachPackDir={reachPackDir}
             setReachPackDir={setReachPackDir}
             queueBusy={queueBusy}
@@ -2634,11 +3337,12 @@ function App() {
             reachMsg={reachMsg}
             reachOpenItem={reachOpenItem}
             reachMarkPublished={reachMarkPublished}
-          />
+            />
+          </div>
         )}
-        {tab === "messages" && (
-          <MessagesPage
-            setTab={goTab}
+        {mountedTabs.includes("messages") && (
+          <div className="tab-pane" hidden={tab !== "messages"} aria-hidden={tab !== "messages"}>
+            <MessagesPage
             accounts={reachMessageAccounts}
             messages={reachMessages}
             unreadCount={reachMessageUnread}
@@ -2651,18 +3355,47 @@ function App() {
             onOpen={reachMessageOpen}
             onRead={reachMessageRead}
             onToggleAccount={reachMessageToggleAccount}
+            onCreateAccount={reachMessageCreateAccount}
+            onOpenAccount={reachMessageOpenAccount}
+            onDeleteAccount={reachMessageDeleteAccount}
+            onQueryChange={(query) => void refreshReachMessages(false, query)}
+            onReadAll={reachMessagesReadAll}
             onEnableNotifications={enableReachNotifications}
             onSaveNtfy={saveReachNtfy}
             onTestNtfy={testReachNtfy}
-          />
+            onSuggestReplies={suggestReplyDrafts}
+            replyDrafts={replyDrafts}
+            replyDraftMessageId={replyDraftMessageId}
+            onCopyReplyDraft={copyReplyDraft}
+            contentAccounts={contentMessageAccounts}
+            contentMessages={contentMessages}
+            contentUnreadCount={contentMessageUnread}
+            contentStatus={contentMessageStatus}
+            contentBusy={contentMessageBusy}
+            onContentScan={contentMessageScanStart}
+            onContentCancel={contentMessageScanCancel}
+            onContentOpen={contentMessageOpen}
+            onContentPreview={contentMessagePreview}
+            onContentToggleAccount={contentMessageToggleAccount}
+            onContentCreateAccount={contentMessageCreateAccount}
+            onContentOpenAccount={contentMessageOpenAccount}
+            onContentDeleteAccount={contentMessageDeleteAccount}
+            onContentQueryChange={(query) => void refreshContentMessages(query)}
+            onContentReadAll={contentMessagesReadAll}
+            onContentSuggestReplies={suggestContentReplyDrafts}
+            contentReplyDrafts={contentReplyDrafts}
+            contentReplyDraftMessageId={contentReplyDraftMessageId}
+            onContentCopyReplyDraft={copyContentReplyDraft}
+            />
+          </div>
         )}
-        {tab === "data" && (
-          <DataCenterPage
+        {mountedTabs.includes("data") && (
+          <div className="tab-pane" hidden={tab !== "data"} aria-hidden={tab !== "data"}>
+            <DataCenterPage
             setTab={goTab}
             report={report}
             opsReport={opsReport}
             assets={assets}
-            reachQuota={reachQuota}
             semanticStatus={semanticStatus}
             titlePoolSummary={titlePoolSummary}
             events={events}
@@ -2670,14 +3403,17 @@ function App() {
             refreshAll={refreshAll}
             activeCustomerId={activeCustomerId}
             setTitlePoolSummary={setTitlePoolSummary}
-          />
+            />
+          </div>
         )}
-        {tab === "ops" && (
-          <OpsPage
+        {mountedTabs.includes("ops") && (
+          <div className="tab-pane" hidden={tab !== "ops"} aria-hidden={tab !== "ops"}>
+            <OpsPage
             section={opsSection}
             onSectionChange={setOpsSection}
             setTab={goTab}
             notify={notify}
+            askConfirm={askConfirm}
             refreshAll={refreshAll}
             actionBusy={actionBusy}
             setActionBusy={setActionBusy}
@@ -2691,12 +3427,7 @@ function App() {
             setOllamaNarrationEmoji={setOllamaNarrationEmoji}
             ollamaNarrationModel={ollamaNarrationModel}
             setOllamaNarrationModel={setOllamaNarrationModel}
-            vectorization={vectorization}
-            enableVectorization={enableVectorization}
-            disableVectorization={disableVectorization}
             health={health}
-            semanticStatus={semanticStatus}
-            runSemanticBatch={runSemanticBatch}
             syncStatus={syncStatus}
             setSyncStatus={setSyncStatus}
             syncDryRunBusy={syncDryRunBusy}
@@ -2706,10 +3437,30 @@ function App() {
             services={services}
             setServices={setServices}
             events={events}
-          />
+            semanticMode={semanticMode}
+            semanticToggleEnabled={semanticToggleEnabled}
+            semanticFullBackfill={semanticFullBackfill}
+            semanticPct={semanticPct}
+            onToggleSemanticMode={() => void toggleSemanticMode()}
+            onToggleSemanticFullBackfill={() => void toggleSemanticFullBackfill()}
+            engineOn={engineOn}
+            engineBusy={engineBusy}
+            onEngineToggle={() => void onEngineToggle()}
+            onLogNavigate={(target) => {
+              if (target.outputId) {
+                setReviewFocusId(target.outputId);
+              }
+              goTab(target.tab, {
+                produce: target.tab === "produce" ? "tasks" : undefined,
+                guideTarget: target.guideTarget,
+              });
+            }}
+            />
+          </div>
         )}
-        {tab === "settings" && (
-          <SettingsPage
+        {mountedTabs.includes("settings") && (
+          <div className="tab-pane" hidden={tab !== "settings"} aria-hidden={tab !== "settings"}>
+            <SettingsPage
             section={settingsSection}
             onSectionChange={setSettingsSection}
             setTab={goTab}
@@ -2718,17 +3469,6 @@ function App() {
             refreshAll={refreshAll}
             actionBusy={actionBusy}
             setActionBusy={setActionBusy}
-            cursorApiKeyInput={cursorApiKeyInput}
-            setCursorApiKeyInput={setCursorApiKeyInput}
-            cursorKeyConfigured={cursorKeyConfigured}
-            cursorKeyHint={cursorKeyHint}
-            saveCursorApiKey={saveCursorApiKey}
-            verifyCursorApiKey={verifyCursorApiKey}
-            clearCursorApiKey={clearCursorApiKey}
-            autoDaily={autoDaily}
-            setAutoDaily={setAutoDaily}
-            autoHour={autoHour}
-            setAutoHour={setAutoHour}
             libraryRoot={libraryRoot}
             setLibraryRoot={setLibraryRoot}
             libraryRootsText={libraryRootsText}
@@ -2781,57 +3521,16 @@ function App() {
               setPasswordStatus(next);
               notify("高级配置已锁定", "ok");
             }}
-            onCreatePassword={async (password) => {
-              const next = await settingsPasswordCreate(password);
-              setPasswordStatus(next);
-              notify("高级密码已创建并解锁", "ok");
-            }}
-            onChangePassword={async (oldPassword, newPassword) => {
-              const next = await settingsPasswordChange(oldPassword, newPassword);
-              setPasswordStatus(next);
-              notify("高级密码已修改", "ok");
-            }}
-          />
+            />
+          </div>
         )}
       </main>
     </AppShell>
 
-    {assistantOpen ? (
-      <>
-        <div className="assistant-drawer-backdrop" onClick={() => setAssistantOpen(false)} />
-        <div className="assistant-drawer" role="dialog" aria-label="助手">
-          <div className="panel-head" style={{ padding: "12px 14px" }}>
-            <h2>助手</h2>
-            <button type="button" onClick={() => setAssistantOpen(false)}>
-              关闭
-            </button>
-          </div>
-          <div style={{ flex: 1, minHeight: 0 }}>
-            <AssistantChat
-              notify={notify}
-              keyConfigured={cursorKeyConfigured}
-              onGoOps={() => {
-                setAssistantOpen(false);
-                goTab("settings", { settings: "customer" });
-              }}
-              onConfirmReset={() =>
-                askConfirm({
-                  title: "开启新对话",
-                  body: "当前会话上下文将清空。确定？",
-                  confirmLabel: "开启新对话",
-                  danger: true,
-                })
-              }
-            />
-          </div>
-        </div>
-      </>
-    ) : null}
 
       <CommandPalette
         open={cmdOpen}
         onClose={() => setCmdOpen(false)}
-        onSetTab={goTab}
         extra={cmdExtra}
       />
       {dialog?.mode === "confirm" ? (

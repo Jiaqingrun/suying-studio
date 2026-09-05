@@ -23,4 +23,4 @@ npm run package:mac
 - 桌面 `速影-<版本>-macos-<架构>/` 交付夹（App + DMG + 安装说明 + SHA256）
 - 桌面 `速影-<版本>-macos-<架构>.zip`（方便私发）
 
-引擎仍由本机 `montage-studio` 提供（见安装说明 / `SUYING_ROOT`）。
+引擎仍由本机 `~/QR/dev/速影` 提供（见安装说明 / `SUYING_ROOT`）。

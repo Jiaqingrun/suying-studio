@@ -2,9 +2,7 @@ import type { SemanticBackfillStatus } from "./types";
 
 type Props = {
   status: SemanticBackfillStatus | null;
-  busy?: boolean;
   compact?: boolean;
-  onRunBatch?: (limit: number) => void;
 };
 
 function pct(status: SemanticBackfillStatus): number {
@@ -12,7 +10,7 @@ function pct(status: SemanticBackfillStatus): number {
   return Math.min(100, Math.round((status.processed / total) * 100));
 }
 
-export function SemanticAnalysisProgress({ status, busy, compact, onRunBatch }: Props) {
+export function SemanticAnalysisProgress({ status, compact }: Props) {
   if (!status) {
     return (
       <div className={`semantic-progress ${compact ? "semantic-progress--compact" : ""}`}>
@@ -21,31 +19,43 @@ export function SemanticAnalysisProgress({ status, busy, compact, onRunBatch }: 
     );
   }
 
-  const active = status.remaining > 0 || status.claimed > 0 || Boolean(busy);
+  const running = status.claimed > 0;
+  const onDemand = status.mode === "on_demand" && !status.full_backfill_enabled;
+  const fullSweep = Boolean(status.full_backfill_enabled);
   const done = status.remaining <= 0 && status.claimed <= 0 && status.eligible > 0;
   const percent = pct(status);
   const rejectRate =
     status.processed > 0 ? Math.round((status.rejected / status.processed) * 100) : 0;
+  const label = running
+    ? "验证中"
+    : fullSweep
+      ? "全库回填"
+      : onDemand
+        ? "按需模式"
+        : done
+          ? "已完成"
+          : "已暂停";
 
   if (compact) {
     return (
       <div className="semantic-progress semantic-progress--compact" aria-live="polite">
         <div className="semantic-progress-head">
-          <span className={`health-dot ${active ? "pulse" : done ? "ok" : "warn"}`} />
+          <span className={`health-dot ${running ? "pulse" : onDemand || done ? "ok" : "warn"}`} />
           <span className="semantic-progress-title">
-            语义分析 {active ? "进行中" : done ? "已完成" : "待跑"}
+            语义分析{" "}
+            {running ? "验证中" : fullSweep ? "全库回填" : onDemand ? "按需" : done ? "已完成" : "已暂停"}
           </span>
           <span className="semantic-progress-pct">{percent}%</span>
         </div>
         <div className="semantic-progress-bar" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
           <div
-            className={`semantic-progress-fill${active ? " is-active" : ""}`}
+            className={`semantic-progress-fill${running ? " is-active" : ""}`}
             style={{ width: `${percent}%` }}
           />
         </div>
         <p className="semantic-progress-meta">
           通过 {status.passed} · 拒绝 {status.rejected}
-          {status.remaining > 0 ? ` · 待处理 ${status.remaining}` : ""}
+          {status.remaining > 0 ? ` · 未严格验证 ${status.remaining}` : ""}
           {status.claimed > 0 ? ` · 处理中 ${status.claimed}` : ""}
         </p>
       </div>
@@ -58,8 +68,8 @@ export function SemanticAnalysisProgress({ status, busy, compact, onRunBatch }: 
         <h3 className="section-title" style={{ margin: 0 }}>
           语义分析进度
         </h3>
-        <span className={`semantic-badge${active ? " semantic-badge--active" : ""}`}>
-          {active ? "分析中" : done ? "已完成" : status.eligible > 0 ? "可继续" : "无待分析"}
+        <span className={`semantic-badge${running ? " semantic-badge--active" : ""}`}>
+          {label}
         </span>
       </div>
       <div
@@ -70,7 +80,7 @@ export function SemanticAnalysisProgress({ status, busy, compact, onRunBatch }: 
         aria-valuemax={100}
       >
         <div
-          className={`semantic-progress-fill${active ? " is-active" : ""}`}
+          className={`semantic-progress-fill${running ? " is-active" : ""}`}
           style={{ width: `${percent}%` }}
         />
       </div>
@@ -80,27 +90,18 @@ export function SemanticAnalysisProgress({ status, busy, compact, onRunBatch }: 
         </span>
         <span>合规 {status.passed}</span>
         <span>拒绝 {status.rejected}</span>
-        <span>待处理 {status.remaining}</span>
+        <span>未严格验证 {status.remaining}</span>
         {status.claimed > 0 ? <span>占用 {status.claimed}</span> : null}
         {status.processed > 0 ? <span>拒绝率 {rejectRate}%</span> : null}
         {status.last_cursor != null ? <span>游标 #{status.last_cursor}</span> : null}
       </div>
-      {onRunBatch ? (
-        <div className="actions" style={{ marginTop: 12 }}>
-          <button
-            type="button"
-            className="primary"
-            disabled={Boolean(busy) || active}
-            onClick={() => onRunBatch(10)}
-          >
-            {busy ? "提交中…" : active ? "分析进行中…" : "运行一批（10 条）"}
-          </button>
-          <button type="button" disabled={Boolean(busy) || active} onClick={() => onRunBatch(20)}>
-            20 条
-          </button>
-          <span className="hint">9B 快筛 → 27B 升级；严格 semantic v1 门禁</span>
-        </div>
-      ) : null}
+      <p className="hint" style={{ marginTop: 12 }}>
+        {fullSweep
+          ? "严格语义全库回填已开启：引擎按批用 9B 将粗标升级为 semantic.v1（本机 lab，不改客户机默认）。"
+          : onDemand
+            ? "全库回填已停止；普通生产直接使用粗索引，仅对入选候选按需执行 9B 单次验证。"
+            : "严格语义全库回填未运行。"}
+      </p>
     </section>
   );
 }

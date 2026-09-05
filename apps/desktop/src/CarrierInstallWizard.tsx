@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
+import type { InstallPlan } from "./types";
 
-type Step = "zspace" | "bind" | "carrier" | "workspace";
+type Step = "machine" | "zspace" | "bind" | "carrier" | "workspace";
+
+function selectedModelsReady(plan: InstallPlan, installed: string[]): boolean {
+  return plan.selected_models.every((wanted) =>
+    installed.some((name) => name === wanted || name === `${wanted}:latest`),
+  );
+}
 
 type Props = {
   wizName: string;
@@ -43,8 +50,15 @@ export function CarrierInstallWizard(props: Props) {
     notify,
   } = props;
 
-  const [step, setStep] = useState<Step>("zspace");
+  const [step, setStep] = useState<Step>("machine");
   const [busy, setBusy] = useState(false);
+  const [installPlan, setInstallPlan] = useState<InstallPlan | null>(null);
+  const [includeVision, setIncludeVision] = useState(true);
+  const [includeNarration, setIncludeNarration] = useState(false);
+  const [planApplied, setPlanApplied] = useState(false);
+  const [modelsReady, setModelsReady] = useState(false);
+  const [modelInstalling, setModelInstalling] = useState(false);
+  const [installMessage, setInstallMessage] = useState("");
   const [bindOk, setBindOk] = useState(false);
   const [carrierOk, setCarrierOk] = useState(false);
   const [statusHint, setStatusHint] = useState("");
@@ -90,12 +104,86 @@ export function CarrierInstallWizard(props: Props) {
   }
 
   useEffect(() => {
+    void api
+      .installState()
+      .then(async (state) => {
+        const plan = state.plan?.configured_at ? state.plan : await api.installPlan();
+        setInstallPlan(plan);
+        setIncludeVision(Boolean(plan.components.find((item) => item.id === "vision")?.selected));
+        setIncludeNarration(Boolean(plan.components.find((item) => item.id === "narration")?.selected));
+        setPlanApplied(Boolean(plan.configured_at));
+        const ollama = await api.ollamaHealth();
+        setModelsReady(selectedModelsReady(plan, ollama.models || []));
+      })
+      .catch((e) => {
+        setPlanApplied(false);
+        setStatusHint(String(e));
+      });
     void refreshZSpace();
     void api
       .carrierSeeds()
       .then((r) => setSeeds(r.seeds || []))
       .catch(() => setSeeds([]));
   }, []);
+
+  useEffect(() => {
+    if (!modelInstalling || !installPlan) return;
+    const timer = window.setInterval(() => {
+      void api
+        .ollamaHealth()
+        .then((status) => {
+          const running = Boolean(status.pull?.running);
+          setInstallMessage(String(status.pull?.message || status.message || ""));
+          if (!running) {
+            setModelInstalling(false);
+            setModelsReady(selectedModelsReady(installPlan, status.models || []));
+          }
+        })
+        .catch((e) => setInstallMessage(String(e)));
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [installPlan, modelInstalling]);
+
+  async function previewMachinePlan(vision: boolean, narration: boolean) {
+    setBusy(true);
+    try {
+      const plan = await api.installPlan({ includeVision: vision, includeNarration: narration });
+      setInstallPlan(plan);
+      setPlanApplied(false);
+      setModelsReady(false);
+    } catch (e) {
+      notify(String(e), "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function applyMachinePlan() {
+    if (!installPlan?.plan_id) {
+      notify("请先预览并确认当前机器安装计划", "warn");
+      return;
+    }
+    setBusy(true);
+    try {
+      const approved = await api.approveInstallPlan({
+        plan_id: installPlan.plan_id,
+        include_vision: includeVision,
+        include_narration: includeNarration,
+      });
+      const result = await api.applyInstallPlan({ plan_id: approved.plan_id });
+      setInstallPlan(result.plan);
+      setPlanApplied(true);
+      setModelsReady(false);
+      setModelInstalling(true);
+      setInstallMessage(result.pull.message || "模型开始下载");
+      notify(result.pull.message || "安装计划已应用，模型开始下载", "ok");
+    } catch (e) {
+      setPlanApplied(false);
+      notify(String(e), "err");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function bindAccount(acc: Record<string, unknown>) {
     const username = String(acc.username || "");
@@ -164,10 +252,11 @@ export function CarrierInstallWizard(props: Props) {
       <div className="actions" style={{ marginBottom: 12, flexWrap: "wrap" }}>
         {(
           [
-            ["zspace", "1. 极空间"],
-            ["bind", "2. 绑定 T2S"],
-            ["carrier", "3. 载体"],
-            ["workspace", "4. 本机工作区"],
+            ["machine", "1. 本机检测"],
+            ["zspace", "2. 极空间"],
+            ["bind", "3. 绑定 T2S"],
+            ["carrier", "4. 载体"],
+            ["workspace", "5. 本机工作区"],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -181,6 +270,83 @@ export function CarrierInstallWizard(props: Props) {
           </button>
         ))}
       </div>
+
+      {step === "machine" && (
+        <div>
+          <p className="hint">
+            速影先按本机实际内存、架构和磁盘生成安装计划。机器档位只调整模型与并发，不降低成片、字幕和出片门禁。
+          </p>
+          {installPlan ? (
+            <>
+              <div className="actions" style={{ marginBottom: 10, flexWrap: "wrap" }}>
+                <span className="health-line">
+                  {String(installPlan.host.chip || installPlan.host.arch || "Mac")} ·{" "}
+                  {String(installPlan.host.ram_gb ?? "?")}GB
+                </span>
+                <span className="health-line">档位 {installPlan.profile.label}</span>
+                <span className="health-line">磁盘可用 {String(installPlan.host.disk_free_gb ?? "?")}GB</span>
+                <span className="health-line">预计下载 {installPlan.estimated_download_gb}GB</span>
+              </div>
+              <p className="hint">{installPlan.profile.reason}</p>
+              <div className="actions" style={{ margin: "10px 0", flexWrap: "wrap" }}>
+                {installPlan.gates.map((gate) => (
+                  <span key={gate.id} className={`health-line${gate.ok ? "" : " is-warn"}`}>
+                    {gate.id} {gate.ok ? "通过" : "未通过"}
+                  </span>
+                ))}
+              </div>
+              <div className="grid2">
+                <label className="checkline">
+                  <input
+                    type="checkbox"
+                    checked={includeVision}
+                    disabled={busy}
+                    onChange={(e) => {
+                      const next = e.target.checked;
+                      setIncludeVision(next);
+                      void previewMachinePlan(next, includeNarration);
+                    }}
+                  />
+                  安装视觉模型（候选按需验证，不跑全库）
+                </label>
+                <label className="checkline">
+                  <input
+                    type="checkbox"
+                    checked={includeNarration}
+                    disabled={busy}
+                    onChange={(e) => {
+                      const next = e.target.checked;
+                      setIncludeNarration(next);
+                      void previewMachinePlan(includeVision, next);
+                    }}
+                  />
+                  安装旁白文案模型（语气仍由客户独立配置）
+                </label>
+              </div>
+              {installPlan.warnings.map((warning) => (
+                <p key={warning} className="hint">
+                  {warning}
+                </p>
+              ))}
+              <div className="actions" style={{ marginTop: 12 }}>
+                <button type="button" className="primary" disabled={busy} onClick={() => void applyMachinePlan()}>
+                  {busy ? "处理中…" : planApplied ? "重新应用安装计划" : "应用配置并安装模型"}
+                </button>
+                <button type="button" disabled={busy || !planApplied} onClick={() => setStep("zspace")}>
+                  下一步：极空间
+                </button>
+              </div>
+              {installMessage ? <p className="hint">{installMessage}</p> : null}
+              <p className="hint">
+                模型状态：{modelsReady ? "计划内模型已就绪" : modelInstalling ? "正在安装" : "尚未就绪"}
+              </p>
+              {!planApplied ? <p className="hint">安装计划尚未应用，不能完成首次安装。</p> : null}
+            </>
+          ) : (
+            <p className="hint">正在检测本机配置…</p>
+          )}
+        </div>
+      )}
 
       {step === "zspace" && (
         <div>
@@ -344,8 +510,9 @@ export function CarrierInstallWizard(props: Props) {
               </select>
               <span className="hint">
                 {seedId
-                  ? seeds.find((seed) => seed.id === seedId)?.description || "仅导入配置，不含视频、数据库或密钥"
-                  : "稍后也可在运维页导入；默认不会覆盖已有文件"}
+                  ? seeds.find((seed) => seed.id === seedId)?.description ||
+                    "仅导入配置，不含视频、数据库或密钥"
+                  : "也可稍后在「运维→T2S 载体」导入；默认不会覆盖已有文件"}
               </span>
               {seedId && (
                 <span className="hint">
@@ -360,7 +527,7 @@ export function CarrierInstallWizard(props: Props) {
           <div className="actions">
             <button
               type="button"
-              disabled={busy || !bindOk}
+              disabled={busy || !bindOk || !planApplied || !modelsReady}
               onClick={() => {
                 if (!bindOk) {
                   notify("未绑定 T2S，不可完成安装", "err");
@@ -374,7 +541,7 @@ export function CarrierInstallWizard(props: Props) {
             <button
               type="button"
               className="primary"
-              disabled={busy || !bindOk}
+              disabled={busy || !bindOk || !planApplied || !modelsReady}
               onClick={() => {
                 if (!bindOk) {
                   notify("未绑定 T2S，不可完成安装", "err");
@@ -389,9 +556,9 @@ export function CarrierInstallWizard(props: Props) {
               稍后再说
             </button>
           </div>
-          {!bindOk ? (
+          {!bindOk || !planApplied || !modelsReady ? (
             <p className="hint" style={{ color: "var(--danger, #b00)" }}>
-              硬边界：未登录极空间 / 绑错 NAS 时不可完成安装。
+              硬边界：安装计划未应用、计划内模型未就绪、未登录极空间或绑错 NAS 时不可完成安装。
             </p>
           ) : null}
         </div>

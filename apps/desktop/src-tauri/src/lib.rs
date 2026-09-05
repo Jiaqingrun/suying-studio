@@ -1,4 +1,10 @@
+mod engine_supervisor;
+mod integrity;
+mod licensing;
+mod media_drag;
+mod power_events;
 mod settings_lock;
+mod workspace_events;
 
 use serde::Serialize;
 use std::fs;
@@ -38,16 +44,6 @@ fn bundled_studio_root() -> Option<PathBuf> {
     }
 }
 
-fn bundled_creative_root() -> Option<PathBuf> {
-    let resources = bundle_resources_dir()?;
-    let creative = resources.join("runtime").join("creative");
-    if creative.is_dir() {
-        Some(creative)
-    } else {
-        None
-    }
-}
-
 fn bundled_python() -> Option<PathBuf> {
     let resources = bundle_resources_dir()?;
     let candidates = [
@@ -68,16 +64,17 @@ fn bundled_python() -> Option<PathBuf> {
 }
 
 fn repo_root() -> PathBuf {
-    if let Ok(p) = std::env::var("SUYING_ROOT").or_else(|_| std::env::var("MONTAGE_ROOT")) {
-        return PathBuf::from(p);
-    }
     // Packaged App: engine lives inside the bundle (scheme A).
     if let Some(studio) = bundled_studio_root() {
         return studio;
     }
+    if let Ok(p) = std::env::var("SUYING_ROOT").or_else(|_| std::env::var("MONTAGE_ROOT")) {
+        return PathBuf::from(p);
+    }
     let home = dirs_next::home_dir().unwrap_or_else(|| PathBuf::from("."));
     // Customer/runtime first, then developer checkout.
     let candidates = [
+        home.join("QR/dev/速影"),
         home.join("Suying/montage-studio"),
         home.join("Suying/runtime"),
         home.join("QR/dev/montage-studio"),
@@ -111,7 +108,7 @@ fn repo_root() -> PathBuf {
                 .unwrap_or(ancestor.to_path_buf());
         }
     }
-    home.join("Suying/montage-studio")
+    home.join("QR/dev/速影")
 }
 
 fn data_dir() -> PathBuf {
@@ -136,12 +133,102 @@ fn log_file() -> PathBuf {
     data_dir().join("engine.log")
 }
 
-fn health_ok() -> bool {
-    ureq::get("http://127.0.0.1:8766/health")
-        .timeout(Duration::from_millis(800))
-        .call()
-        .map(|r| r.status() == 200)
-        .unwrap_or(false)
+const ENGINE_PORT: u16 = 8766;
+
+pub(crate) fn listener_pid_on_port(port: u16) -> Option<u32> {
+    let script = format!("lsof -t -nP -iTCP:{port} -sTCP:LISTEN 2>/dev/null | head -1");
+    let out = Command::new("sh").args(["-c", &script]).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let binding = String::from_utf8_lossy(&out.stdout);
+    let txt = binding.trim();
+    if txt.is_empty() {
+        return None;
+    }
+    txt.parse().ok()
+}
+
+fn process_command_line(pid: u32) -> Option<String> {
+    let pid_s = pid.to_string();
+    let out = Command::new("ps")
+        .args(["-p", &pid_s, "-o", "command="])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let cmd = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if cmd.is_empty() {
+        None
+    } else {
+        Some(cmd)
+    }
+}
+
+fn is_suying_engine_command(cmd: &str) -> bool {
+    cmd.contains("engine.main")
+}
+
+/// Stale when the packaged python or studio path no longer exists (e.g. temp App removed).
+fn is_stale_suying_engine_command(cmd: &str) -> bool {
+    if !is_suying_engine_command(cmd) {
+        return false;
+    }
+    let parts: Vec<&str> = cmd.split_whitespace().collect();
+    if let Some(py) = parts.first() {
+        if py.contains("python") && !Path::new(py).exists() {
+            return true;
+        }
+    }
+    for token in &parts {
+        if token.contains(".app/")
+            && (token.contains("runtime/python") || token.contains("runtime/studio"))
+            && !Path::new(token).exists()
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn kill_pid_gracefully(pid: u32) {
+    let _ = Command::new("kill").arg(pid.to_string()).status();
+    thread::sleep(Duration::from_millis(400));
+    let still = Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if still {
+        let _ = Command::new("kill")
+            .args(["-9", &pid.to_string()])
+            .status();
+    }
+}
+
+/// Kill only confirmed stale suying engine listeners; never touch external processes.
+fn clear_stale_suying_listeners() -> bool {
+    let Some(pid) = listener_pid_on_port(ENGINE_PORT) else {
+        return false;
+    };
+    let Some(cmd) = process_command_line(pid) else {
+        return false;
+    };
+    if !is_stale_suying_engine_command(&cmd) {
+        return false;
+    }
+    kill_pid_gracefully(pid);
+    thread::sleep(Duration::from_millis(300));
+    true
+}
+
+fn engine_ready() -> bool {
+    workspace_events::engine_ready()
+}
+
+fn engine_reachable() -> bool {
+    workspace_events::engine_reachable()
 }
 
 fn python_has_uvicorn(python: &Path) -> bool {
@@ -157,6 +244,16 @@ fn python_has_uvicorn(python: &Path) -> bool {
 /// GUI apps get a minimal PATH (often /usr/bin first). Prefer bundle /
 /// conda / brew / explicit env so we don't hit Apple CLT python without deps.
 fn resolve_python() -> Result<PathBuf, String> {
+    if let Some(bundled) = bundled_python() {
+        if python_has_uvicorn(&bundled) {
+            return Ok(bundled);
+        }
+        return Err(format!(
+            "App 内嵌 Python 缺少 uvicorn（{}）。请重新运行打包脚本 embed-app-runtime。",
+            bundled.display()
+        ));
+    }
+
     if let Ok(p) = std::env::var("SUYING_PYTHON").or_else(|_| std::env::var("MONTAGE_PYTHON")) {
         let path = PathBuf::from(&p);
         if path.exists() {
@@ -170,21 +267,13 @@ fn resolve_python() -> Result<PathBuf, String> {
         return Err(format!("SUYING_PYTHON/MONTAGE_PYTHON 不存在: {p}"));
     }
 
-    if let Some(bundled) = bundled_python() {
-        if python_has_uvicorn(&bundled) {
-            return Ok(bundled);
-        }
-        return Err(format!(
-            "App 内嵌 Python 缺少 uvicorn（{}）。请重新运行打包脚本 embed-app-runtime。",
-            bundled.display()
-        ));
-    }
-
     let home = dirs_next::home_dir().unwrap_or_else(|| PathBuf::from("."));
     let studio = repo_root();
     let candidates = [
         studio.join(".venv/bin/python3"),
         studio.join(".venv/bin/python"),
+        home.join("QR/dev/速影/.venv/bin/python3"),
+        home.join("QR/dev/速影/.venv/bin/python"),
         home.join("QR/dev/montage-studio/.venv/bin/python3"),
         home.join("QR/dev/montage-studio/.venv/bin/python"),
         PathBuf::from("/opt/anaconda3/bin/python3"),
@@ -241,10 +330,30 @@ struct EngineStatus {
     python: String,
     message: Option<String>,
     bundled: bool,
+    /// 8766 LISTEN
+    listen: bool,
+    /// GET /health 200
+    control_plane: bool,
+    /// /readiness.ready
+    business_ready: bool,
+    offline_class: String,
+    offline_detail: String,
+    agent_loaded: bool,
+    agent_plist_exists: bool,
 }
 
 fn status_inner(state: &Mutex<EngineState>, message: Option<String>) -> EngineStatus {
-    let healthy = health_ok();
+    // One /health for both reachable + workspace-healthy (was 2× HTTP per engine_status).
+    let (reachable, healthy) = workspace_events::engine_reach_and_healthy();
+    let business_ready = workspace_events::engine_ready();
+    let listen = listener_pid_on_port(ENGINE_PORT).is_some();
+    let readiness_msg = if business_ready {
+        String::new()
+    } else {
+        workspace_events::readiness_failure_message()
+    };
+    let (offline_class, offline_detail) =
+        engine_supervisor::classify(listen, reachable, business_ready, &readiness_msg);
     let mut st = state.lock().unwrap();
     let mut pid = None;
     if let Some(child) = st.child.as_mut() {
@@ -266,7 +375,7 @@ fn status_inner(state: &Mutex<EngineState>, message: Option<String>) -> EngineSt
                     .status()
                     .map(|s| s.success())
                     .unwrap_or(false);
-                if alive || healthy {
+                if alive || reachable {
                     pid = Some(p);
                 } else {
                     let _ = fs::remove_file(pid_file());
@@ -274,17 +383,29 @@ fn status_inner(state: &Mutex<EngineState>, message: Option<String>) -> EngineSt
             }
         }
     }
+    if pid.is_none() {
+        if let Some(p) = listener_pid_on_port(ENGINE_PORT) {
+            pid = Some(p);
+        }
+    }
     let python = resolve_python()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|e| format!("(不可用) {e}"));
     EngineStatus {
-        running: healthy || pid.is_some(),
+        running: reachable || listen || pid.is_some(),
         healthy,
         pid,
         repo: repo_root().display().to_string(),
         python,
         message,
         bundled: bundled_studio_root().is_some(),
+        listen,
+        control_plane: reachable,
+        business_ready,
+        offline_class,
+        offline_detail,
+        agent_loaded: engine_supervisor::agent_plist_loaded(),
+        agent_plist_exists: engine_supervisor::agent_plist_exists(),
     }
 }
 
@@ -293,13 +414,65 @@ fn engine_status(state: tauri::State<'_, Mutex<EngineState>>) -> EngineStatus {
     status_inner(&state, None)
 }
 
-#[tauri::command]
-fn engine_start(state: tauri::State<'_, Mutex<EngineState>>) -> Result<EngineStatus, String> {
-    if health_ok() {
-        return Ok(status_inner(&state, Some("引擎已在运行".into())));
+/// Prefer LaunchAgent; fall back to App-owned spawn only when agent path
+/// is unavailable (dev tree / first install before agent).
+fn ensure_engine_via_agent_or_spawn(
+    state: &Mutex<EngineState>,
+    power: &power_events::PowerEventsState,
+    ops_license_unlock: bool,
+) -> Result<EngineStatus, String> {
+    let log_path = log_file();
+    let root = repo_root();
+
+    // Path A: LaunchAgent install / kickstart (bundled product authority).
+    if bundled_studio_root().is_some() || engine_supervisor::agent_plist_exists() {
+        let mut agent_notes: Vec<String> = Vec::new();
+        if !engine_supervisor::agent_plist_exists() {
+            match engine_supervisor::try_install_agent(&root) {
+                Ok(msg) => agent_notes.push(msg),
+                Err(e) => agent_notes.push(format!("agent install: {e}")),
+            }
+        } else if !engine_reachable() {
+            match engine_supervisor::try_kickstart_agent() {
+                Ok(msg) => agent_notes.push(msg),
+                Err(e) => agent_notes.push(format!("agent kickstart: {e}")),
+            }
+        }
+        if engine_supervisor::wait_health_ok(12_000, 300) {
+            let msg = if engine_ready() {
+                format!(
+                    "引擎控制面就绪（LaunchAgent）{}",
+                    if agent_notes.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" · {}", agent_notes.join("; "))
+                    }
+                )
+            } else {
+                format!(
+                    "引擎已在线，业务尚未就绪：{} · {}",
+                    workspace_events::readiness_failure_message(),
+                    agent_notes.join("; ")
+                )
+            };
+            return Ok(status_inner(state, Some(msg)));
+        }
+        // Agent path failed — continue to spawn only outside package or as last resort.
+        if bundled_studio_root().is_some() && engine_supervisor::license_cache_ready() {
+            let tail = {
+                let err = engine_supervisor::agent_err_log();
+                fs::read_to_string(err).unwrap_or_default()
+            };
+            let tail_snip: String = tail.chars().rev().take(600).collect::<String>().chars().rev().collect();
+            return Err(format!(
+                "LaunchAgent 未能拉起引擎。notes={} 日志尾：\n{}",
+                agent_notes.join("; "),
+                tail_snip
+            ));
+        }
     }
 
-    let root = repo_root();
+    // Path B: direct spawn (dev / no agent)
     if !root.join("engine/main.py").exists() {
         return Err(format!(
             "找不到引擎目录: {}。一体包应含 Contents/Resources/runtime/studio；开发机请设置 SUYING_ROOT。",
@@ -308,7 +481,6 @@ fn engine_start(state: tauri::State<'_, Mutex<EngineState>>) -> Result<EngineSta
     }
     let python = resolve_python()?;
 
-    // If we already own a live child, wait briefly for health
     {
         let mut st = state.lock().unwrap();
         if let Some(child) = st.child.as_mut() {
@@ -316,19 +488,18 @@ fn engine_start(state: tauri::State<'_, Mutex<EngineState>>) -> Result<EngineSta
                 drop(st);
                 for _ in 0..20 {
                     thread::sleep(Duration::from_millis(250));
-                    if health_ok() {
-                        return Ok(status_inner(&state, Some("引擎已就绪".into())));
+                    if engine_reachable() {
+                        return Ok(status_inner(state, Some("引擎进程仍在启动中".into())));
                     }
                 }
                 return Ok(status_inner(
-                    &state,
+                    state,
                     Some("引擎进程仍在启动中，请稍候".into()),
                 ));
             }
         }
     }
 
-    let log_path = log_file();
     {
         let mut marker = fs::OpenOptions::new()
             .create(true)
@@ -338,7 +509,7 @@ fn engine_start(state: tauri::State<'_, Mutex<EngineState>>) -> Result<EngineSta
         use std::io::Write;
         let _ = writeln!(
             marker,
-            "\n==== engine_start {} python={} cwd={} bundled={} ====",
+            "\n==== engine_start {} python={} cwd={} bundled={} mode=spawn ====",
             chrono_lite_now(),
             python.display(),
             root.display(),
@@ -362,24 +533,23 @@ fn engine_start(state: tauri::State<'_, Mutex<EngineState>>) -> Result<EngineSta
         .env("PYTHONDONTWRITEBYTECODE", "1")
         .env("SUYING_ROOT", &root)
         .env("MONTAGE_ROOT", &root)
+        .env("SUYING_ALLOW_CACHED_LICENSE_BINDING", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::from(log_file_handle))
         .stderr(Stdio::from(err_file));
-
-    if let Some(creative) = bundled_creative_root() {
-        cmd.env("SUYING_CREATIVE_ROOT", &creative);
-        cmd.env("OPENMONTAGE_ROOT", &creative);
-    } else {
-        let home = dirs_next::home_dir().unwrap_or_else(|| PathBuf::from("."));
-        let fallback = home.join("Suying/creative");
-        if fallback.is_dir() {
-            cmd.env("SUYING_CREATIVE_ROOT", &fallback);
-            cmd.env("OPENMONTAGE_ROOT", &fallback);
-        }
+    if bundle_resources_dir().is_some() {
+        cmd.env("SUYING_BUNDLED_RUNTIME", "1");
     }
 
-    // Ensure child can find conda libs / sibling tools / bundled bin / Homebrew
-    // GUI apps often get PATH=/usr/bin:/bin only — ffmpeg/ollama live under Homebrew.
+    for (key, value) in licensing::engine_license_env() {
+        cmd.env(key, value);
+    }
+    if ops_license_unlock {
+        cmd.env("SUYING_OPS_LICENSE_UNLOCK", "1");
+    }
+
+    power_events::ensure_engine_env(&mut cmd, power);
+
     let mut path_prepend: Vec<String> = Vec::new();
     if let Some(bin) = python.parent() {
         path_prepend.push(bin.display().to_string());
@@ -390,13 +560,19 @@ fn engine_start(state: tauri::State<'_, Mutex<EngineState>>) -> Result<EngineSta
             path_prepend.push(ffmpeg_bin.display().to_string());
         }
     }
-    for brew in ["/opt/homebrew/bin", "/usr/local/bin", "/opt/homebrew/sbin", "/usr/local/sbin"] {
+    for brew in [
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/sbin",
+    ] {
         let p = PathBuf::from(brew);
         if p.is_dir() {
             path_prepend.push(brew.to_string());
         }
     }
-    let base_path = std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".into());
+    let base_path =
+        std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".into());
     if !path_prepend.is_empty() {
         cmd.env("PATH", format!("{}:{}", path_prepend.join(":"), base_path));
     } else {
@@ -414,11 +590,18 @@ fn engine_start(state: tauri::State<'_, Mutex<EngineState>>) -> Result<EngineSta
         st.child = Some(child);
     }
 
-    // Poll briefly; fail fast if process exits (don't freeze UI for 20s)
-    for _ in 0..24 {
+    for _ in 0..40 {
         thread::sleep(Duration::from_millis(250));
-        if health_ok() {
-            return Ok(status_inner(&state, Some("引擎已启动".into())));
+        if engine_reachable() {
+            let msg = if engine_ready() {
+                "引擎已启动（App 子进程）".to_string()
+            } else {
+                format!(
+                    "引擎控制面已启动，业务检查中：{}",
+                    workspace_events::readiness_failure_message()
+                )
+            };
+            return Ok(status_inner(state, Some(msg)));
         }
         let mut st = state.lock().unwrap();
         if let Some(child) = st.child.as_mut() {
@@ -435,9 +618,85 @@ fn engine_start(state: tauri::State<'_, Mutex<EngineState>>) -> Result<EngineSta
     }
 
     Ok(status_inner(
-        &state,
-        Some("引擎已拉起，健康检查仍未通过，请查看侧栏状态或 engine.log".into()),
+        state,
+        Some("引擎已拉起，控制面尚未响应，请查看 engine.log".into()),
     ))
+}
+
+#[tauri::command]
+fn engine_start(
+    state: tauri::State<'_, Mutex<EngineState>>,
+    power: tauri::State<'_, power_events::PowerEventsState>,
+    lock: tauri::State<'_, settings_lock::SettingsLockState>,
+) -> Result<EngineStatus, String> {
+    // Prefer disk license cache so reboot/Keychain races don't block spawn.
+    let ops_unlocked = settings_lock::require_unlocked(&lock).is_ok();
+    let ops_license_unlock = match licensing::require_valid_license_or_ops_unlocked(ops_unlocked)
+    {
+        Ok(v) => v,
+        Err(error) if engine_supervisor::license_cache_ready() => {
+            // App Keychain flaky but cache present — agent/spawn use cache.
+            let _ = error;
+            false
+        }
+        Err(error) => {
+            return Err(format!("速影许可证校验失败，已禁止启动引擎：{error}"));
+        }
+    };
+    if let Some(resources) = bundle_resources_dir() {
+        integrity::verify_runtime(&resources.join("runtime")).map_err(|error| {
+            format!("速影运行时完整性校验失败，已禁止启动引擎（请重装一体包）：{error}")
+        })?;
+    }
+    if engine_ready() {
+        return Ok(status_inner(&state, Some("引擎已在运行".into())));
+    }
+
+    if engine_reachable() {
+        let cleared = clear_stale_suying_listeners();
+        if cleared {
+            thread::sleep(Duration::from_millis(400));
+        } else {
+            // Control plane up → treat as success; surface business reason in message.
+            let reason = workspace_events::readiness_failure_message();
+            let msg = if reason.is_empty() {
+                "引擎控制面已在线".into()
+            } else {
+                format!("引擎控制面已在线：{reason}")
+            };
+            return Ok(status_inner(&state, Some(msg)));
+        }
+        if engine_reachable() {
+            let reason = workspace_events::readiness_failure_message();
+            return Ok(status_inner(
+                &state,
+                Some(if reason.is_empty() {
+                    "引擎控制面已在线".into()
+                } else {
+                    format!("引擎控制面已在线：{reason}")
+                }),
+            ));
+        }
+    }
+
+    if let Some(pid) = listener_pid_on_port(ENGINE_PORT) {
+        let cmd = process_command_line(pid).unwrap_or_default();
+        if !is_suying_engine_command(&cmd) {
+            return Err(format!("8766 端口被其他进程占用（PID {pid}）：{cmd}"));
+        }
+        // Stale listener without health — clear and restart
+        if is_stale_suying_engine_command(&cmd) {
+            kill_pid_gracefully(pid);
+            thread::sleep(Duration::from_millis(300));
+        }
+    }
+
+    ensure_engine_via_agent_or_spawn(&state, &power, ops_license_unlock)
+}
+
+#[tauri::command]
+fn engine_supervisor_snapshot() -> engine_supervisor::SupervisorSnapshot {
+    engine_supervisor::snapshot(&log_file())
 }
 
 fn chrono_lite_now() -> String {
@@ -452,22 +711,40 @@ fn chrono_lite_now() -> String {
 
 #[tauri::command]
 fn engine_stop(state: tauri::State<'_, Mutex<EngineState>>) -> Result<EngineStatus, String> {
+    // Only tear down App-owned child. LaunchAgent KeepAlive is the long-lived
+    // authority — never kill a managed listener on soft UI stop.
     let mut st = state.lock().unwrap();
+    let mut killed_owned = false;
     if let Some(mut child) = st.child.take() {
         let _ = child.kill();
         let _ = child.wait();
+        killed_owned = true;
     }
     if let Ok(txt) = fs::read_to_string(pid_file()) {
-        if let Ok(pid) = txt.trim().parse::<i32>() {
-            let _ = Command::new("kill").arg(pid.to_string()).status();
-            thread::sleep(Duration::from_millis(300));
-            let _ = Command::new("kill").args(["-9", &pid.to_string()]).status();
+        if let Ok(pid) = txt.trim().parse::<u32>() {
+            // Only kill if still our recorded child pid and not agent-managed path
+            // when agent is loaded: agent owns the port.
+            if !engine_supervisor::agent_plist_loaded() {
+                let _ = Command::new("kill").arg(pid.to_string()).status();
+                thread::sleep(Duration::from_millis(300));
+                let _ = Command::new("kill").args(["-9", &pid.to_string()]).status();
+                killed_owned = true;
+            }
         }
     }
     let _ = fs::remove_file(pid_file());
     drop(st);
     thread::sleep(Duration::from_millis(200));
-    Ok(status_inner(&state, Some("引擎已停止".into())))
+    let msg = if engine_supervisor::agent_plist_loaded() && engine_reachable() {
+        "已停止 App 持有的子进程；LaunchAgent 引擎仍在运行".into()
+    } else if killed_owned {
+        "引擎已停止".into()
+    } else if engine_reachable() {
+        "未持有子进程；引擎仍由 LaunchAgent/外部会话运行".into()
+    } else {
+        "引擎已停止".into()
+    };
+    Ok(status_inner(&state, Some(msg)))
 }
 
 #[tauri::command]
@@ -475,14 +752,6 @@ fn settings_password_status(
     lock: tauri::State<'_, settings_lock::SettingsLockState>,
 ) -> Result<settings_lock::SettingsPasswordStatus, String> {
     settings_lock::status(&lock)
-}
-
-#[tauri::command]
-fn settings_password_create(
-    lock: tauri::State<'_, settings_lock::SettingsLockState>,
-    password: String,
-) -> Result<settings_lock::SettingsPasswordStatus, String> {
-    settings_lock::create_password(&lock, password)
 }
 
 #[tauri::command]
@@ -494,15 +763,6 @@ fn settings_password_verify(
 }
 
 #[tauri::command]
-fn settings_password_change(
-    lock: tauri::State<'_, settings_lock::SettingsLockState>,
-    old_password: String,
-    new_password: String,
-) -> Result<settings_lock::SettingsPasswordStatus, String> {
-    settings_lock::change_password(&lock, old_password, new_password)
-}
-
-#[tauri::command]
 fn settings_password_lock(
     lock: tauri::State<'_, settings_lock::SettingsLockState>,
 ) -> Result<settings_lock::SettingsPasswordStatus, String> {
@@ -510,11 +770,11 @@ fn settings_password_lock(
 }
 
 #[tauri::command]
-fn settings_password_clear(
+fn settings_password_change(
     lock: tauri::State<'_, settings_lock::SettingsLockState>,
     password: String,
 ) -> Result<settings_lock::SettingsPasswordStatus, String> {
-    settings_lock::clear_password(&lock, password)
+    settings_lock::change_password(&lock, password)
 }
 
 #[tauri::command]
@@ -522,6 +782,22 @@ fn settings_advanced_require_unlocked(
     lock: tauri::State<'_, settings_lock::SettingsLockState>,
 ) -> Result<(), String> {
     settings_lock::require_unlocked(&lock)
+}
+
+#[tauri::command]
+fn settings_operation_token(
+    lock: tauri::State<'_, settings_lock::SettingsLockState>,
+    power: tauri::State<'_, power_events::PowerEventsState>,
+) -> Result<String, String> {
+    settings_lock::require_unlocked(&lock)?;
+    power.operation_token()
+}
+
+#[tauri::command]
+fn license_status(
+    lock: tauri::State<'_, settings_lock::SettingsLockState>,
+) -> licensing::LicenseStatus {
+    licensing::license_status_with_ops(settings_lock::require_unlocked(&lock).is_ok())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -532,21 +808,37 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .manage(Mutex::new(EngineState { child: None }))
         .manage(settings_lock::SettingsLockState::default())
+        .manage(power_events::PowerEventsState::new())
+        .manage(workspace_events::WorkspaceEventsState::new())
         .invoke_handler(tauri::generate_handler![
             engine_status,
             engine_start,
             engine_stop,
+            engine_supervisor_snapshot,
             settings_password_status,
-            settings_password_create,
             settings_password_verify,
-            settings_password_change,
             settings_password_lock,
-            settings_password_clear,
-            settings_advanced_require_unlocked
+            settings_password_change,
+            settings_advanced_require_unlocked,
+            settings_operation_token,
+            license_status,
+            licensing::license_request,
+            licensing::license_install_path,
+            media_drag::start_file_drag,
+            power_events::system_events_snapshot,
+            power_events::system_events_get_prefs,
+            power_events::system_events_set_prefs,
+            workspace_events::workspace_events_snapshot,
+            workspace_events::workspace_sync_get_prefs,
+            workspace_events::workspace_sync_set_prefs,
+            workspace_events::workspace_probe_now,
+            workspace_events::workspace_reconnect_now
         ])
-        .setup(|_app| {
+        .setup(|app| {
             let _ = repo_root();
             let _ = data_dir();
+            power_events::install(app.handle().clone());
+            workspace_events::install(app.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())

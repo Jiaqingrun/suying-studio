@@ -4,11 +4,13 @@ import type {
   NotificationPermissionState,
 } from "./notifications";
 import type {
+  MessageListQuery,
   ReachMessage,
   ReachMessageAccount,
   ReachMessageScanStatus,
   ReachNtfyConfig,
 } from "./types";
+import { MessageAccountManager } from "./MessageAccountManager";
 
 type Props = {
   accounts: ReachMessageAccount[];
@@ -23,6 +25,11 @@ type Props = {
   onOpen: (message: ReachMessage) => void;
   onRead: (message: ReachMessage) => void;
   onToggleAccount: (account: ReachMessageAccount) => void;
+  onCreateAccount: (platform: string, displayName: string) => Promise<void>;
+  onOpenAccount: (account: ReachMessageAccount) => Promise<void>;
+  onDeleteAccount: (account: ReachMessageAccount) => Promise<void>;
+  onQueryChange: (query: MessageListQuery) => void;
+  onReadAll: (accountId?: number) => Promise<void>;
   onEnableNotifications: () => void;
   onSaveNtfy: (body: {
     enabled: boolean;
@@ -34,6 +41,11 @@ type Props = {
     password?: string;
   }) => Promise<void>;
   onTestNtfy: () => Promise<void>;
+  onSuggestReplies?: (message: ReachMessage, extraContext: string) => Promise<void>;
+  replyDrafts?: Array<Record<string, unknown>>;
+  replyDraftMessageId?: number | null;
+  onCopyReplyDraft?: (draftId: number, body: string) => void;
+  showNotificationSettings?: boolean;
 };
 
 function statusLabel(status: string | null | undefined): string {
@@ -45,8 +57,10 @@ function statusLabel(status: string | null | undefined): string {
     need_human: "需要人工处理",
     needs_human: "需要人工处理",
     profile_busy: "配置正被占用",
+    readonly_unverified: "只读校准待完成",
     adapter_changed: "平台页面已变化",
     timeout: "检查超时",
+    page_load_timeout: "页面加载超时（将自动重试）",
     failed: "检查失败",
   };
   return labels[String(status || "")] || String(status || "尚未检查");
@@ -65,9 +79,19 @@ export function ReachMessagesPanel({
   onOpen,
   onRead,
   onToggleAccount,
+  onCreateAccount,
+  onOpenAccount,
+  onDeleteAccount,
+  onQueryChange,
+  onReadAll,
   onEnableNotifications,
   onSaveNtfy,
   onTestNtfy,
+  onSuggestReplies,
+  replyDrafts = [],
+  replyDraftMessageId = null,
+  onCopyReplyDraft,
+  showNotificationSettings = true,
 }: Props) {
   const [ntfyEnabled, setNtfyEnabled] = useState(false);
   const [ntfyServer, setNtfyServer] = useState("");
@@ -79,7 +103,8 @@ export function ReachMessagesPanel({
   const [ntfyBusy, setNtfyBusy] = useState(false);
   const [ntfyError, setNtfyError] = useState("");
   const [accountFilter, setAccountFilter] = useState<number | "all">("all");
-  const [onlyUnread, setOnlyUnread] = useState(true);
+  const [showHistory, setShowHistory] = useState(false);
+  const [draftContextByMessage, setDraftContextByMessage] = useState<Record<number, string>>({});
 
   useEffect(() => {
     if (!ntfyConfig) return;
@@ -132,9 +157,9 @@ export function ReachMessagesPanel({
       messages.filter(
         (message) =>
           (accountFilter === "all" || message.account_id === accountFilter) &&
-          (!onlyUnread || message.unread),
+          (showHistory || message.unread),
       ),
-    [accountFilter, messages, onlyUnread],
+    [accountFilter, messages, showHistory],
   );
 
   const enabledAccounts = accounts.filter((account) => account.enabled).length;
@@ -187,6 +212,22 @@ export function ReachMessagesPanel({
         </div>
       ) : null}
 
+      <MessageAccountManager
+        domainLabel="视频"
+        accounts={accounts}
+        busy={busy}
+        platforms={[
+          { id: "douyin", label: "抖音" },
+          { id: "channels", label: "视频号" },
+          { id: "xhs", label: "小红书" },
+          { id: "kuaishou", label: "快手" },
+        ]}
+        onCreate={onCreateAccount}
+        onOpenLogin={onOpenAccount}
+        onToggle={onToggleAccount}
+        onDelete={onDeleteAccount}
+      />
+
       <div className="messages-layout">
         <aside className="messages-account-sidebar" aria-label="消息账号">
           <div className="messages-section-head">
@@ -197,7 +238,14 @@ export function ReachMessagesPanel({
             <button
               type="button"
               className={accountFilter === "all" ? "is-selected" : undefined}
-              onClick={() => setAccountFilter("all")}
+              onClick={() => {
+                setAccountFilter("all");
+                onQueryChange({
+                  unread: !showHistory,
+                  history: showHistory,
+                  limit: showHistory ? 300 : 100,
+                });
+              }}
             >
               全部
             </button>
@@ -215,12 +263,23 @@ export function ReachMessagesPanel({
                   <button
                     type="button"
                     className="message-account-select"
-                    onClick={() => setAccountFilter(account.id)}
+                    onClick={() => {
+                      setAccountFilter(account.id);
+                      onQueryChange({
+                        unread: !showHistory,
+                        history: showHistory,
+                        account_id: account.id,
+                        limit: showHistory ? 300 : 100,
+                      });
+                    }}
                   >
                     <span className={`health-dot ${account.last_error ? "warn" : account.enabled ? "ok" : ""}`} />
                     <span className="message-account-copy">
                       <strong>{account.display_name || account.profile_name}</strong>
-                      <small>{account.platform} · {statusLabel(account.last_status)}</small>
+                      <small>
+                        {account.platform} · {account.profile_role || "消息专用"} ·{" "}
+                        {statusLabel(account.last_status)}
+                      </small>
                       {account.last_scanned_at ? (
                         <small>{new Date(account.last_scanned_at).toLocaleString()}</small>
                       ) : null}
@@ -241,7 +300,7 @@ export function ReachMessagesPanel({
               );
             })}
             {accounts.length === 0 ? (
-              <p className="empty">尚未绑定消息账号，请先到「发布 → 触达」创建并登录 Chrome 配置。</p>
+              <p className="empty">尚未创建视频消息账号，请在上方选择平台并创建。</p>
             ) : null}
           </div>
         </aside>
@@ -255,17 +314,49 @@ export function ReachMessagesPanel({
             <div className="messages-filter">
               <button
                 type="button"
-                className={onlyUnread ? "is-selected" : undefined}
-                onClick={() => setOnlyUnread(true)}
+                className={!showHistory ? "is-selected" : undefined}
+                onClick={() => {
+                  setShowHistory(false);
+                  onQueryChange({
+                    unread: true,
+                    account_id: accountFilter === "all" ? undefined : accountFilter,
+                    limit: 100,
+                  });
+                }}
               >
                 只看未读
               </button>
               <button
                 type="button"
-                className={!onlyUnread ? "is-selected" : undefined}
-                onClick={() => setOnlyUnread(false)}
+                className={showHistory ? "is-selected" : undefined}
+                onClick={() => {
+                  setShowHistory(true);
+                  onQueryChange({
+                    unread: false,
+                    history: true,
+                    account_id: accountFilter === "all" ? undefined : accountFilter,
+                    limit: 300,
+                  });
+                }}
               >
-                全部消息
+                30 天历史
+              </button>
+              <button
+                type="button"
+                disabled={busy || unreadCount === 0}
+                onClick={() => {
+                  const label =
+                    accountFilter === "all"
+                      ? "全部视频消息账号"
+                      : accounts.find((item) => item.id === accountFilter)?.display_name || "当前账号";
+                  if (window.confirm(`确认将“${label}”范围内的消息全部标为已读？`)) {
+                    void onReadAll(accountFilter === "all" ? undefined : accountFilter).catch(
+                      () => undefined,
+                    );
+                  }
+                }}
+              >
+                当前范围全部已读
               </button>
             </div>
           </div>
@@ -279,7 +370,9 @@ export function ReachMessagesPanel({
                   <span className="message-platform">{message.platform}</span>
                   <strong>{message.sender || "平台用户"}</strong>
                   <time>
-                    {message.last_seen_at
+                    {message.platform_event_at
+                      ? new Date(message.platform_event_at).toLocaleString()
+                      : message.last_seen_at
                       ? new Date(message.last_seen_at).toLocaleString()
                       : message.first_seen_at
                         ? new Date(message.first_seen_at).toLocaleString()
@@ -296,24 +389,98 @@ export function ReachMessagesPanel({
                     {message.confidence ? ` · 置信度 ${Math.round(message.confidence * 100)}%` : ""}
                   </span>
                   <div className="actions-inline">
-                    <button type="button" className="primary" onClick={() => onOpen(message)}>
-                      去官方页回复
+                    <button
+                      type="button"
+                      className="primary"
+                      disabled={
+                        !accounts.some(
+                          (account) =>
+                            account.id === message.account_id &&
+                            account.reply_supported !== false,
+                        )
+                      }
+                      onClick={() => onOpen(message)}
+                    >
+                      {!accounts.some(
+                        (account) =>
+                          account.id === message.account_id &&
+                          account.reply_supported !== false,
+                      )
+                        ? "不可打开回复页"
+                        : "去官方页回复"}
                     </button>
+                    {onSuggestReplies ? (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          void onSuggestReplies(
+                            message,
+                            draftContextByMessage[message.id] || "",
+                          );
+                        }}
+                      >
+                        生成回复草稿
+                      </button>
+                    ) : null}
                     {message.unread ? (
                       <button type="button" onClick={() => onRead(message)}>标为已读</button>
                     ) : null}
                   </div>
                 </div>
+                {onSuggestReplies ? (
+                  <label className="field-inline" style={{ display: "block", marginTop: 8 }}>
+                    补充上下文（仅此消息，可选）
+                    <input
+                      value={draftContextByMessage[message.id] || ""}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setDraftContextByMessage((current) => ({
+                          ...current,
+                          [message.id]: value,
+                        }));
+                      }}
+                      placeholder="可补充该用户具体诉求后再点生成"
+                      style={{ width: "100%", marginTop: 4 }}
+                    />
+                  </label>
+                ) : null}
+                {replyDraftMessageId === message.id && replyDrafts.length > 0 ? (
+                  <div className="message-reply-drafts" style={{ marginTop: 8 }}>
+                    <p className="hint">
+                      基于脱敏摘要生成，上下文可能不完整；复制后请在官方页人工发送，不会自动发送。
+                    </p>
+                    {replyDrafts.map((d) => (
+                      <article key={String(d.id)} className="review-card" style={{ marginBottom: 6 }}>
+                        <p>{String(d.body || "")}</p>
+                        <div className="actions-inline">
+                          <button
+                            type="button"
+                            className="primary"
+                            onClick={() =>
+                              onCopyReplyDraft?.(Number(d.id), String(d.body || ""))
+                            }
+                          >
+                            复制草稿
+                          </button>
+                          <em className="badge-mute">
+                            {d.based_on_summary_only ? "仅摘要" : "含补充上下文"}
+                          </em>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
               </article>
             ))}
             {visibleMessages.length === 0 ? (
-              <p className="empty">{onlyUnread ? "当前筛选下暂无未读消息" : "暂无平台消息摘要"}</p>
+              <p className="empty">{showHistory ? "近 30 天暂无平台消息摘要" : "当前筛选下暂无未读消息"}</p>
             ) : null}
           </div>
         </section>
       </div>
 
-      <details className="messages-notify-settings">
+      {showNotificationSettings ? <details className="messages-notify-settings">
         <summary>
           <span>远程推送设置</span>
           <small>ntfy 可选 · 仅发送脱敏摘要与官方回复链接</small>
@@ -392,7 +559,7 @@ export function ReachMessagesPanel({
             </button>
           </div>
         </div>
-      </details>
+      </details> : null}
     </div>
   );
 }

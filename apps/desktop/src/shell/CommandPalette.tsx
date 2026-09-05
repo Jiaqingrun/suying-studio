@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Tab } from "../types";
-import { TABS } from "../types";
 
 export type CmdItem = {
   id: string;
@@ -12,23 +10,15 @@ export type CmdItem = {
 type Props = {
   open: boolean;
   onClose: () => void;
-  onSetTab: (t: Tab) => void;
   extra?: CmdItem[];
 };
 
-export function CommandPalette({ open, onClose, onSetTab, extra = [] }: Props) {
+export function CommandPalette({ open, onClose, extra = [] }: Props) {
   const [q, setQ] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const items = useMemo(() => {
-    const base: CmdItem[] = TABS.map(([id, label, num]) => ({
-      id: `tab-${id}`,
-      label: `前往 ${label}`,
-      hint: num,
-      run: () => onSetTab(id),
-    }));
-    return [...base, ...extra];
-  }, [extra, onSetTab]);
+  const items = useMemo(() => [...extra], [extra]);
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -36,9 +26,12 @@ export function CommandPalette({ open, onClose, onSetTab, extra = [] }: Props) {
     return items.filter((i) => i.label.toLowerCase().includes(s) || i.id.includes(s) || (i.hint || "").includes(s));
   }, [items, q]);
 
+  useEffect(() => setActiveIndex(0), [q]);
+
   useEffect(() => {
     if (!open) return;
     setQ("");
+    setActiveIndex(0);
     const t = window.setTimeout(() => inputRef.current?.focus(), 20);
     return () => window.clearTimeout(t);
   }, [open]);
@@ -67,18 +60,25 @@ export function CommandPalette({ open, onClose, onSetTab, extra = [] }: Props) {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && filtered[0]) {
-              filtered[0].run();
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              setActiveIndex((value) => Math.min(filtered.length - 1, value + 1));
+            } else if (e.key === "ArrowUp") {
+              e.preventDefault();
+              setActiveIndex((value) => Math.max(0, value - 1));
+            } else if (e.key === "Enter" && filtered[activeIndex]) {
+              filtered[activeIndex].run();
               onClose();
             }
           }}
         />
         <ul className="cmdk-list">
-          {filtered.map((i) => (
+          {filtered.map((i, index) => (
             <li key={i.id}>
               <button
                 type="button"
-                className="cmdk-item"
+                className={`cmdk-item${index === activeIndex ? " is-active" : ""}`}
+                onMouseEnter={() => setActiveIndex(index)}
                 onClick={() => {
                   i.run();
                   onClose();

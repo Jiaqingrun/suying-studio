@@ -4,18 +4,20 @@
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const SERVICE: &str = "com.qr.suying";
 const ACCOUNT: &str = "advanced-settings-password";
 const UNLOCK_TTL: Duration = Duration::from_secs(15 * 60);
 const MAX_FAILS: u32 = 5;
 const FAIL_COOLDOWN: Duration = Duration::from_secs(30);
+// Salted verifier for the customer-facing default guard password. The plaintext
+// is never stored in the App or Keychain.
+const DEFAULT_VERIFIER: &str = "737579696e672d64656661756c742d7631:439cb0aedc28d85f08a4742837914af287a5093149121a43293e8e2bd8ed699e";
 
 struct UnlockSession {
     until: Instant,
 }
-
 struct FailState {
     count: u32,
     locked_until: Option<Instant>,
@@ -37,7 +39,6 @@ impl Default for SettingsLockState {
         }
     }
 }
-
 #[derive(Serialize)]
 pub struct SettingsPasswordStatus {
     pub configured: bool,
@@ -50,36 +51,12 @@ fn keyring_entry() -> Result<keyring::Entry, String> {
     keyring::Entry::new(SERVICE, ACCOUNT).map_err(|e| format!("钥匙串不可用: {e}"))
 }
 
-fn random_salt() -> [u8; 16] {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0);
-    let mut salt = [0u8; 16];
-    let pid = std::process::id() as u64;
-    let mix = nanos ^ pid.wrapping_mul(0x9E3779B97F4A7C15);
-    for (i, b) in salt.iter_mut().enumerate() {
-        *b = ((mix >> ((i % 8) * 8)) ^ ((i as u64).wrapping_mul(17))) as u8;
-    }
-    // Extra entropy from stack address
-    let addr = &salt as *const _ as usize as u64;
-    for (i, b) in salt.iter_mut().enumerate() {
-        *b ^= ((addr >> ((i % 8) * 8)) as u8).wrapping_add(i as u8);
-    }
-    salt
-}
-
 fn hash_password(password: &str, salt: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(b"suying-advanced-v1");
     hasher.update(salt);
     hasher.update(password.as_bytes());
     hex::encode(hasher.finalize())
-}
-
-fn encode_record(salt: &[u8], hash_hex: &str) -> String {
-    format!("{}:{}", hex::encode(salt), hash_hex)
 }
 
 fn decode_record(raw: &str) -> Result<(Vec<u8>, String), String> {
@@ -103,30 +80,28 @@ fn read_record() -> Result<Option<String>, String> {
     }
 }
 
-fn write_record(value: &str) -> Result<(), String> {
+fn ensure_record() -> Result<String, String> {
+    if let Some(record) = read_record()? {
+        return Ok(record);
+    }
     let entry = keyring_entry()?;
     entry
-        .set_password(value)
-        .map_err(|e| format!("写入钥匙串失败: {e}"))
-}
-
-fn delete_record() -> Result<(), String> {
-    let entry = keyring_entry()?;
-    match entry.delete_credential() {
-        Ok(()) => Ok(()),
-        Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(format!("删除钥匙串失败: {e}")),
+        .set_password(DEFAULT_VERIFIER)
+        .map_err(|error| format!("初始化高级密码失败: {error}"))?;
+    // Some macOS Keychain backends briefly return NoEntry right after set.
+    for _ in 0..5 {
+        match read_record() {
+            Ok(Some(saved)) => {
+                decode_record(&saved)?;
+                return Ok(saved);
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(40)),
+            Err(_) => std::thread::sleep(Duration::from_millis(40)),
+        }
     }
-}
-
-fn validate_password_strength(password: &str) -> Result<(), String> {
-    if password.chars().count() < 6 {
-        return Err("密码至少 6 位".into());
-    }
-    if password.chars().count() > 128 {
-        return Err("密码过长".into());
-    }
-    Ok(())
+    // Write succeeded; trust the known verifier so unlock is not blocked.
+    decode_record(DEFAULT_VERIFIER)?;
+    Ok(DEFAULT_VERIFIER.to_string())
 }
 
 fn check_fail_gate(state: &SettingsLockState) -> Result<(), String> {
@@ -170,7 +145,9 @@ fn session_remaining(state: &SettingsLockState) -> u64 {
         return 0;
     };
     match session.as_ref() {
-        Some(s) if Instant::now() < s.until => s.until.saturating_duration_since(Instant::now()).as_secs(),
+        Some(s) if Instant::now() < s.until => {
+            s.until.saturating_duration_since(Instant::now()).as_secs()
+        }
         Some(_) => {
             *session = None;
             0
@@ -180,7 +157,7 @@ fn session_remaining(state: &SettingsLockState) -> u64 {
 }
 
 pub fn status(state: &SettingsLockState) -> Result<SettingsPasswordStatus, String> {
-    let configured = read_record()?.is_some();
+    let configured = !ensure_record()?.is_empty();
     let remaining = session_remaining(state);
     let fail_cooldown = {
         let fails = state.fails.lock().map_err(|_| "锁状态损坏".to_string())?;
@@ -197,22 +174,12 @@ pub fn status(state: &SettingsLockState) -> Result<SettingsPasswordStatus, Strin
     })
 }
 
-pub fn create_password(state: &SettingsLockState, password: String) -> Result<SettingsPasswordStatus, String> {
-    validate_password_strength(&password)?;
-    if read_record()?.is_some() {
-        return Err("已设置高级密码，请使用修改密码".into());
-    }
-    let salt = random_salt();
-    let hash = hash_password(&password, &salt);
-    write_record(&encode_record(&salt, &hash))?;
-    clear_fails(state);
-    unlock_now(state);
-    status(state)
-}
-
-pub fn verify_password(state: &SettingsLockState, password: String) -> Result<SettingsPasswordStatus, String> {
+pub fn verify_password(
+    state: &SettingsLockState,
+    password: String,
+) -> Result<SettingsPasswordStatus, String> {
     check_fail_gate(state)?;
-    let raw = read_record()?.ok_or_else(|| "尚未设置高级密码".to_string())?;
+    let raw = ensure_record()?;
     let (salt, expected) = decode_record(&raw)?;
     let got = hash_password(&password, &salt);
     if got != expected {
@@ -226,21 +193,34 @@ pub fn verify_password(state: &SettingsLockState, password: String) -> Result<Se
 
 pub fn change_password(
     state: &SettingsLockState,
-    old_password: String,
-    new_password: String,
+    password: String,
 ) -> Result<SettingsPasswordStatus, String> {
-    validate_password_strength(&new_password)?;
-    check_fail_gate(state)?;
-    let raw = read_record()?.ok_or_else(|| "尚未设置高级密码".to_string())?;
-    let (salt, expected) = decode_record(&raw)?;
-    let got = hash_password(&old_password, &salt);
-    if got != expected {
-        register_fail(state);
-        return Err("旧密码不正确".into());
+    require_unlocked(state)?;
+    if password.chars().count() < 8 {
+        return Err("新密码至少需要 8 个字符".to_string());
     }
-    let new_salt = random_salt();
-    let new_hash = hash_password(&new_password, &new_salt);
-    write_record(&encode_record(&new_salt, &new_hash))?;
+    let seed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_nanos())
+        .unwrap_or_default();
+    let mut salt_hasher = Sha256::new();
+    salt_hasher.update(b"suying-advanced-salt-v2");
+    salt_hasher.update(seed.to_le_bytes());
+    salt_hasher.update(std::process::id().to_le_bytes());
+    let salt = salt_hasher.finalize()[..16].to_vec();
+    let record = format!("{}:{}", hex::encode(&salt), hash_password(&password, &salt));
+    keyring_entry()?
+        .set_password(&record)
+        .map_err(|error| format!("保存新密码失败: {error}"))?;
+    // Prefer confirming the round-trip, but do not fail unlock if Keychain lags.
+    for _ in 0..5 {
+        if let Ok(Some(saved)) = read_record() {
+            if saved == record {
+                break;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(40));
+    }
     clear_fails(state);
     unlock_now(state);
     status(state)
@@ -262,18 +242,27 @@ pub fn require_unlocked(state: &SettingsLockState) -> Result<(), String> {
     Ok(())
 }
 
-pub fn clear_password(state: &SettingsLockState, password: String) -> Result<SettingsPasswordStatus, String> {
-    check_fail_gate(state)?;
-    let raw = read_record()?.ok_or_else(|| "尚未设置高级密码".to_string())?;
-    let (salt, expected) = decode_record(&raw)?;
-    if hash_password(&password, &salt) != expected {
-        register_fail(state);
-        return Err("密码不正确".into());
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn verifier_rejects_wrong_password_and_accepts_correct_password() {
+        let salt = b"0123456789abcdef";
+        let record = format!("{}:{}", hex::encode(salt), hash_password("correct", salt));
+        let (decoded_salt, expected) = decode_record(&record).unwrap();
+        assert_eq!(hash_password("correct", &decoded_salt), expected);
+        assert_ne!(hash_password("wrong", &decoded_salt), expected);
     }
-    delete_record()?;
-    clear_fails(state);
-    if let Ok(mut session) = state.session.lock() {
-        *session = None;
+
+    #[test]
+    fn unlock_is_process_memory_only() {
+        let first_process = SettingsLockState::default();
+        assert_eq!(session_remaining(&first_process), 0);
+        unlock_now(&first_process);
+        assert!(session_remaining(&first_process) > 0);
+
+        let restarted_process = SettingsLockState::default();
+        assert_eq!(session_remaining(&restarted_process), 0);
     }
-    status(state)
 }

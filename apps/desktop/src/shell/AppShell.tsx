@@ -15,7 +15,6 @@ type Props = {
   topbarTitle?: ReactNode;
   topbarActions?: ReactNode;
   children: ReactNode;
-  assistantOpen?: boolean;
   tabIcons: Record<Tab, LucideIcon>;
 };
 
@@ -29,16 +28,15 @@ export function AppShell({
   topbarTitle,
   topbarActions,
   children,
-  assistantOpen,
   tabIcons,
 }: Props) {
   return (
-    <div className={`app app--gui`} data-density={density} data-assistant={assistantOpen ? "1" : "0"}>
+    <div className="app app--gui" data-density={density}>
       <aside className="rail" aria-label="主导航">
         <div className="brand">
           {brandSlot ?? (
             <div className="brand-mark">
-              <h1 className="brand-name">速影</h1>
+              <h1 className="brand-name">速影 Studio</h1>
               <span className="brand-ver">SUYING</span>
             </div>
           )}
@@ -74,7 +72,7 @@ export function AppShell({
         <div className="topbar-actions">{topbarActions}</div>
       </header>
 
-      <div className={`workspace${assistantOpen ? " workspace--assistant" : ""}`}>{children}</div>
+      <div className="workspace">{children}</div>
     </div>
   );
 }

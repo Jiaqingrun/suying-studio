@@ -10,7 +10,6 @@ export interface DataCenterPageProps {
   report: ReportSummary | null;
   opsReport: OpsReportView | null;
   assets: Array<Record<string, unknown>>;
-  reachQuota: Record<string, unknown> | null;
   semanticStatus: SemanticBackfillStatus | null;
   titlePoolSummary: TitlePoolSummary | null;
   events: Array<Record<string, unknown>>;
@@ -25,7 +24,6 @@ export function DataCenterPage({
   report,
   opsReport,
   assets,
-  reachQuota,
   semanticStatus,
   titlePoolSummary,
   events,
@@ -45,21 +43,18 @@ export function DataCenterPage({
   const failureRate =
     opsReport?.failure_rate != null
       ? `${(opsReport.failure_rate * 100).toFixed(1)}%`
-      : report
+      : report?.failure_rate != null
         ? `${(report.failure_rate * 100).toFixed(1)}%`
         : null;
 
-  const quotaText = opsReport?.quota
-    ? `${String(opsReport.quota.used_total ?? opsReport.quota.used_today ?? 0)}/${String(opsReport.quota.daily_quota ?? "—")}`
-    : reachQuota
-      ? `${String(reachQuota.used_total ?? reachQuota.used_today ?? 0)}/${String(reachQuota.daily_quota ?? "—")}`
-      : null;
+  const reportMeta = opsReport ?? report;
+  const reconciliation = reportMeta?.reconciliation;
 
   return (
-    <section>
+    <section className="page-stack data-page">
       <PageHeader
         title="数据中心"
-        blurb="产能、质量与发布统计"
+        blurb="只读看产能与质量；要操作请回总览或生产"
         actions={
           <button type="button" onClick={() => void refreshAll()}>
             刷新
@@ -77,21 +72,39 @@ export function DataCenterPage({
       ) : (
         <>
           <div className="stat-grid">
-            <StatCard label="素材" value={report?.assets ?? assets.length} />
+            <StatCard label="素材" value={report?.assets ?? "—"} />
             <StatCard
-              label="Cliplet"
+              label="可用片段"
               value={report ? `${report.cliplets_indexed}/${report.cliplets}` : "—"}
             />
             <StatCard
-              label="待发 Ready"
-              value={opsReport?.pending_ready ?? opsReport?.ready ?? report?.ready ?? "—"}
+              label="可用成片"
+              value={opsReport?.ready_available ?? report?.ready_available ?? "—"}
             />
             <StatCard
-              label="已发归档"
-              value={opsReport?.published_count ?? opsReport?.published_ready ?? "—"}
+              label="生产通过"
+              value={opsReport?.production_passed ?? report?.production_passed ?? "—"}
             />
+            <StatCard label="失败" value={opsReport?.failed ?? report?.failed ?? "—"} />
+            <StatCard label="自动通过" value={opsReport?.auto_approved ?? report?.auto_approved ?? "—"} />
+            <StatCard label="自动拒绝" value={opsReport?.auto_rejected ?? report?.auto_rejected ?? "—"} />
+            <StatCard label="待人工判定" value={opsReport?.uncertain_open ?? report?.uncertain_open ?? "—"} />
+            <StatCard label="人工已判定" value={opsReport?.manual_decided ?? report?.manual_decided ?? "—"} />
+            <StatCard label="已发布" value={opsReport?.published ?? report?.published ?? "—"} />
+            <StatCard label="已退役" value={opsReport?.retired ?? report?.retired ?? "—"} />
             <StatCard label="失败率" value={failureRate ?? "—"} warn={Boolean(failureRate && failureRate !== "0.0%")} />
-            <StatCard label="触达配额" value={quotaText ?? "—"} />
+          </div>
+          <div className="hint" style={{ margin: "8px 0 16px" }}>
+            统计时间 {reportMeta?.generated_at ? new Date(reportMeta.generated_at).toLocaleString("zh-CN") : "—"}
+            {" · "}业务日 {reportMeta?.business_date ?? "—"}
+            {" · "}时区 {reportMeta?.timezone ?? "—"}
+            {" · "}来源 {reportMeta?.source === "database" ? "数据库" : "—"}
+            {" · "}文件核对{" "}
+            {reconciliation
+              ? reconciliation.in_sync
+                ? "一致"
+                : `有差异（可用成片 ${reconciliation.differences.ready_available_minus_files ?? "—"}，退役 ${reconciliation.differences.retired_minus_files ?? "—"}）`
+              : "—"}
           </div>
 
           <h3 className="section-title">语义进度</h3>
@@ -125,6 +138,9 @@ export function DataCenterPage({
                           hooks_count: s.hooks_count,
                           max_chars_per_line: s.max_chars_per_line,
                           version: s.version,
+                          revision: s.revision,
+                          sha256: s.sha256,
+                          schema: s.schema,
                         }),
                       )
                       .catch((e: unknown) => notify(String(e), "err"))
@@ -174,7 +190,6 @@ export function DataCenterPage({
               <thead>
                 <tr>
                   <th>时间</th>
-                  <th>Job</th>
                   <th>级别</th>
                   <th>消息</th>
                 </tr>
@@ -183,7 +198,6 @@ export function DataCenterPage({
                 {events.slice(0, 20).map((e) => (
                   <tr key={String(e.id)}>
                     <td>{String(e.created_at)}</td>
-                    <td>{String(e.job_id)}</td>
                     <td>{String(e.level)}</td>
                     <td>{String(e.message)}</td>
                   </tr>

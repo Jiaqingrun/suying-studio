@@ -145,7 +145,7 @@ export function ReachCoverSection({
     <div className="reach-cover">
       <div className="reach-cover-head">
         <h3>封面设置</h3>
-        <p className="hint">本机多套缓存；发布取「当前选用」。各平台槽位规格互不相同。</p>
+        <p className="hint">所有视频平台只使用 1 张竖版封面；发布严格取「当前选用」模板，不回退物料包封面。</p>
         <p className="reach-cover-summary path">{summary}</p>
         <p className={`cover-phase cover-phase--${coverPhase}`}>{coverPhaseHint[coverPhase]}</p>
       </div>
@@ -263,7 +263,7 @@ export function ReachCoverSection({
         {selectedId ? (
           <span className="path">当前发布封面套：{selectedId}</span>
         ) : (
-          <span className="path">未选用模板时回退物料包 cover.jpg…</span>
+          <span className="path">尚未选用模板：发布将被门禁阻止</span>
         )}
       </div>
       {previewMsg ? <p className="path">{previewMsg}</p> : null}

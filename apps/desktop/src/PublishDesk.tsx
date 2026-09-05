@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { openMediaTarget } from "./openMediaTarget";
 import { api } from "./api";
-import { isTauri } from "./engineControl";
-import { bindOutputFileDrag } from "./mediaDrag";
+import {
+  bindOutputFileDrag,
+  bindOutputFilePointerDown,
+  outputDragHtmlEnabled,
+} from "./mediaDrag";
 import { previewVideoSrc } from "./mediaPreview";
 
 type PlatformCopy = {
@@ -126,12 +129,8 @@ export function PublishDesk({ outputs, onNotify, onRefresh, onGoReach, mediaEpoc
       return;
     }
     try {
-      if (isTauri()) {
-        await revealItemInDir(path);
-        onNotify("已在访达中显示成片，可拖到浏览器上传框", "ok");
-      } else {
-        onNotify(`本地路径：${path}`, "info");
-      }
+      await openMediaTarget(path);
+      onNotify("已打开文件位置，可拖到浏览器上传框", "ok");
     } catch (e) {
       onNotify(String(e), "err");
     }
@@ -139,8 +138,25 @@ export function PublishDesk({ outputs, onNotify, onRefresh, onGoReach, mediaEpoc
 
   function onDragStart(e: React.DragEvent) {
     if (!path || !card?.media_ok || !card) return;
-    bindOutputFileDrag(e, { id: card.id, path, mediaOk: card.media_ok });
+    bindOutputFileDrag(e, {
+      id: card.id,
+      path,
+      mediaOk: card.media_ok,
+      onError: (msg) => onNotify(msg, "err"),
+    });
   }
+
+  function onDragPointerDown(e: React.PointerEvent) {
+    if (!path || !card?.media_ok || !card) return;
+    bindOutputFilePointerDown(e, {
+      id: card.id,
+      path,
+      mediaOk: card.media_ok,
+      onError: (msg) => onNotify(msg, "err"),
+    });
+  }
+
+  const htmlDrag = outputDragHtmlEnabled();
 
   return (
     <section className="publish-desk">
@@ -149,7 +165,8 @@ export function PublishDesk({ outputs, onNotify, onRefresh, onGoReach, mediaEpoc
         <span className="count">{publishable.length} READY</span>
       </div>
       <p className="hint">
-        优先使用「已过审」成片。复制各平台标题/正文后，点「访达中显示」把文件拖到网页上传框（页内拖拽为尽力支持）。
+        优先使用「已过审」成片。复制各平台标题/正文后，从「拖拽成片」按住拖向浏览器上传框（App
+        内为系统真实 .mp4 文件拖拽）；也可「访达中显示」再拖。
         新成片默认含旁白+烧录字幕；旧片请先在审片页「仅重渲」。
       </p>
 
@@ -194,20 +211,21 @@ export function PublishDesk({ outputs, onNotify, onRefresh, onGoReach, mediaEpoc
                     playsInline
                     preload="metadata"
                     src={previewVideoSrc(card.id, path, `${mediaEpoch}-${card.id}`)}
-                    draggable
-                    onDragStart={onDragStart}
+                    draggable={htmlDrag}
+                    onDragStart={htmlDrag ? onDragStart : undefined}
                   />
                 ) : (
                   <div className="publish-video missing">文件缺失</div>
                 )}
                 <div
                   className="publish-drag-zone"
-                  draggable={Boolean(card.media_ok && path)}
-                  onDragStart={onDragStart}
-                  title="拖到支持的上传区；若无效请用「访达中显示」再拖文件"
+                  draggable={htmlDrag && Boolean(card.media_ok && path)}
+                  onDragStart={htmlDrag ? onDragStart : undefined}
+                  onPointerDown={onDragPointerDown}
+                  title="按住拖向浏览器上传框；App 会投递真实 .mp4 文件"
                 >
                   <strong>拖拽成片</strong>
-                  <span>按住此处拖向浏览器上传框；推荐「访达中显示」后拖文件</span>
+                  <span>按住此处拖向浏览器上传框（系统真实成片文件）</span>
                 </div>
               </div>
 

@@ -74,6 +74,7 @@ export function CarrierOpsStrip() {
           ? ` → ${upd.remote_version}${upd.force ? "（强制）" : ""}`
           : " · 已是最新或无清单"}
       </span>
+      {upd?.notes ? <span className="hint">{upd.notes}</span> : null}
       {upd?.update_available ? (
         <button type="button" className="primary" disabled={busy} onClick={() => void onInstallUpdate()}>
           {upd.force ? "强制更新并安装" : "更新并安装"}

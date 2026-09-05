@@ -31,16 +31,6 @@ export const BUILTIN_COVER_SLOT_SPECS: Record<string, CoverSlotSpec[]> = {
       max_mb: 5,
       role: "信息流/主页竖展示",
     },
-    {
-      index: 1,
-      id: "horizontal",
-      label: "横封面",
-      aspect: "16:9",
-      width: 1920,
-      height: 1080,
-      max_mb: 5,
-      role: "横版推荐位与横视频",
-    },
   ],
   kuaishou: [
     {
@@ -51,17 +41,7 @@ export const BUILTIN_COVER_SLOT_SPECS: Record<string, CoverSlotSpec[]> = {
       width: 1080,
       height: 1920,
       max_mb: 5,
-      role: "信息流竖展示；横视频亦需竖封面",
-    },
-    {
-      index: 1,
-      id: "horizontal",
-      label: "横封面",
-      aspect: "16:9",
-      width: 1920,
-      height: 1080,
-      max_mb: 5,
-      role: "横版推荐位",
+      role: "信息流竖展示",
     },
   ],
   channels: [
@@ -75,22 +55,12 @@ export const BUILTIN_COVER_SLOT_SPECS: Record<string, CoverSlotSpec[]> = {
       max_mb: 5,
       role: "视频号官方竖比例；朋友圈分享还会裁 1:1，核心居中",
     },
-    {
-      index: 1,
-      id: "horizontal",
-      label: "横封面",
-      aspect: "16:9",
-      width: 1920,
-      height: 1080,
-      max_mb: 5,
-      role: "横版视频封面",
-    },
   ],
   xhs: [
     {
       index: 0,
-      id: "feed",
-      label: "信息流封面",
+      id: "vertical",
+      label: "竖封面",
       aspect: "3:4",
       width: 1080,
       height: 1440,
@@ -98,69 +68,20 @@ export const BUILTIN_COVER_SLOT_SPECS: Record<string, CoverSlotSpec[]> = {
       role: "小红书信息流最优比例",
     },
   ],
-  baijiahao: [
-    {
-      index: 0,
-      id: "horizontal",
-      label: "横封面",
-      aspect: "16:9",
-      width: 1280,
-      height: 720,
-      max_mb: 5,
-      role: "百家号视频封面；建议 ≥720P，亦可 1920×1080",
-    },
-  ],
-  toutiao: [
-    {
-      index: 0,
-      id: "horizontal",
-      label: "横封面",
-      aspect: "16:9",
-      width: 1920,
-      height: 1080,
-      max_mb: 5,
-      role: "今日头条/头条号信息流横卡",
-    },
-  ],
-  zhihu: [
-    {
-      index: 0,
-      id: "vertical",
-      label: "竖封面",
-      aspect: "9:16",
-      width: 1080,
-      height: 1920,
-      max_mb: 5,
-      role: "知乎竖版视频",
-    },
-    {
-      index: 1,
-      id: "horizontal",
-      label: "横封面",
-      aspect: "16:9",
-      width: 1920,
-      height: 1080,
-      max_mb: 5,
-      role: "知乎横版视频",
-    },
-  ],
 };
 
 export const BUILTIN_REACH_PLATFORMS: ReachPlatform[] = [
-  { id: "douyin", label: "抖音创作者中心", url: "https://creator.douyin.com/", short: "抖音", cover_slots: 2 },
-  { id: "channels", label: "微信视频号助手", url: "https://channels.weixin.qq.com/", short: "视频号", cover_slots: 2 },
+  { id: "douyin", label: "抖音创作者中心", url: "https://creator.douyin.com/", short: "抖音", cover_slots: 1 },
+  { id: "channels", label: "微信视频号助手", url: "https://channels.weixin.qq.com/", short: "视频号", cover_slots: 1 },
   { id: "xhs", label: "小红书创作者服务平台", url: "https://creator.xiaohongshu.com/", short: "小红书", cover_slots: 1 },
-  { id: "kuaishou", label: "快手创作者服务平台", url: "https://cp.kuaishou.com/", short: "快手", cover_slots: 2 },
-  { id: "baijiahao", label: "百家号", url: "https://baijiahao.baidu.com/", short: "百家号", cover_slots: 1 },
-  { id: "toutiao", label: "头条号", url: "https://mp.toutiao.com/", short: "头条", cover_slots: 1 },
-  { id: "zhihu", label: "知乎创作者中心", url: "https://www.zhihu.com/creator", short: "知乎", cover_slots: 2 },
+  { id: "kuaishou", label: "快手创作者服务平台", url: "https://cp.kuaishou.com/", short: "快手", cover_slots: 1 },
 ];
 
 export const BUILTIN_SLOT_COUNTS: Record<string, number> = Object.fromEntries(
   Object.entries(BUILTIN_COVER_SLOT_SPECS).map(([k, v]) => [k, v.length]),
 );
 
-/** Never shrink below product defaults when merging API/persisted counts. */
+/** Product lock: all video platforms expose one vertical cover slot. */
 export function mergeSlotCounts(apiCounts?: Record<string, number> | null): Record<string, number> {
   const out: Record<string, number> = { ...BUILTIN_SLOT_COUNTS };
   if (!apiCounts) return out;
@@ -169,7 +90,7 @@ export function mergeSlotCounts(apiCounts?: Record<string, number> | null): Reco
     if (!id) continue;
     const n = Number(raw);
     if (!Number.isFinite(n) || n < 1) continue;
-    out[id] = Math.max(out[id] ?? 1, Math.floor(n), BUILTIN_SLOT_COUNTS[id] ?? 1);
+    out[id] = BUILTIN_COVER_SLOT_SPECS[id] ? 1 : Math.max(1, Math.floor(n));
   }
   return out;
 }
@@ -188,11 +109,9 @@ export function mergeReachPlatforms(
       label: p.label || base?.label || id,
       url: p.url || base?.url || "",
       short: p.short || base?.short || id,
-      cover_slots: Math.max(
-        p.cover_slots ?? 0,
-        base?.cover_slots ?? BUILTIN_SLOT_COUNTS[id] ?? 1,
-        BUILTIN_SLOT_COUNTS[id] ?? 1,
-      ),
+      cover_slots: BUILTIN_COVER_SLOT_SPECS[id]
+        ? 1
+        : Math.max(p.cover_slots ?? 0, base?.cover_slots ?? 1),
     });
   }
   // Stable order: built-in first, then any extra API-only platforms
@@ -222,7 +141,8 @@ export function mergeCoverSlotSpecs(
   for (const [plat, list] of Object.entries(apiSpecs)) {
     if (!Array.isArray(list) || !list.length) continue;
     const builtin = out[plat] || [];
-    out[plat] = list.map((s, i) => {
+    const effective = BUILTIN_COVER_SLOT_SPECS[plat] ? list.slice(0, 1) : list;
+    out[plat] = effective.map((s, i) => {
       const b = builtin[i] || builtin[0];
       return {
         index: typeof s.index === "number" ? s.index : i,

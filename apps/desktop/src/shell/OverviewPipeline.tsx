@@ -30,7 +30,9 @@ export function OverviewPipeline({ nodes, onJump, pathBlocked }: Props) {
               onClick={() => onJump(n.id)}
             >
               <span className="pipeline-label">{n.label}</span>
-              <span className="pipeline-count">{n.count}</span>
+              <span className="pipeline-count" aria-label={`${n.label} ${n.count}`}>
+                {n.count}
+              </span>
             </button>
           </div>
         ))}

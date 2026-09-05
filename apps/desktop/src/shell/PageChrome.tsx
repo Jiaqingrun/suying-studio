@@ -152,3 +152,101 @@ export function EmptyState({ title, body, actionLabel, onAction }: EmptyProps) {
     </div>
   );
 }
+
+type PageSectionProps = {
+  id?: string;
+  title: string;
+  description?: string;
+  status?: ReactNode;
+  actions?: ReactNode;
+  tone?: "default" | "attention" | "success";
+  children: ReactNode;
+};
+
+export function PageSection({
+  id,
+  title,
+  description,
+  status,
+  actions,
+  tone = "default",
+  children,
+}: PageSectionProps) {
+  return (
+    <section id={id} className={`page-section page-section-${tone}`}>
+      <SectionHeader title={title} description={description} status={status} actions={actions} />
+      <div className="page-section-body">{children}</div>
+    </section>
+  );
+}
+
+function SectionHeader({
+  title,
+  description,
+  status,
+  actions,
+}: {
+  title: string;
+  description?: string;
+  status?: ReactNode;
+  actions?: ReactNode;
+}) {
+  return (
+    <header className="section-header">
+      <div>
+        <div className="section-title-row">
+          <h3>{title}</h3>
+          {status ? <span className="section-status">{status}</span> : null}
+        </div>
+        {description ? <p>{description}</p> : null}
+      </div>
+      {actions ? <div className="section-actions">{actions}</div> : null}
+    </header>
+  );
+}
+
+export function InPageNav({
+  items,
+  active,
+  onChange,
+}: {
+  items: Array<{ id: string; label: string; badge?: number }>;
+  active?: string;
+  onChange?: (id: string) => void;
+}) {
+  return (
+    <nav className="in-page-nav" aria-label="页内导航">
+      {items.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          className={active === item.id ? "active" : ""}
+          onClick={() => {
+            onChange?.(item.id);
+            document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }}
+        >
+          <span>{item.label}</span>
+          {item.badge ? <em>{item.badge}</em> : null}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+export function StatusStrip({
+  items,
+}: {
+  items: Array<{ label: string; value: ReactNode; tone?: "neutral" | "ok" | "warn" | "danger" }>;
+}) {
+  return (
+    <div className="status-strip">
+      {items.map((item) => (
+        <div key={item.label} className={`status-strip-item ${item.tone || "neutral"}`}>
+          <span>{item.label}</span>
+          <strong>{item.value}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}

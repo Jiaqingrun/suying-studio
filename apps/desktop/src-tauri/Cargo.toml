@@ -1,7 +1,8 @@
 [package]
 name = "appsdesktop"
-version = "0.2.0"
-description = "速影 — 本地 AI 混剪桌面端"
+default-run = "appsdesktop"
+version = "0.8.11"
+description = "速影 Studio — 本地 AI 混剪桌面端"
 authors = ["QR"]
 edition = "2021"
 
@@ -24,9 +25,29 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs-next = "2"
+# Out-of-app file drag (Chrome upload / 快手等需真正文件而非 WebView URL)
+drag = "2.1"
 ureq = { version = "2", default-features = false, features = ["tls"] }
 tauri-plugin-notification = "2.3.3"
 keyring = "3"
 sha2 = "0.10"
 hex = "0.4"
+base64 = "0.22"
+ring = "0.17"
+time = { version = "0.3", features = ["parsing", "formatting"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+objc2 = "0.6.4"
+objc2-app-kit = "0.3.2"
+objc2-foundation = "0.3.2"
+
+[target."cfg(unix)".dependencies]
+libc = "0.2.189"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
 

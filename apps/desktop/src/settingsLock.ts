@@ -11,8 +11,19 @@ export type SettingsPasswordStatus = {
 const memoryFallback = {
   configured: false,
   unlocked: false,
+  /** Dev-only salted verifier — never store plaintext. */
+  salt: "",
   hash: "",
 };
+
+async function browserHash(password: string, salt: string): Promise<string> {
+  const enc = new TextEncoder();
+  const data = enc.encode(`suying-advanced-v1:${salt}:${password}`);
+  const dig = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(dig))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
 
 function browserStatus(): SettingsPasswordStatus {
   return {
@@ -28,42 +39,15 @@ export async function settingsPasswordStatus(): Promise<SettingsPasswordStatus> 
   return invoke<SettingsPasswordStatus>("settings_password_status");
 }
 
-export async function settingsPasswordCreate(password: string): Promise<SettingsPasswordStatus> {
-  if (!isTauri()) {
-    if (password.length < 6) throw new Error("密码至少 6 位");
-    memoryFallback.configured = true;
-    memoryFallback.unlocked = true;
-    memoryFallback.hash = password;
-    return browserStatus();
-  }
-  return invoke<SettingsPasswordStatus>("settings_password_create", { password });
-}
-
 export async function settingsPasswordVerify(password: string): Promise<SettingsPasswordStatus> {
   if (!isTauri()) {
     if (!memoryFallback.configured) throw new Error("尚未设置高级密码");
-    if (password !== memoryFallback.hash) throw new Error("密码不正确");
+    const got = await browserHash(password, memoryFallback.salt);
+    if (got !== memoryFallback.hash) throw new Error("密码不正确");
     memoryFallback.unlocked = true;
     return browserStatus();
   }
   return invoke<SettingsPasswordStatus>("settings_password_verify", { password });
-}
-
-export async function settingsPasswordChange(
-  oldPassword: string,
-  newPassword: string,
-): Promise<SettingsPasswordStatus> {
-  if (!isTauri()) {
-    if (oldPassword !== memoryFallback.hash) throw new Error("旧密码不正确");
-    if (newPassword.length < 6) throw new Error("密码至少 6 位");
-    memoryFallback.hash = newPassword;
-    memoryFallback.unlocked = true;
-    return browserStatus();
-  }
-  return invoke<SettingsPasswordStatus>("settings_password_change", {
-    oldPassword,
-    newPassword,
-  });
 }
 
 export async function settingsPasswordLock(): Promise<SettingsPasswordStatus> {
@@ -74,21 +58,15 @@ export async function settingsPasswordLock(): Promise<SettingsPasswordStatus> {
   return invoke<SettingsPasswordStatus>("settings_password_lock");
 }
 
-export async function settingsPasswordClear(password: string): Promise<SettingsPasswordStatus> {
-  if (!isTauri()) {
-    if (password !== memoryFallback.hash) throw new Error("密码不正确");
-    memoryFallback.configured = false;
-    memoryFallback.unlocked = false;
-    memoryFallback.hash = "";
-    return browserStatus();
-  }
-  return invoke<SettingsPasswordStatus>("settings_password_clear", { password });
+export async function settingsPasswordChange(password: string): Promise<SettingsPasswordStatus> {
+  if (!isTauri()) throw new Error("浏览器预览不能修改高级密码");
+  return invoke<SettingsPasswordStatus>("settings_password_change", { password });
 }
 
-export async function settingsAdvancedRequireUnlocked(): Promise<void> {
+export async function settingsOperationToken(): Promise<string> {
   if (!isTauri()) {
-    if (!memoryFallback.unlocked) throw new Error("高级配置已锁定，请先验证密码");
-    return;
+    if (!memoryFallback.unlocked) throw new Error("高级功能已锁定，请先验证密码");
+    return "browser-preview";
   }
-  return invoke("settings_advanced_require_unlocked");
+  return invoke<string>("settings_operation_token");
 }

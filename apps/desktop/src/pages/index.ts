@@ -6,6 +6,7 @@ export { MessagesPage, type MessagesPageProps } from "./MessagesPage";
 export { DataCenterPage, type DataCenterPageProps } from "./DataCenterPage";
 export { OpsPage, type OpsPageProps } from "./OpsPage";
 export { SettingsPage, type SettingsPageProps } from "./SettingsPage";
+export { LogsPage } from "./LogsPage";
 export type {
   AskConfirmFn,
   LangCatalogItem,
