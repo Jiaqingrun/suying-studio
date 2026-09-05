@@ -20,14 +20,16 @@ from engine.catalog.host_profile import (
     resolve_vision_policy,
     vision_spec_for_tier,
 )
+from engine.catalog.ollama_runtime import OLLAMA_URL
 
-OLLAMA_URL = "http://127.0.0.1:11434"
 INSTALL_URL = "https://ollama.com/download"
 # Back-compat exports (primary fast-screen; escalate is separate)
 VISION_MODEL = VISION_FAST
 VISION_MODEL_ALIASES = VISION_BY_TIER["standard"]["aliases"]
 
 _pull_lock = threading.Lock()
+_pull_cancel = threading.Event()
+_pull_process: subprocess.Popen[str] | None = None
 _pull_state: dict[str, Any] = {
     "running": False,
     "model": None,
@@ -43,6 +45,54 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _execute_pull(model: str) -> subprocess.CompletedProcess[str]:
+    global _pull_process
+    proc = subprocess.Popen(
+        ["ollama", "pull", model],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    with _pull_lock:
+        _pull_process = proc
+    try:
+        stdout, stderr = proc.communicate(timeout=7200)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        stdout, stderr = proc.communicate()
+        raise
+    finally:
+        with _pull_lock:
+            if _pull_process is proc:
+                _pull_process = None
+    return subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
+
+
+def cancel_pull() -> bool:
+    """Terminate a running model pull; interrupted pulls are never auto-resumed."""
+    _pull_cancel.set()
+    with _pull_lock:
+        proc = _pull_process
+        was_running = bool(_pull_state.get("running"))
+    if proc and proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+    if was_running:
+        with _pull_lock:
+            _pull_state.update(
+                {
+                    "running": False,
+                    "ok": False,
+                    "finished_at": _now_iso(),
+                    "message": "系统暂停已中断模型拉取，需人工重新确认",
+                }
+            )
+    return was_running
+
+
 def _model_names(tags: list[dict[str, Any]]) -> list[str]:
     names: list[str] = []
     for row in tags:
@@ -53,19 +103,35 @@ def _model_names(tags: list[dict[str, Any]]) -> list[str]:
 
 
 def _has_model(names: list[str], wanted: str | tuple[str, ...] | list[str]) -> bool:
+    """Exact tag match only (e.g. ``qwen3.5:9b`` must not match ``qwen3.5:14b``).
+
+    ``wanted`` may list explicit aliases (e.g. a bare name without ``:latest``);
+    each entry is still matched exactly — no base-name/prefix wildcarding.
+    """
     wanted_list = [wanted] if isinstance(wanted, str) else list(wanted)
+    names_l = {n.lower() for n in names}
     for wanted_one in wanted_list:
         wanted_l = wanted_one.lower()
-        base = wanted_l.split(":")[0]
-        for n in names:
-            nl = n.lower()
-            if nl == wanted_l or nl.startswith(base + ":") or nl == base:
-                return True
+        if wanted_l in names_l:
+            return True
+        # A bare tag (no ":") is only satisfied by an explicit ":latest" entry —
+        # never by any other tag sharing the same base name.
+        if ":" not in wanted_l and f"{wanted_l}:latest" in names_l:
+            return True
     return False
 
 
 def allowed_pull_models() -> set[str]:
-    allowed = {EMBED_MODEL, "nomic-embed-text", VISION_FAST, VISION_ESCALATE}
+    allowed = {
+        EMBED_MODEL,
+        "nomic-embed-text",
+        VISION_FAST,
+        VISION_ESCALATE,
+        "qwen2.5:3b",
+        "qwen2.5:7b",
+        "qwen2.5:14b",
+        "qwen2.5:32b",
+    }
     for spec in VISION_BY_TIER.values():
         allowed.add(str(spec["model"]))
         for a in spec.get("aliases") or ():
@@ -248,6 +314,7 @@ def start_pull(model: str) -> dict[str, Any]:
                 "message": f"已有拉取任务进行中：{_pull_state.get('model')}",
                 "pull": dict(_pull_state),
             }
+        _pull_cancel.clear()
         _pull_state.update(
             {
                 "running": True,
@@ -262,22 +329,21 @@ def start_pull(model: str) -> dict[str, Any]:
 
     def _run() -> None:
         try:
-            proc = subprocess.run(
-                ["ollama", "pull", model],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=7200,
-            )
+            proc = _execute_pull(model)
             tail = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()[-2000:]
-            ok = proc.returncode == 0
+            interrupted = _pull_cancel.is_set()
+            ok = proc.returncode == 0 and not interrupted
             with _pull_lock:
                 _pull_state.update(
                     {
                         "running": False,
                         "ok": ok,
                         "finished_at": _now_iso(),
-                        "message": "拉取完成" if ok else f"拉取失败（exit {proc.returncode}）",
+                        "message": (
+                            "系统暂停已中断模型拉取，需人工重新确认"
+                            if interrupted
+                            else ("拉取完成" if ok else f"拉取失败（exit {proc.returncode}）")
+                        ),
                         "log_tail": tail,
                     }
                 )
@@ -315,7 +381,25 @@ def start_pull_recommended() -> dict[str, Any]:
     esc = (applied.get("escalate_model") or "").strip()
     if esc and esc not in models:
         models.append(esc)
+    result = start_pull_models(models)
+    result.update({"tier": applied["tier"], "reason": applied["reason"]})
+    return result
 
+
+def start_pull_models(models: list[str]) -> dict[str, Any]:
+    """Pull an ordered, allowlisted model set in one resumable process task."""
+    allowed = allowed_pull_models()
+    normalized: list[str] = []
+    allowed_bases = {a.split(":")[0] for a in allowed}
+    for raw in models:
+        model = str(raw or "").strip()
+        if not model or model in normalized:
+            continue
+        if model not in allowed and model.split(":")[0] not in allowed_bases:
+            return {"ok": False, "message": f"不允许拉取的模型: {model}"}
+        normalized.append(model)
+    if not normalized:
+        return {"ok": False, "message": "安装计划没有选中模型"}
     with _pull_lock:
         if _pull_state["running"]:
             return {
@@ -323,14 +407,15 @@ def start_pull_recommended() -> dict[str, Any]:
                 "message": f"已有拉取任务进行中：{_pull_state.get('model')}",
                 "pull": dict(_pull_state),
             }
+        _pull_cancel.clear()
         _pull_state.update(
             {
                 "running": True,
-                "model": models[0],
+                "model": normalized[0],
                 "started_at": _now_iso(),
                 "finished_at": None,
                 "ok": None,
-                "message": f"按本机配置安装：{' → '.join(models)}",
+                "message": f"按安装计划执行：{' → '.join(normalized)}",
                 "log_tail": "",
             }
         )
@@ -339,17 +424,14 @@ def start_pull_recommended() -> dict[str, Any]:
         ok_all = True
         tails: list[str] = []
         try:
-            for m in models:
+            for m in normalized:
+                if _pull_cancel.is_set():
+                    ok_all = False
+                    break
                 with _pull_lock:
                     _pull_state.update({"model": m, "message": f"正在拉取 {m}…"})
                 try:
-                    proc = subprocess.run(
-                        ["ollama", "pull", m],
-                        capture_output=True,
-                        text=True,
-                        check=False,
-                        timeout=7200,
-                    )
+                    proc = _execute_pull(m)
                     tails.append(((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()[-1000:])
                     if proc.returncode != 0:
                         ok_all = False
@@ -378,12 +460,17 @@ def start_pull_recommended() -> dict[str, Any]:
                         )
                     return
             with _pull_lock:
+                interrupted = _pull_cancel.is_set()
                 _pull_state.update(
                     {
                         "running": False,
-                        "ok": ok_all,
+                        "ok": ok_all and not interrupted,
                         "finished_at": _now_iso(),
-                        "message": "推荐模型已全部安装" if ok_all else "部分模型安装失败",
+                        "message": (
+                            "系统暂停已中断模型拉取，需人工重新确认"
+                            if interrupted
+                            else ("推荐模型已全部安装" if ok_all else "部分模型安装失败")
+                        ),
                         "log_tail": "\n".join(tails)[-2000:],
                     }
                 )
@@ -402,10 +489,8 @@ def start_pull_recommended() -> dict[str, Any]:
     threading.Thread(target=_run, daemon=True).start()
     return {
         "ok": True,
-        "message": f"已按本机配置开始安装：{' → '.join(models)}",
-        "models": models,
-        "tier": applied["tier"],
-        "reason": applied["reason"],
+        "message": f"已按安装计划开始安装：{' → '.join(normalized)}",
+        "models": normalized,
         "pull": dict(_pull_state),
     }
 
@@ -418,6 +503,7 @@ __all__ = [
     "INSTALL_URL",
     "check_ollama",
     "start_pull",
+    "start_pull_models",
     "start_pull_recommended",
     "apply_recommended_to_settings",
     "active_models_from_settings",

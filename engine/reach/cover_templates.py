@@ -19,8 +19,7 @@ from typing import Any
 COVER_STORE_DIRNAME = "封面模板"
 BRAND_DIRNAME = "05-品牌"
 
-# Canonical cover slot specs — single source of truth for counts + dimensions.
-# Each platform entry is an ordered list of slots with different requirements.
+# Canonical cover slot specs — all video platforms use one vertical App cover.
 PLATFORM_COVER_SPECS: dict[str, list[dict[str, Any]]] = {
     "douyin": [
         {
@@ -33,16 +32,6 @@ PLATFORM_COVER_SPECS: dict[str, list[dict[str, Any]]] = {
             "max_mb": 5,
             "role": "信息流/主页竖展示",
         },
-        {
-            "index": 1,
-            "id": "horizontal",
-            "label": "横封面",
-            "aspect": "16:9",
-            "width": 1920,
-            "height": 1080,
-            "max_mb": 5,
-            "role": "横版推荐位与横视频",
-        },
     ],
     "kuaishou": [
         {
@@ -53,17 +42,7 @@ PLATFORM_COVER_SPECS: dict[str, list[dict[str, Any]]] = {
             "width": 1080,
             "height": 1920,
             "max_mb": 5,
-            "role": "信息流竖展示；横视频亦需竖封面",
-        },
-        {
-            "index": 1,
-            "id": "horizontal",
-            "label": "横封面",
-            "aspect": "16:9",
-            "width": 1920,
-            "height": 1080,
-            "max_mb": 5,
-            "role": "横版推荐位",
+            "role": "信息流竖展示",
         },
     ],
     "channels": [
@@ -77,73 +56,17 @@ PLATFORM_COVER_SPECS: dict[str, list[dict[str, Any]]] = {
             "max_mb": 5,
             "role": "视频号官方竖比例；朋友圈分享还会裁 1:1，核心居中",
         },
-        {
-            "index": 1,
-            "id": "horizontal",
-            "label": "横封面",
-            "aspect": "16:9",
-            "width": 1920,
-            "height": 1080,
-            "max_mb": 5,
-            "role": "横版视频封面",
-        },
     ],
     "xhs": [
         {
             "index": 0,
-            "id": "feed",
-            "label": "信息流封面",
+            "id": "vertical",
+            "label": "竖封面",
             "aspect": "3:4",
             "width": 1080,
             "height": 1440,
             "max_mb": 5,
             "role": "小红书信息流最优比例",
-        },
-    ],
-    "baijiahao": [
-        {
-            "index": 0,
-            "id": "horizontal",
-            "label": "横封面",
-            "aspect": "16:9",
-            "width": 1280,
-            "height": 720,
-            "max_mb": 5,
-            "role": "百家号视频封面；建议 ≥720P，亦可 1920×1080",
-        },
-    ],
-    "toutiao": [
-        {
-            "index": 0,
-            "id": "horizontal",
-            "label": "横封面",
-            "aspect": "16:9",
-            "width": 1920,
-            "height": 1080,
-            "max_mb": 5,
-            "role": "今日头条/头条号信息流横卡",
-        },
-    ],
-    "zhihu": [
-        {
-            "index": 0,
-            "id": "vertical",
-            "label": "竖封面",
-            "aspect": "9:16",
-            "width": 1080,
-            "height": 1920,
-            "max_mb": 5,
-            "role": "知乎竖版视频",
-        },
-        {
-            "index": 1,
-            "id": "horizontal",
-            "label": "横封面",
-            "aspect": "16:9",
-            "width": 1920,
-            "height": 1080,
-            "max_mb": 5,
-            "role": "知乎横版视频",
         },
     ],
 }
@@ -180,6 +103,23 @@ def _slot_spec(platform: str, slot_index: int) -> dict[str, Any]:
         "max_mb": 5,
         "role": "",
     }
+
+
+def validate_vertical_cover(path: str | Path) -> tuple[int, int]:
+    """Validate that a cover is a readable portrait image."""
+    from PIL import Image
+
+    p = Path(path)
+    try:
+        with Image.open(p) as image:
+            image.verify()
+        with Image.open(p) as image:
+            width, height = image.size
+    except Exception as exc:
+        raise ValueError(f"封面不是可读取的图片: {p}") from exc
+    if width <= 0 or height <= 0 or height <= width:
+        raise ValueError(f"只允许竖版封面（高必须大于宽），当前 {width}×{height}: {p}")
+    return width, height
 
 
 def _now() -> str:
@@ -301,8 +241,10 @@ def resolve_cover_store_for_settings(settings: Any | None = None) -> Path:
 
 
 def slot_count_for(platform: str, index: dict[str, Any] | None = None) -> int:
-    """Required slots for platform. Never below PRODUCT default (specs length)."""
+    """All known video platforms require exactly one vertical cover."""
     plat = (platform or "").strip().lower()
+    if plat in PLATFORM_COVER_SPECS:
+        return 1
     product = max(1, int(DEFAULT_SLOT_COUNTS.get(plat, 1)))
     overrides = (index or {}).get("slot_counts") or {}
     if plat in overrides:
@@ -311,7 +253,7 @@ def slot_count_for(platform: str, index: dict[str, Any] | None = None) -> int:
 
 
 def _merge_slot_counts(raw: dict[str, Any] | None) -> dict[str, int]:
-    """Merge persisted counts with product defaults; lift undersized values."""
+    """Normalize old dual-slot indexes to one vertical slot per video platform."""
     merged = dict(DEFAULT_SLOT_COUNTS)
     if isinstance(raw, dict):
         for k, v in raw.items():
@@ -322,6 +264,8 @@ def _merge_slot_counts(raw: dict[str, Any] | None) -> dict[str, int]:
                 continue
             product = int(DEFAULT_SLOT_COUNTS.get(plat, 1))
             merged[plat] = max(product, max(1, n))
+    for plat in PLATFORM_COVER_SPECS:
+        merged[plat] = 1
     return merged
 
 
@@ -532,6 +476,7 @@ def set_slot_image(
     src = Path(source_path)
     if not src.is_file():
         raise FileNotFoundError(f"封面源文件不存在: {src}")
+    validate_vertical_cover(src)
 
     tpl = None
     for t in idx.get("templates") or []:

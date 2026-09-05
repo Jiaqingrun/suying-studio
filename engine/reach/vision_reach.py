@@ -100,12 +100,22 @@ def snapshot_page(sess: CdpSession, *, tag: str = "step") -> dict[str, Any]:
 def classify_publish_state(*, url: str, text: str) -> str:
     low_u = (url or "").lower()
     t = text or ""
-    if re.search(r"验证码|滑块|安全验证|人机验证|captcha", t, re.I) or "captcha" in low_u:
-        return STATE_NEED_HUMAN
-    if re.search(r"扫码登录|手机号登录|登录后免费|验证码登录|passport|sso", t) or any(
-        x in low_u for x in ("passport", "login", "sso", "accounts.")
-    ):
+    # Login walls first. 小红书登录页常有「发送验证码」帮助文案，不得当成安全验证停人。
+    if re.search(
+        r"扫码登录|手机号登录|短信登录|登录后免费|验证码登录|发送验证码|收不到验证码",
+        t,
+    ) or any(x in low_u for x in ("passport", "/login", "sso", "accounts.")):
         return STATE_NEED_LOGIN
+    # Real captcha / SMS challenge only — never bare「验证码」help text.
+    if (
+        re.search(
+            r"接收短信验证码|请完成安全验证|请拖动滑块|向右拖动滑块|人机验证|为确保是本人操作",
+            t,
+        )
+        or "captcha" in low_u
+        or re.search(r"/captcha", low_u)
+    ):
+        return STATE_NEED_HUMAN
     if re.search(r"发布成功|已发布|作品已发布|发布完成", t):
         return STATE_DONE
     if re.search(r"上传失败|网络错误，请稍后|上传出错", t):
@@ -213,7 +223,11 @@ def locate_text_in_png(
     prefer_red: bool = False,
 ) -> dict[str, Any] | None:
     """Find UI label via rendered-text template match. Returns PNG-pixel box + center."""
-    import cv2
+    try:
+        import cv2
+    except ImportError:
+        # Product runtime may ship without OpenCV; callers must fall back to DOM.
+        return None
     import numpy as np
     from PIL import Image
 
@@ -278,7 +292,10 @@ def locate_text_in_png(
 
 def locate_xhs_cover_tile_png(png_path: str | Path) -> dict[str, Any] | None:
     """Locate leftmost cover thumbnail under「设置封面」via label + portrait rect heuristic."""
-    import cv2
+    try:
+        import cv2
+    except ImportError:
+        return None
     import numpy as np
     from PIL import Image
 

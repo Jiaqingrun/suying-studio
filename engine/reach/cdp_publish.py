@@ -1,4 +1,9 @@
-"""CDP publish helpers for 视频号 / 小红书 — copy + cover slots + hard gate."""
+"""CDP publish helpers for 视频四平台 — copy + cover slots + hard gate.
+
+Split in progress: new platform-facing entry points should go through
+``engine.reach.cdp_platforms``. Pure text classification lives in
+``engine.reach.upload_state_classify`` for DOM contract tests without a browser.
+"""
 
 from __future__ import annotations
 
@@ -36,6 +41,82 @@ UPLOAD_URLS: dict[str, str] = {
 PUBLISH_BTN_TEXTS = ("发布", "发表", "发布笔记")
 PUBLISH_BTN_TEXTS_STRICT = ("发布", "发表", "发布笔记")
 
+# Cover soft budget (G5.COVER.SOFT_TIMEOUT): try App template briefly, then continue
+# with the platform default cover instead of pausing for a human.
+COVER_SOFT_TIMEOUT_SEC = 20.0
+# Channels vision open「编辑」max attempts before soft_pass (avoid 290s burn).
+CHANNELS_COVER_MAX_VISION_ATTEMPTS = 2
+# Upload wait poll: state-driven short interval (was fixed 1.0s).
+WAIT_UPLOAD_POLL_SEC = 0.35
+WAIT_UPLOAD_POLL_BUSY_SEC = 0.5
+# Per-platform wait_upload_ready cap used by upload_video_with_retries.
+WAIT_UPLOAD_TIMEOUT_BY_PLATFORM: dict[str, float] = {
+    "douyin": 45.0,
+    "channels": 60.0,
+    "xhs": 45.0,
+    "kuaishou": 45.0,
+}
+
+
+def _budget_ok(deadline: float | None) -> bool:
+    return deadline is None or time.monotonic() < float(deadline)
+
+
+def _ms_since(t0: float) -> int:
+    return max(0, int((time.monotonic() - t0) * 1000))
+
+
+def _cover_timeout_result(*, snapshots: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "timed_out": True,
+        "skipped": True,
+        "reason": "cover_timeout_soft_pass",
+        "covers": [],
+        "open_clicks": ["cover_budget_exceeded"],
+        "confirms": [],
+        "snapshots": list(snapshots or []),
+    }
+
+
+def _dismiss_cover_ui(sess: CdpSession) -> None:
+    """Best-effort close cover modal so publish can continue with platform default."""
+    try:
+        sess.call(
+            "Input.dispatchKeyEvent",
+            {"type": "keyDown", "windowsVirtualKeyCode": 27, "key": "Escape", "code": "Escape"},
+        )
+        sess.call(
+            "Input.dispatchKeyEvent",
+            {"type": "keyUp", "windowsVirtualKeyCode": 27, "key": "Escape", "code": "Escape"},
+        )
+    except Exception:
+        pass
+    try:
+        sess.evaluate(
+            """(() => {
+              const labels = ['取消', '关闭', '暂不', '返回'];
+              const nodes = Array.from(document.querySelectorAll('button,div,span,a'));
+              for (const lab of labels) {
+                const el = nodes.find((e) => ((e.innerText || '').trim() === lab));
+                if (el) { el.click(); return lab; }
+              }
+              return null;
+            })()"""
+        )
+    except Exception:
+        pass
+    try:
+        _dismiss_publisher_popups(sess)
+    except Exception:
+        pass
+
+
+def _is_app_cover_path(path: str | Path) -> bool:
+    normalized = str(path).replace("\\", "/")
+    return "/封面模板/" in normalized or "/cover_templates/" in normalized
+
+
 # Channels (and some creator pages) put the form in a same-origin iframe.
 # Parent document.body.innerText only shows the shell sidebar.
 # Channels description uses contenteditable="" (empty string) + class input-editor,
@@ -44,15 +125,24 @@ _OM_DOCS = r"""
 function omDocs() {
   const out = [];
   const seen = new Set();
+  function walkIframes(root) {
+    if (!root || !root.querySelectorAll) return;
+    try {
+      root.querySelectorAll('iframe').forEach(f => {
+        try { walk(f.contentDocument); } catch (e) {}
+      });
+      // 视频号助手用 wujie 把发表页挂在 shadowRoot 里的 iframe。
+      root.querySelectorAll('*').forEach(el => {
+        if (!el.shadowRoot) return;
+        try { walkIframes(el.shadowRoot); } catch (e) {}
+      });
+    } catch (e) {}
+  }
   function walk(doc) {
     if (!doc || seen.has(doc)) return;
     seen.add(doc);
     out.push(doc);
-    try {
-      doc.querySelectorAll('iframe').forEach(f => {
-        try { walk(f.contentDocument); } catch (e) {}
-      });
-    } catch (e) {}
+    walkIframes(doc);
   }
   walk(document);
   return out;
@@ -112,13 +202,15 @@ def _dismiss_channels_dialogs(sess: CdpSession) -> None:
     sess.evaluate(
         f"""(() => {{
           {_OM_DOCS}
-          const texts = ['取消', '暂不', '关闭', '知道了', '我知道了', '暂不设置', '以后再说', '跳过'];
+          // Prefer acknowledge / close. Avoid bare「取消」— it can hit the
+          // account-switch dialog and leave the create form blank.
+          const texts = ['我知道了', '知道了', '暂不', '暂不设置', '以后再说', '跳过', '关闭'];
           for (const t of texts) {{
             const el = omAll('button,div,span,a').find(e => (e.innerText||'').trim() === t);
             if (el) el.click();
           }}
-          // close X on modals
-          omAll('[class*=close], [aria-label=关闭], .close').forEach(el => {{ try {{ el.click(); }} catch(e) {{}} }});
+          omAll('.weui-desktop-dialog__close-btn, [class*=close], [aria-label=关闭], .close')
+            .forEach(el => {{ try {{ el.click(); }} catch(e) {{}} }});
           return true;
         }})()"""
     )
@@ -132,8 +224,8 @@ def _dismiss_publisher_popups(sess: CdpSession) -> str:
               {_OM_DOCS}
               const hits = [];
               const body = omBodyText();
-              // NEVER auto-dismiss SMS / identity verification
-              if (/接收短信验证码|短信验证码|为确保是本人操作|安全验证|滑块/.test(body)) {{
+              // ONLY stop for real SMS / captcha dialogs — not help text that mentions 验证.
+              if (/接收短信验证码|短信验证码|为确保是本人操作|请完成安全验证|请拖动滑块|向右拖动滑块/.test(body)) {{
                 return 'need_sms';
               }}
               // Douyin: unfinished draft banner — discard so we can upload a fresh video
@@ -619,6 +711,10 @@ def _click_xhs_publish_red(sess: CdpSession) -> str:
 
 
 def _fill_kuaishou_copy(sess: CdpSession, title: str, body: str) -> dict[str, Any]:
+    from engine.pack.publish import ensure_ai_generated_disclosure, limit_platform_hashtags
+
+    body, _ = limit_platform_hashtags("kuaishou", body)
+    body = ensure_ai_generated_disclosure(body)
     js = f"""
     (() => {{
       const title = {json.dumps(title, ensure_ascii=False)};
@@ -762,7 +858,7 @@ def upload_video_via_cdp(sess: CdpSession, video_path: str, *, platform: str = "
             tab = "skip_non_douyin"
         _dismiss_publisher_popups(sess)
         # channels shows「页面初始化中」before file input exists
-        for _ in range(10):
+        for _ in range(8):
             init = sess.evaluate(
                 """(() => {
                   const t = (document.body && document.body.innerText) || '';
@@ -771,13 +867,16 @@ def upload_video_via_cdp(sess: CdpSession, video_path: str, *, platform: str = "
             )
             if not init:
                 break
-            time.sleep(0.6)
-        time.sleep(0.5)
+            time.sleep(0.35)
         if tab == "navigated":
-            time.sleep(2.0)
+            # Wait for page ready by probing file input / host, not fixed 2s sleep.
+            for _ in range(10):
+                host = str(sess.evaluate("location.hostname") or "")
+                if "douyin.com" in host:
+                    break
+                time.sleep(0.25)
             _ensure_douyin_video_tab(sess)
             _dismiss_publisher_popups(sess)
-            time.sleep(0.5)
     except Exception:
         tab = "err"
 
@@ -853,17 +952,18 @@ def upload_video_via_cdp(sess: CdpSession, video_path: str, *, platform: str = "
     clicks: list[str] = [f"tab:{tab}"]
     snaps: list[Any] = []
     bid = None
-    deadline = time.time() + 18
+    deadline = time.time() + 14
     while time.time() < deadline:
         bid = _find_bid()
         if bid:
             break
         clicks.append(_click_upload_affordance())
-        time.sleep(0.8)
+        time.sleep(0.4)
         bid = _find_bid()
         if bid:
             break
-        if len(snaps) < 2:
+        # At most one evidence snap while hunting file input (was 2).
+        if len(snaps) < 1:
             try:
                 from engine.reach.vision_reach import snapshot_page
 
@@ -873,6 +973,25 @@ def upload_video_via_cdp(sess: CdpSession, video_path: str, *, platform: str = "
 
     if not bid:
         snap = snaps[-1] if snaps else None
+        state = ""
+        page_url = ""
+        if isinstance(snap, dict):
+            state = str(snap.get("state") or "")
+            page_url = str(snap.get("url") or "")
+        if state in ("need_login", "need_human") or "/login" in page_url.lower():
+            return {
+                "ok": False,
+                "error": state or "need_login",
+                "phase": state or "need_login",
+                "clicks": clicks,
+                "snapshots": snaps,
+                "snapshot": snap,
+                "hint": (
+                    "当前是登录页，请先在此 Chrome 窗口完成创作者登录"
+                    if (state == "need_login" or "/login" in page_url.lower())
+                    else "检测到安全验证，请人工完成后重试"
+                ),
+            }
         return {
             "ok": False,
             "error": "no_file_input",
@@ -908,13 +1027,19 @@ def wait_upload_ready(sess: CdpSession, timeout: float = 12) -> dict[str, Any]:
     (() => {{
       {_OM_DOCS}
       const t = omBodyText();
-      if (/验证码|滑块|安全验证|人机验证/i.test(t)) return {{state:'need_human'}};
-      if (/扫码登录|手机号登录|登录后免费/.test(t)) return {{state:'need_login'}};
+      if (/扫码登录|手机号登录|短信登录|登录后免费|发送验证码|收不到验证码/.test(t)
+          || /\\/login\\b|redirectReason=401/i.test(location.href||''))
+        return {{state:'need_login'}};
       if (/上传失败|网络错误，请稍后|上传出错/.test(t)) return {{state:'upload_failed'}};
-      if (/上传中|处理中|转码中|正在上传|上传进度|取消上传|封面生成中/.test(t)) return {{state:'uploading'}};
-      if (/\\d+%\\s*(取消上传|上传)/.test(t)) return {{state:'uploading'}};
       const hasVideo = omAll('video').length > 0;
       const hasDelete = omAll('button,span,div,a').some(e => (e.innerText||'').trim() === '删除');
+      // Never match bare「上传中」: Douyin keeps the sentence
+      // 「如作品还在上传中，请勿关闭页面」after the file is fully ready.
+      // Real progress still exposes cancel/progress/processing signals.
+      if (/取消上传|转码中|正在上传|视频处理中/.test(t) || /\\b0%\\b/.test(t))
+        return {{state:'uploading', reason:'channels_progress', docs: omDocs().length}};
+      if (hasVideo && /封面预览/.test(t) && /生成中/.test(t) && !hasDelete)
+        return {{state:'uploading', reason:'channels_cover_generating', docs: omDocs().length}};
       if (hasVideo && (/封面预览|个人主页和分享卡片|删除|视频描述|添加描述/.test(t) || hasDelete))
         return {{state:'form', reason:'channels_preview', docs: omDocs().length}};
       if (/设置封面|作品描述|发布笔记/.test(t) && hasVideo && !/上传失败/.test(t))
@@ -924,6 +1049,13 @@ def wait_upload_ready(sess: CdpSession, timeout: float = 12) -> dict[str, Any]:
       // douyin / kuaishou: video present + publish form signals (don't require 删除)
       if (hasVideo && /发布|作品描述|标题|封面|编辑/.test(t))
         return {{state:'form', reason:'generic_preview'}};
+      // Real captcha / SMS only — never treat help text「验证」as a hard stop.
+      if (/接收短信验证码|短信验证码|为确保是本人操作|请完成安全验证|请拖动滑块|向右拖动滑块/.test(t))
+        return {{state:'need_human'}};
+      // Do not match bare「上传中」: Douyin keeps it in static help text after upload.
+      if (/转码中|正在上传|上传进度|取消上传|封面生成中|视频处理中/.test(t))
+        return {{state:'uploading'}};
+      if (/\\d+%\\s*(取消上传|上传)/.test(t)) return {{state:'uploading'}};
       if (/拖拽视频|点击上传|上传视频/.test(t) && !hasVideo) return {{state:'upload'}};
       return {{state:'waiting', hasVideo, hasDelete, docs: omDocs().length, textLen: t.length}};
     }})()
@@ -931,6 +1063,7 @@ def wait_upload_ready(sess: CdpSession, timeout: float = 12) -> dict[str, Any]:
 
     deadline = time.time() + timeout
     last_probe: dict[str, Any] = {}
+    t_wait0 = time.monotonic()
     while time.time() < deadline:
         probe = sess.evaluate(probe_js) or {"state": "waiting"}
         if probe.get("state") == "waiting" and int(probe.get("docs") or 1) <= 1:
@@ -941,10 +1074,12 @@ def wait_upload_ready(sess: CdpSession, timeout: float = 12) -> dict[str, Any]:
         st = str(last_probe.get("state") or "waiting")
         if st in ("form", "need_human", "need_login", "upload_failed"):
             snap: dict[str, Any] = {}
-            try:
-                snap = snapshot_page(sess, tag=f"wait_{st}")
-            except Exception:
-                pass
+            # Skip costy snapshot on clean form ready — caller still snaps later.
+            if st != "form":
+                try:
+                    snap = snapshot_page(sess, tag=f"wait_{st}")
+                except Exception:
+                    pass
             return {
                 "ok": st == "form",
                 "state": st,
@@ -953,8 +1088,10 @@ def wait_upload_ready(sess: CdpSession, timeout: float = 12) -> dict[str, Any]:
                 "hint": snap.get("hint"),
                 "url": snap.get("url"),
                 "text_excerpt": snap.get("text_excerpt"),
+                "elapsed_ms": _ms_since(t_wait0),
             }
-        time.sleep(1.0)
+        # Busy while uploading / progress; shorter poll when still waiting for form.
+        time.sleep(WAIT_UPLOAD_POLL_BUSY_SEC if st == "uploading" else WAIT_UPLOAD_POLL_SEC)
     snap = {}
     try:
         snap = snapshot_page(sess, tag="wait_timeout")
@@ -963,6 +1100,7 @@ def wait_upload_ready(sess: CdpSession, timeout: float = 12) -> dict[str, Any]:
     # Soft-accept: if video appeared but classifier stayed waiting, proceed (afternoon speed)
     # Never soft-accept while still uploading / percent progress visible
     last_st = str(last_probe.get("state") or "")
+    elapsed_ms = _ms_since(t_wait0)
     if last_st == "uploading":
         return {
             "ok": False,
@@ -972,6 +1110,7 @@ def wait_upload_ready(sess: CdpSession, timeout: float = 12) -> dict[str, Any]:
             "hint": "still_uploading_at_timeout",
             "url": snap.get("url"),
             "text_excerpt": snap.get("text_excerpt"),
+            "elapsed_ms": elapsed_ms,
         }
     if last_probe.get("hasVideo"):
         return {
@@ -982,6 +1121,7 @@ def wait_upload_ready(sess: CdpSession, timeout: float = 12) -> dict[str, Any]:
             "hint": "video_present_soft",
             "url": snap.get("url"),
             "text_excerpt": snap.get("text_excerpt"),
+            "elapsed_ms": elapsed_ms,
         }
     return {
         "ok": False,
@@ -991,6 +1131,7 @@ def wait_upload_ready(sess: CdpSession, timeout: float = 12) -> dict[str, Any]:
         "hint": snap.get("hint"),
         "url": snap.get("url"),
         "text_excerpt": snap.get("text_excerpt"),
+        "elapsed_ms": elapsed_ms,
     }
 
 
@@ -1011,19 +1152,6 @@ def _click_reupload(sess: CdpSession) -> str:
     )
 
 
-def _page_has_cover_preview(sess: CdpSession) -> bool:
-    return bool(
-        sess.evaluate(
-            f"""(() => {{
-              {_OM_DOCS}
-              const t = omBodyText();
-              if (!/封面|封面预览|设置封面|选择封面/.test(t)) return false;
-              return omAll('img,canvas,video').length > 0;
-            }})()"""
-        )
-    )
-
-
 def _covers_acceptable(sess: CdpSession, cover_r: dict[str, Any], plat: str) -> bool:
     """Require App/template covers actually injected. No soft-pass on preview-only."""
     if not cover_r.get("ok"):
@@ -1035,7 +1163,7 @@ def _covers_acceptable(sess: CdpSession, cover_r: dict[str, Any], plat: str) -> 
         if not c.get("ok"):
             return False
         path = str(c.get("path") or "").replace("\\", "/")
-        if "/cover_templates/" not in path:
+        if not _is_app_cover_path(path):
             return False
         if c.get("source") in ("non_app", "failed"):
             return False
@@ -1196,7 +1324,7 @@ def _douyin_force_upload_tab(sess: CdpSession) -> str:
               }};
               const tiles = omAll('button,div,span,label,p').filter(e => {{
                 if (!visible(e)) return false;
-                const t = (e.innerText||'').replace(/\s+/g,'').trim();
+                const t = (e.innerText||'').replace(/\\s+/g,'').trim();
                 if (t !== '上传封面') return false;
                 const b = e.getBoundingClientRect();
                 return b.width >= 36 && b.width <= 200 && b.height >= 36 && b.height <= 200;
@@ -1209,7 +1337,7 @@ def _douyin_force_upload_tab(sess: CdpSession) -> str:
               }}
               const any = omAll('button,div,span,label').find(e => {{
                 if (!visible(e)) return false;
-                const t = (e.innerText||'').replace(/\s+/g,'').trim();
+                const t = (e.innerText||'').replace(/\\s+/g,'').trim();
                 if (t !== '上传封面') return false;
                 const b = e.getBoundingClientRect();
                 return b.width < 360 && b.height < 120;
@@ -1272,7 +1400,7 @@ def _backend_id_for_cover_image_input(sess: CdpSession) -> int | None:
       const images = cands.filter(n => {{
         const acc = (n.accept || '').toLowerCase();
         if (/video|mp4|webm|mov/.test(acc)) return false;
-        return !acc || /image|jpg|jpeg|png|webp|\*/.test(acc);
+        return !acc || /image|jpg|jpeg|png|webp|\\*/.test(acc);
       }});
       if (!images.length) return null;
       return images[images.length - 1];
@@ -1384,8 +1512,10 @@ def _best_template_match_in_shot(template_path: str | Path, screenshot_png: str 
     ]
     best: float | None = None
     max_skin = 0.0
-    for l, t, r, b in boxes:
-        crop = shot.crop((int(w * l), int(h * t), int(w * r), int(h * b)))
+    for left, top, right, bottom in boxes:
+        crop = shot.crop(
+            (int(w * left), int(h * top), int(w * right), int(h * bottom))
+        )
         if crop.size[0] < 40 or crop.size[1] < 40:
             continue
         skin = _skin_score(crop)
@@ -1429,9 +1559,6 @@ def _cover_preview_looks_like_template(
     )
     upload_ui = bool(
         __import__("re").search(r"上传封面|支持.*jpg|支持.*png|裁剪封面", text, __import__("re").I)
-    )
-    smart_frame_ui = bool(
-        __import__("re").search(r"从视频中选择|选一帧|AI封面|智能推荐封面|推荐封面", text)
     )
     has_done = bool(__import__("re").search(r"完成|确认|确定", text))
 
@@ -1501,6 +1628,7 @@ def _set_xhs_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, Any]:
       5) snapshot visual_ok vs App template
     Last resort: briefly unhide image input for one chooser click, then restore style.
     """
+    covers = list(covers[:1])
     from engine.reach.vision_reach import (
         locate_text_css,
         locate_xhs_cover_tile_png,
@@ -2113,7 +2241,7 @@ def _set_xhs_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, Any]:
                 )
 
         open_clicks.extend([s for s in slot_log if s not in open_clicks])
-        from_app = "/cover_templates/" in path.replace("\\", "/")
+        from_app = _is_app_cover_path(path)
         slot_ok = bool(from_app and probe.get("visual_ok"))
         if slot_ok and conf == "none":
             conf = "inline_applied_vision"
@@ -2146,7 +2274,9 @@ def _set_xhs_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, Any]:
 
 
 
-def _set_channels_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, Any]:
+def _set_channels_cover_files(
+    sess: CdpSession, covers: list[str], *, deadline: float | None = None
+) -> dict[str, Any]:
     """Channels cover: screenshot locate → real mouse → fileChooser → form visual gate.
 
     Root cause of false published: modal-time visual_ok passed, but JS `.click()` on「确认」
@@ -2158,6 +2288,7 @@ def _set_channels_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, 
       5) form-level visual_ok on「封面预览」thumb — REQUIRED before ok
     Dual slots share one editor; only primary is uploaded; secondary synced only if form ok.
     """
+    covers = list(covers[:1])
     from engine.reach.vision_reach import locate_text_css, snapshot_page
 
     results: list[dict[str, Any]] = []
@@ -2202,39 +2333,10 @@ def _set_channels_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, 
             )
         )
 
-    def _open_edit_vision() -> str:
-        """Screenshot-locate 编辑 near 封面预览; fallback DOM xy near label."""
-        snap = _snap("channels_cover_pre_edit")
-        png = snap.get("screenshot") or snap.get("png")
-        if png:
-            preview = locate_text_css(
-                sess, png, "封面预览", min_score=0.45, light_on_dark=False
-            )
-            region = None
-            if preview:
-                # Search band under「封面预览」for the 编辑 overlay on the thumb
-                px, py = int(preview["x"]), int(preview["y"])
-                pw, ph = int(preview.get("w") or 80), int(preview.get("h") or 24)
-                region = (max(0, px - 40), py, px + max(pw, 200) + 160, py + 320)
-            edit = locate_text_css(
-                sess,
-                png,
-                "编辑",
-                min_score=0.50,
-                light_on_dark=True,
-                search_region=region,
-            )
-            if not edit:
-                edit = locate_text_css(
-                    sess, png, "编辑", min_score=0.48, light_on_dark=False, search_region=region
-                )
-            if edit:
-                try:
-                    sess.click_xy(float(edit["css_x"]), float(edit["css_y"]))
-                    return f"clicked_mouse:编辑_score={edit.get('score'):.2f}"
-                except CdpError as e:
-                    open_clicks.append(f"edit_mouse_err:{e}")
-        # DOM fallback: 编辑 closest to 封面预览
+    def _open_edit_dom() -> str:
+        """Cheap DOM open without screenshot/vision."""
+        if not _budget_ok(deadline):
+            return "budget_exceeded"
         box = sess.evaluate(
             f"""(() => {{
               {_OM_DOCS}
@@ -2257,9 +2359,14 @@ def _set_channels_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, 
                 const lb = label.getBoundingClientRect();
                 return {{ x: lb.x + 60, y: lb.y + 90, via: 'preview_offset' }};
               }}
+              // file input already visible in editor
+              const inputs = omAll('input[type=file]');
+              if (inputs.length) return {{ via: 'file_input_present', ready: true }};
               return null;
             }})()"""
         )
+        if isinstance(box, dict) and box.get("ready"):
+            return "dom:file_input_present"
         if not isinstance(box, dict) or box.get("x") is None:
             return "none"
         try:
@@ -2267,6 +2374,43 @@ def _set_channels_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, 
             return f"clicked:{box.get('via')}_xy"
         except CdpError as e:
             return f"open_err:{e}"
+
+    def _open_edit_vision() -> str:
+        """Screenshot-locate 编辑 near 封面预览; fallback DOM xy near label."""
+        if not _budget_ok(deadline):
+            return "budget_exceeded"
+        snap = _snap("channels_cover_pre_edit")
+        png = snap.get("screenshot") or snap.get("png")
+        if png:
+            preview = locate_text_css(
+                sess, png, "封面预览", min_score=0.45, light_on_dark=False
+            )
+            region = None
+            if preview:
+                # Search band under「封面预览」for the 编辑 overlay on the thumb
+                px, py = int(preview["x"]), int(preview["y"])
+                pw = int(preview.get("w") or 80)
+                region = (max(0, px - 40), py, px + max(pw, 200) + 160, py + 320)
+            edit = locate_text_css(
+                sess,
+                png,
+                "编辑",
+                min_score=0.50,
+                light_on_dark=True,
+                search_region=region,
+            )
+            if not edit:
+                edit = locate_text_css(
+                    sess, png, "编辑", min_score=0.48, light_on_dark=False, search_region=region
+                )
+            if edit:
+                try:
+                    sess.click_xy(float(edit["css_x"]), float(edit["css_y"]))
+                    return f"clicked_mouse:编辑_score={edit.get('score'):.2f}"
+                except CdpError as e:
+                    open_clicks.append(f"edit_mouse_err:{e}")
+        # DOM fallback: 编辑 closest to 封面预览
+        return _open_edit_dom()
 
     def _upload_tile_boxes() -> list[dict[str, Any]]:
         """Collect click targets for the dashed「+ 上传封面」tile (not text baseline)."""
@@ -2331,20 +2475,27 @@ def _set_channels_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, 
             return {"ok": False, "error": str(e), "bid": bid}
 
     def _upload_vision(inject_path: str) -> dict[str, Any]:
+        if not _budget_ok(deadline):
+            return {"ok": False, "error": "cover_budget_exceeded"}
+        # Prefer direct DOM image input before snapshot/vision chooser path.
+        direct0 = _inject_via_backend(inject_path)
+        if direct0.get("ok"):
+            return {**direct0, "box": None, "method": "DOM.setFileInputFiles"}
         boxes = _upload_tile_boxes()
         if not boxes:
-            # Still try direct image input (modal may already expose it)
             direct = _inject_via_backend(inject_path)
             if direct.get("ok"):
                 return {**direct, "box": None}
             return {"ok": False, "error": "no_upload_tile"}
         last_err = "file_chooser_not_opened"
         last_box: dict[str, Any] | None = None
-        for box in boxes[:6]:
+        for box in boxes[:4]:
+            if not _budget_ok(deadline):
+                return {"ok": False, "error": "cover_budget_exceeded", "box": last_box}
             last_box = box
             try:
                 chooser_r = sess.click_xy_and_set_files(
-                    float(box["x"]), float(box["y"]), [inject_path], timeout=5.0
+                    float(box["x"]), float(box["y"]), [inject_path], timeout=3.5
                 )
                 if chooser_r.get("ok"):
                     return {
@@ -2356,13 +2507,11 @@ def _set_channels_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, 
                 last_err = str(chooser_r.get("error") or last_err)
             except (CdpError, OSError, BrokenPipeError) as e:
                 last_err = str(e)
-                # Connection died mid-chooser — bail so caller can reopen tab
                 if "Broken pipe" in str(e) or isinstance(e, BrokenPipeError):
                     return {"ok": False, "error": f"cdp_broken:{e}", "box": box}
-            # Click may arm a hidden input without firing fileChooserOpened
             try:
                 sess.click_xy(float(box["x"]), float(box["y"]))
-                time.sleep(0.35)
+                time.sleep(0.25)
             except (CdpError, OSError, BrokenPipeError):
                 pass
             try:
@@ -2372,9 +2521,11 @@ def _set_channels_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, 
                 continue
             if direct.get("ok"):
                 return {**direct, "box": box, "method": "mouse+DOM.setFileInputFiles"}
-        return {"ok": False, "error": last_err, "box": last_box, "tried": boxes[:6]}
+        return {"ok": False, "error": last_err, "box": last_box, "tried": boxes[:4]}
 
     def _confirm_vision() -> str:
+        if not _budget_ok(deadline):
+            return "budget_exceeded"
         snap = _snap("channels_cover_pre_confirm")
         png = snap.get("screenshot") or snap.get("png")
         if png:
@@ -2501,47 +2652,99 @@ def _set_channels_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, 
             "snapshots": snaps,
         }
 
-    inject_path = _stage_cover_for_cdp(primary, slot_index=0)
-    from_app = "/cover_templates/" in primary.replace("\\", "/")
+    # 视频号竖封面上传器要求 6:7；只转换临时上传副本，App 原图保持不变。
+    inject_path = _stage_cover_for_cdp(primary, slot_index=0, target_size=(1080, 1260))
+    from_app = _is_app_cover_path(primary)
     last_up: dict[str, Any] = {}
     modal_probe: dict[str, Any] = {}
     form_probe: dict[str, Any] = {}
     conf = "none"
     slot_ok = False
 
-    for attempt in range(3):
-        open_clicks.append(f"attempt{attempt}:{_open_edit_vision()}")
-        for _ in range(12):
+    # Prefer DOM path; vision open/upload only within budget (≤2 attempts).
+    if deadline is None:
+        deadline = time.monotonic() + COVER_SOFT_TIMEOUT_SEC
+    if not _budget_ok(deadline):
+        return _cover_timeout_result(snapshots=snaps)
+
+    for attempt in range(CHANNELS_COVER_MAX_VISION_ATTEMPTS):
+        if not _budget_ok(deadline):
+            return _cover_timeout_result(snapshots=snaps)
+        opened = _open_edit_dom()
+        if opened in ("none", "budget_exceeded") or str(opened).startswith("open_err"):
+            if opened == "budget_exceeded" or not _budget_ok(deadline):
+                return _cover_timeout_result(snapshots=snaps)
+            opened = _open_edit_vision()
+        open_clicks.append(f"attempt{attempt}:{opened}")
+        if opened == "budget_exceeded" or not _budget_ok(deadline):
+            return _cover_timeout_result(snapshots=snaps)
+        for _ in range(8):
+            if not _budget_ok(deadline):
+                return _cover_timeout_result(snapshots=snaps)
             if _modal_open():
                 break
-            time.sleep(0.35)
-        _snap(f"channels_cover_slot0_open_a{attempt}")
+            time.sleep(0.25)
+        if _budget_ok(deadline):
+            _snap(f"channels_cover_slot0_open_a{attempt}")
         if not _modal_open():
             open_clicks.append("modal_not_open")
+            # Second (last) failure: soft_pass immediately — do not burn more budget.
+            if attempt + 1 >= CHANNELS_COVER_MAX_VISION_ATTEMPTS or not _budget_ok(deadline):
+                try:
+                    _dismiss_cover_ui(sess)
+                except Exception:
+                    pass
+                return _cover_timeout_result(snapshots=snaps)
             continue
 
         last_up = _upload_vision(inject_path)
         open_clicks.append(f"upload:{last_up}")
-        if not last_up.get("ok"):
-            time.sleep(0.5)
+        if not last_up.get("ok") and _budget_ok(deadline):
+            time.sleep(0.3)
             last_up = _upload_vision(inject_path)
             open_clicks.append(f"upload_retry:{last_up}")
         if not last_up.get("ok"):
+            if last_up.get("error") == "cover_budget_exceeded" or not _budget_ok(deadline):
+                return _cover_timeout_result(snapshots=snaps)
             continue
 
-        time.sleep(1.6)
-        _snap(f"channels_cover_slot0_injected_a{attempt}")
-        modal_probe = _cover_preview_looks_like_template(sess, primary, screenshot_png=_last_png())
-        if not modal_probe.get("visual_ok"):
+        # Brief settle for 6:7 inject / auto-close editor (was 1.6s fixed).
+        for _ in range(4):
+            if not _budget_ok(deadline):
+                return _cover_timeout_result(snapshots=snaps)
+            if not _modal_open() and _form_cover_ready():
+                break
+            time.sleep(0.3)
+        if _budget_ok(deadline):
+            _snap(f"channels_cover_slot0_injected_a{attempt}")
+        # Current 视频号 may auto-close the editor after a valid 6:7 upload.
+        if not _modal_open() and _form_cover_ready():
+            form_probe = _form_cover_probe(inject_path)
+            if form_probe.get("visual_ok"):
+                conf = "auto_committed_after_upload"
+                confirms.append(conf)
+                modal_probe = dict(form_probe)
+                slot_ok = bool(from_app)
+                break
+            open_clicks.append(
+                f"auto_commit_form_mismatch_crop={form_probe.get('crop_dist')}"
+                f"_skin={form_probe.get('crop_skin')}"
+            )
+            continue
+        if not _budget_ok(deadline):
+            return _cover_timeout_result(snapshots=snaps)
+        modal_probe = _cover_preview_looks_like_template(sess, inject_path, screenshot_png=_last_png())
+        if not modal_probe.get("visual_ok") and _budget_ok(deadline):
             open_clicks.append("modal_visual_retry")
             last_up = _upload_vision(inject_path)
             open_clicks.append(f"reinject:{last_up}")
             if last_up.get("ok"):
-                time.sleep(1.6)
-                _snap(f"channels_cover_slot0_reinjected_a{attempt}")
-                modal_probe = _cover_preview_looks_like_template(
-                    sess, primary, screenshot_png=_last_png()
-                )
+                time.sleep(0.8)
+                if _budget_ok(deadline):
+                    _snap(f"channels_cover_slot0_reinjected_a{attempt}")
+                    modal_probe = _cover_preview_looks_like_template(
+                        sess, inject_path, screenshot_png=_last_png()
+                    )
 
         if not modal_probe.get("visual_ok"):
             open_clicks.append("modal_visual_fail_skip_confirm")
@@ -2561,30 +2764,39 @@ def _set_channels_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, 
                     open_clicks.append("clicked_mouse:取消")
                 except CdpError:
                     pass
-            time.sleep(0.6)
+            time.sleep(0.35)
+            if not _budget_ok(deadline):
+                return _cover_timeout_result(snapshots=snaps)
             continue
 
         conf = _confirm_vision()
         confirms.append(conf)
+        if conf == "budget_exceeded" or not _budget_ok(deadline):
+            return _cover_timeout_result(snapshots=snaps)
         if not str(conf).startswith("clicked"):
             open_clicks.append("confirm_failed")
             continue
 
         # Wait for modal to close — form-level gate only counts after dismiss
-        for _ in range(16):
+        for _ in range(10):
+            if not _budget_ok(deadline):
+                return _cover_timeout_result(snapshots=snaps)
             if _form_cover_ready() or not _modal_open():
                 break
-            time.sleep(0.35)
-        time.sleep(0.5)
-        form_probe = _form_cover_probe(primary)
+            time.sleep(0.25)
+        form_probe = _form_cover_probe(inject_path)
         # Keep a named form snap for evidence (probe already snapped)
-        _snap(f"channels_cover_slot0_form_a{attempt}")
+        if _budget_ok(deadline):
+            _snap(f"channels_cover_slot0_form_a{attempt}")
 
         slot_ok = bool(
             from_app
             and modal_probe.get("visual_ok")
             and form_probe.get("visual_ok")
-            and str(conf).startswith("clicked")
+            and (
+                str(conf).startswith("clicked")
+                or conf == "auto_committed_after_upload"
+            )
         )
         if slot_ok:
             break
@@ -2592,14 +2804,21 @@ def _set_channels_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, 
             f"form_visual_fail_toast={form_probe.get('toast_updated')}"
             f"_crop={form_probe.get('crop_dist')}_skin={form_probe.get('crop_skin')}"
         )
+        if not _budget_ok(deadline):
+            return _cover_timeout_result(snapshots=snaps)
 
     fail_err = None
     if not slot_ok:
+        if not _budget_ok(deadline):
+            return _cover_timeout_result(snapshots=snaps)
         if not last_up.get("ok"):
             fail_err = last_up.get("error") or "upload_inject_failed"
         elif not modal_probe.get("visual_ok"):
             fail_err = "visual_mismatch"
-        elif not str(conf).startswith("clicked"):
+        elif not (
+            str(conf).startswith("clicked")
+            or conf == "auto_committed_after_upload"
+        ):
             fail_err = "confirm_failed"
         elif not form_probe.get("visual_ok"):
             fail_err = "form_visual_mismatch"
@@ -2670,17 +2889,28 @@ def _set_channels_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, 
     }
 
 
-def _set_cover_files(sess: CdpSession, covers: list[str], *, platform: str = "") -> dict[str, Any]:
-    """Inject App/template cover images via CDP — must succeed for gate."""
+def _set_cover_files(
+    sess: CdpSession,
+    covers: list[str],
+    *,
+    platform: str = "",
+    deadline: float | None = None,
+) -> dict[str, Any]:
+    """Inject exactly one vertical cover from the App-selected template."""
     plat = (platform or "").strip().lower()
+    covers = list(covers[:1])
+    if deadline is None:
+        deadline = time.monotonic() + COVER_SOFT_TIMEOUT_SEC
+    if not _budget_ok(deadline):
+        return _cover_timeout_result()
     if plat == "douyin":
-        return _set_douyin_cover_files(sess, covers)
+        return _set_douyin_cover_files(sess, covers, deadline=deadline)
     if plat == "kuaishou":
-        return _set_kuaishou_cover_files(sess, covers)
+        return _set_kuaishou_cover_files(sess, covers, deadline=deadline)
     if plat == "xhs":
         return _set_xhs_cover_files(sess, covers)
     if plat == "channels":
-        return _set_channels_cover_files(sess, covers)
+        return _set_channels_cover_files(sess, covers, deadline=deadline)
     results = []
     open_clicks: list[str] = []
     confirms: list[str] = []
@@ -2700,6 +2930,8 @@ def _set_cover_files(sess: CdpSession, covers: list[str], *, platform: str = "")
         return None
 
     for i, path in enumerate(covers):
+        if not _budget_ok(deadline):
+            return _cover_timeout_result(snapshots=snaps)
         if not Path(path).is_file():
             results.append({"index": i, "ok": False, "error": "missing_file", "path": path})
             continue
@@ -2846,7 +3078,7 @@ def _set_cover_files(sess: CdpSession, covers: list[str], *, platform: str = "")
             conf = _confirm_cover_dialog(sess)
         confirms.append(conf)
         time.sleep(0.6)
-        from_app = "/cover_templates/" in path.replace("\\", "/")
+        from_app = _is_app_cover_path(path)
         slot_ok = bool(from_app and str(conf).startswith("clicked"))
         if plat in ("kuaishou", "channels") or len(covers) >= 2:
             # Dual-cover platforms: require visual match when we have a probe
@@ -2967,8 +3199,11 @@ def _kuaishou_open_cover_modal(sess: CdpSession) -> str:
         return f"open_err:{e}"
 
 
-def _set_kuaishou_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, Any]:
-    """Kuaishou dual covers: open modal → 上传封面 tab → chooser inject → visual gate."""
+def _set_kuaishou_cover_files(
+    sess: CdpSession, covers: list[str], *, deadline: float | None = None
+) -> dict[str, Any]:
+    """Kuaishou vertical cover: open modal → upload → visual gate."""
+    covers = list(covers[:1])
     results: list[dict[str, Any]] = []
     open_clicks: list[str] = []
     confirms: list[str] = []
@@ -2998,6 +3233,8 @@ def _set_kuaishou_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, 
         return bool(probe)
 
     for i, path in enumerate(covers):
+        if not _budget_ok(deadline):
+            return _cover_timeout_result(snapshots=snaps)
         if not Path(path).is_file():
             results.append({"index": i, "ok": False, "error": "missing_file", "path": path})
             continue
@@ -3007,10 +3244,14 @@ def _set_kuaishou_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, 
         opened = _kuaishou_open_cover_modal(sess)
         open_clicks.append(opened)
         time.sleep(0.9)
+        if not _budget_ok(deadline):
+            return _cover_timeout_result(snapshots=snaps)
         if not _modal_ready():
             # retry open once
             open_clicks.append(_kuaishou_open_cover_modal(sess))
             time.sleep(1.0)
+        if not _budget_ok(deadline):
+            return _cover_timeout_result(snapshots=snaps)
         open_clicks.append(_kuaishou_force_upload_tab(sess))
         time.sleep(0.6)
         _snap(f"kuaishou_cover_slot{i}_open")
@@ -3135,7 +3376,7 @@ def _set_kuaishou_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, 
             conf = _confirm_cover_dialog(sess)
         confirms.append(conf)
         time.sleep(0.8)
-        from_app = "/cover_templates/" in path.replace("\\", "/")
+        from_app = _is_app_cover_path(path)
         slot_ok = bool(from_app and probe.get("visual_ok") and str(conf).startswith("clicked"))
         results.append(
             {
@@ -3164,18 +3405,24 @@ def _set_kuaishou_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, 
     }
 
 
-def _stage_cover_for_cdp(src: str | Path, *, slot_index: int = 0) -> str:
+def _stage_cover_for_cdp(
+    src: str | Path,
+    *,
+    slot_index: int = 0,
+    target_size: tuple[int, int] | None = None,
+) -> str:
 
     """Copy cover to ASCII-only /tmp path — Douyin rejects uploads when source path has CJK chars."""
     src_p = Path(src)
     if not src_p.is_file():
         raise FileNotFoundError(str(src))
-    # Already ASCII-safe?
-    try:
-        str(src_p).encode("ascii")
-        return str(src_p.resolve())
-    except UnicodeEncodeError:
-        pass
+    # Keep exact source only when no platform-specific conversion is required.
+    if target_size is None:
+        try:
+            str(src_p).encode("ascii")
+            return str(src_p.resolve())
+        except UnicodeEncodeError:
+            pass
     staging = Path("/tmp/suying_covers")
     staging.mkdir(parents=True, exist_ok=True)
     ext = src_p.suffix.lower() if src_p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp") else ".jpg"
@@ -3184,7 +3431,19 @@ def _stage_cover_for_cdp(src: str | Path, *, slot_index: int = 0) -> str:
         from PIL import Image
 
         im = Image.open(src_p)
+        if target_size is not None and im.size != target_size:
+            from PIL import ImageOps
+
+            im = ImageOps.fit(
+                im.convert("RGB"),
+                target_size,
+                method=Image.Resampling.LANCZOS,
+                centering=(0.5, 0.5),
+            )
         fmt = (im.format or "").upper()
+        if target_size is not None:
+            fmt = "JPEG"
+            ext = ".jpg"
         if fmt in ("JPEG", "JPG") and ext not in (".jpg", ".jpeg"):
             ext = ".jpg"
         elif fmt == "PNG":
@@ -3205,12 +3464,17 @@ def _stage_cover_for_cdp(src: str | Path, *, slot_index: int = 0) -> str:
         return str(out)
 
 
-def _set_douyin_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, Any]:
-    """Douyin: open cover modal once, force filmstrip「上传封面」, inject both slots, visual-gate.
+def _set_douyin_cover_files(
+    sess: CdpSession, covers: list[str], *, deadline: float | None = None
+) -> dict[str, Any]:
+    """Douyin: inject the App-selected vertical cover and visual-gate it.
 
     Real UI (2026-07): modal tabs 设置竖封面/设置横封面 + left AI封面 tool + filmstrip
     black「+ 上传封面」tile. Clicking 选择封面 alone keeps video frames / AI defaults.
     """
+    covers = list(covers[:1])
+    if not _budget_ok(deadline):
+        return _cover_timeout_result()
     results: list[dict[str, Any]] = []
     open_clicks: list[str] = []
     confirms: list[str] = []
@@ -3230,6 +3494,8 @@ def _set_douyin_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, An
         return None
 
     def _inject_one(path: str, *, slot_index: int, attempt: int) -> dict[str, Any]:
+        if not _budget_ok(deadline):
+            return {"ok": False, "timed_out": True, "error": "cover_timeout"}
         # CDP inject path must be ASCII — Chinese workspace path triggers「不支持的图片格式」
         inject_path = _stage_cover_for_cdp(path, slot_index=slot_index)
         # Clear prior「不支持的图片格式」toast if any
@@ -3256,7 +3522,7 @@ def _set_douyin_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, An
             f"""(() => {{
               {_OM_DOCS}
               const tiles = omAll('button,div,span,label,p').filter(e => {{
-                const t = (e.innerText||'').replace(/\s+/g,'').trim();
+                const t = (e.innerText||'').replace(/\\s+/g,'').trim();
                 if (t !== '上传封面') return false;
                 const b = e.getBoundingClientRect();
                 return b.width >= 36 && b.width <= 200 && b.height >= 36 && b.height <= 200 && b.bottom > 0;
@@ -3352,6 +3618,8 @@ def _set_douyin_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, An
     _snap("douyin_cover_modal_boot")
 
     for i, path in enumerate(covers):
+        if not _budget_ok(deadline):
+            return _cover_timeout_result(snapshots=snaps)
         if not Path(path).is_file():
             results.append({"index": i, "ok": False, "error": "missing_file", "path": path})
             continue
@@ -3360,6 +3628,8 @@ def _set_douyin_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, An
         last: dict[str, Any] = {"error": "unknown", "probe": {}, "confirm": "none", "bid": None, "open": "none"}
 
         for attempt in range(3):
+            if not _budget_ok(deadline):
+                return _cover_timeout_result(snapshots=snaps)
             # Re-open modal if it closed (esp. after failed slot)
             page = (
                 sess.evaluate(
@@ -3432,7 +3702,7 @@ def _set_douyin_cover_files(sess: CdpSession, covers: list[str]) -> dict[str, An
                     last["error"] = "confirm_failed"
                     continue
 
-            from_app = "/cover_templates/" in path.replace("\\", "/")
+            from_app = _is_app_cover_path(path)
             used_upload = "上传封面" in str(last.get("open") or "")
             slot_ok = bool(from_app and used_upload and last.get("ok"))
             if slot_ok:
@@ -3470,25 +3740,36 @@ def upload_video_with_retries(
     video_path: str,
     *,
     max_attempts: int = 2,
-    wait_timeout: float = 12,
+    wait_timeout: float | None = None,
     platform: str = "",
 ) -> dict[str, Any]:
     """Inject video once; only retry when page explicitly shows upload_failed."""
     from engine.reach.vision_reach import STATE_UPLOAD_FAILED, snapshot_page
 
+    plat = (platform or "").strip().lower()
+    if wait_timeout is None:
+        wait_timeout = float(WAIT_UPLOAD_TIMEOUT_BY_PLATFORM.get(plat, 45.0))
+
     attempts: list[dict[str, Any]] = []
     last_upload: dict[str, Any] = {}
     last_ready: dict[str, Any] = {}
+    t0 = time.monotonic()
+    inject_ms = 0
+    wait_ms = 0
     for i in range(max_attempts):
         if i > 0:
             click = _click_reupload(sess)
-            time.sleep(0.8)
+            time.sleep(0.5)
             attempts.append({"attempt": i + 1, "reupload_click": click})
+        t_inj = time.monotonic()
         last_upload = upload_video_via_cdp(sess, video_path, platform=platform)
+        inject_ms += _ms_since(t_inj)
         if not last_upload.get("ok"):
             attempts.append({"attempt": i + 1, "upload": last_upload})
             continue
+        t_wait = time.monotonic()
         last_ready = wait_upload_ready(sess, timeout=wait_timeout)
+        wait_ms += _ms_since(t_wait)
         attempts.append({"attempt": i + 1, "upload": last_upload, "ready": last_ready})
         st = last_ready.get("state")
         if st == STATE_UPLOAD_FAILED:
@@ -3513,6 +3794,11 @@ def upload_video_with_retries(
                 "upload": last_upload,
                 "ready": last_ready,
                 "attempts": attempts,
+                "timings": {
+                    "upload_inject_ms": inject_ms,
+                    "wait_upload_ready_ms": wait_ms,
+                    "upload_total_ms": _ms_since(t0),
+                },
             }
         if st in ("need_human", "need_login"):
             return {
@@ -3521,6 +3807,11 @@ def upload_video_with_retries(
                 "ready": last_ready,
                 "attempts": attempts,
                 "error": st,
+                "timings": {
+                    "upload_inject_ms": inject_ms,
+                    "wait_upload_ready_ms": wait_ms,
+                    "upload_total_ms": _ms_since(t0),
+                },
             }
         # timeout / other: do not burn another full wait unless page says failed
         break
@@ -3530,6 +3821,11 @@ def upload_video_with_retries(
         "ready": last_ready,
         "attempts": attempts,
         "error": (last_ready or {}).get("state") or (last_upload or {}).get("error") or "upload_retries_exhausted",
+        "timings": {
+            "upload_inject_ms": inject_ms,
+            "wait_upload_ready_ms": wait_ms,
+            "upload_total_ms": _ms_since(t0),
+        },
     }
 
 
@@ -3609,12 +3905,87 @@ def _verify_copy(sess: CdpSession, min_body: int = 2, *, platform: str = "") -> 
     )
 
 
+def _click_channels_publish(sess: CdpSession) -> str:
+    """Click 视频号's enabled bottom submit with a trusted mouse event."""
+    probe = sess.evaluate(
+        f"""(() => {{
+          {_OM_DOCS}
+          const labels = ['发表', '发布', '确认发表', '发表动态'];
+          const rows = [];
+          for (const el of omAll('button,[role=button],a.weui-desktop-btn')) {{
+            const text = (el.innerText || '').replace(/\\s+/g, '').trim();
+            if (!labels.includes(text)) continue;
+            const r = el.getBoundingClientRect();
+            const style = getComputedStyle(el);
+            if (r.width < 48 || r.height < 24 || style.display === 'none'
+                || style.visibility === 'hidden' || Number(style.opacity) === 0) continue;
+            const cls = ((el.className || '') + '').toLowerCase();
+            const disabled = !!el.disabled
+              || el.getAttribute('aria-disabled') === 'true'
+              || /disabled/.test(cls);
+            let x = r.left + r.width / 2;
+            let y = r.top + r.height / 2;
+            let win = el.ownerDocument && el.ownerDocument.defaultView;
+            while (win && win.frameElement) {{
+              const fr = win.frameElement.getBoundingClientRect();
+              x += fr.left;
+              y += fr.top;
+              win = win.parent;
+            }}
+            let score = 0;
+            if ((el.tagName || '').toLowerCase() === 'button') score += 50;
+            if (/primary|submit|publish|confirm|weui-desktop-btn_primary/.test(cls)) score += 50;
+            if (r.width >= 80 && r.height >= 32) score += 20;
+            if (r.top > (el.ownerDocument.defaultView || window).innerHeight * 0.55) score += 30;
+            rows.push({{ el, text, disabled, score, x, y }});
+          }}
+          rows.sort((a, b) => b.score - a.score);
+          const enabled = rows.find(x => !x.disabled);
+          if (enabled) {{
+            try {{ enabled.el.scrollIntoView({{ block: 'center', inline: 'center' }}); }} catch (e) {{}}
+            const r = enabled.el.getBoundingClientRect();
+            let x = r.left + r.width / 2;
+            let y = r.top + r.height / 2;
+            let win = enabled.el.ownerDocument && enabled.el.ownerDocument.defaultView;
+            while (win && win.frameElement) {{
+              const fr = win.frameElement.getBoundingClientRect();
+              x += fr.left;
+              y += fr.top;
+              win = win.parent;
+            }}
+            return {{
+              state: 'ready', text: enabled.text, score: enabled.score,
+              x, y, count: rows.length
+            }};
+          }}
+          if (rows.length) return {{
+            state: 'disabled', text: rows[0].text,
+            score: rows[0].score, count: rows.length
+          }};
+          return {{ state: 'missing', count: 0 }};
+        }})()"""
+    )
+    if not isinstance(probe, dict):
+        return "no_btn"
+    if probe.get("state") == "disabled":
+        return "disabled"
+    if probe.get("state") != "ready":
+        return "no_btn"
+    try:
+        sess.click_xy(float(probe["x"]), float(probe["y"]))
+    except CdpError as exc:
+        return f"click_error:{exc}"
+    return f"clicked_mouse:{probe.get('text')}@{probe.get('score')}"
+
+
 def _click_publish(sess: CdpSession, platform: str = "") -> str:
     """Click the real submit control — never the Douyin「立即发布」schedule radio."""
     texts = list(PUBLISH_BTN_TEXTS_STRICT)
     plat = (platform or "").strip().lower()
     if plat == "xhs":
         return _click_xhs_publish_red(sess)
+    if plat == "channels":
+        return _click_channels_publish(sess)
     return (
         sess.evaluate(
             f"""(() => {{
@@ -3704,10 +4075,8 @@ def _publish_succeeded(sess: CdpSession) -> dict[str, Any]:
           {_OM_DOCS}
           const t = omBodyText();
           const url = location.href || '';
-          if (/接收短信验证码|短信验证码|为确保是本人操作/.test(t))
+          if (/接收短信验证码|短信验证码|为确保是本人操作|请完成安全验证|请拖动滑块|向右拖动滑块/.test(t))
             return {{ok:false, reason:'need_sms', sms:true}};
-          if (/验证码|滑块|安全验证|人机验证/.test(t) && /验证/.test(t))
-            return {{ok:false, reason:'need_human_verify', sms:true}};
           if (/发布成功|作品已发布|已提交|上传成功，审核|发表成功|已发表/.test(t) && !/作品描述|谁可以看|谁可见|添加描述/.test(t))
             return {{ok:true, reason:'success_text'}};
           if (/\\/content\\/manage|\\/manage|publish\\/success|posted|\\/post\\/list|platform\\/post/i.test(url) && !/\\/post\\/create/.test(url))
@@ -3756,14 +4125,23 @@ def _click_publish_and_confirm(sess: CdpSession, platform: str = "", attempts: i
         click = _click_publish(sess, platform=platform)
         last_click = click
         trail.append({"attempt": i + 1, "click": click})
-        if click in ("disabled", "disabled_custom", "no_btn"):
-            # XHS: cover/activity often keeps submit-disabled briefly — wait & retry
+        if click in ("disabled", "disabled_custom", "no_btn") or click.startswith("click_error:"):
+            # XHS/channels controls may enable after the cover/form finishes settling.
             if plat == "xhs" and i < attempts - 1:
                 ready = _wait_xhs_publish_ready(sess, timeout_sec=20.0)
                 trail.append({"attempt": i + 1, "xhs_ready_retry": ready})
                 time.sleep(0.5)
                 continue
-            return {"ok": False, "result": click, "trail": trail, "pub_clicked": False}
+            if plat == "channels" and i < attempts - 1:
+                time.sleep(1.0)
+                continue
+            return {
+                "ok": False,
+                "result": click,
+                "trail": trail,
+                "pub_clicked": False,
+                "error": click if click.startswith("click_error:") else None,
+            }
         time.sleep(0.8)
         conf = _confirm_publish_dialogs(sess)
         trail.append({"attempt": i + 1, "confirm": conf})
@@ -3818,6 +4196,20 @@ def _click_publish_and_confirm(sess: CdpSession, platform: str = "", attempts: i
     }
 
 
+def _has_existing_upload_form(sess: CdpSession) -> bool:
+    return bool(
+        sess.evaluate(
+            f"""(() => {{
+              {_OM_DOCS}
+              const t = omBodyText();
+              const hasVideo = omAll('video').length > 0;
+              const hasForm = /视频描述|作品描述|短标题|封面预览|设置封面/.test(t);
+              return hasVideo && hasForm;
+            }})()"""
+        )
+    )
+
+
 def publish_via_cdp(
     *,
     platform: str,
@@ -3829,6 +4221,7 @@ def publish_via_cdp(
     click_publish: bool = True,
     cdp_http: str | None = None,
     upload_video: bool = False,
+    reuse_existing_form: bool = False,
 ) -> dict[str, Any]:
     """Fill copy + set covers via CDP; hard-gate before clicking 发布.
 
@@ -3870,6 +4263,22 @@ def publish_via_cdp(
         }
 
     with CdpSession(ws_url) as sess:
+        t_total0 = time.monotonic()
+        timings: dict[str, Any] = {
+            "upload_inject_ms": 0,
+            "wait_upload_ready_ms": 0,
+            "fill_ms": 0,
+            "cover_ms": 0,
+            "submit_ms": 0,
+            "verify_ms": 0,
+        }
+
+        def _emit(payload: dict[str, Any]) -> dict[str, Any]:
+            timings["total_ms"] = _ms_since(t_total0)
+            out = dict(payload)
+            out["timings"] = {**timings, **(out.get("timings") or {})}
+            return out
+
         sess.call("Runtime.enable")
         try:
             sess.call("DOM.enable")
@@ -3882,25 +4291,30 @@ def publish_via_cdp(
 
         upload_r: dict[str, Any] | None = None
         snaps: list[dict[str, Any]] = []
-        try:
-            from engine.reach.vision_reach import snapshot_page
+        # Skip initial full-page snap — save ~1s/item; failure and after paths still snap.
 
-            snaps.append(snapshot_page(sess, tag=f"{plat}_before"))
-        except Exception:
-            pass
+        if reuse_existing_form:
+            if not _has_existing_upload_form(sess):
+                # Managed Chrome was restarted: the database checkpoint survived,
+                # but the platform page no longer contains the uploaded video.
+                reuse_existing_form = False
+                upload_video = True
+                snaps.append({"resume_checkpoint": "stale_form_reupload"})
 
-        if upload_video:
+        if upload_video and not reuse_existing_form:
             # Discard unfinished draft banner / marketing popups before inject
             try:
                 _dismiss_publisher_popups(sess)
-                time.sleep(0.4)
                 _dismiss_publisher_popups(sess)
             except Exception:
                 pass
             bundled = upload_video_with_retries(
-                sess, assets["video"], max_attempts=2, wait_timeout=90, platform=plat
+                sess, assets["video"], max_attempts=2, platform=plat
             )
             upload_r = bundled.get("upload")
+            ut = bundled.get("timings") or {}
+            timings["upload_inject_ms"] = int(ut.get("upload_inject_ms") or 0)
+            timings["wait_upload_ready_ms"] = int(ut.get("wait_upload_ready_ms") or 0)
             snaps.append({"upload_retries": bundled.get("attempts")})
             ready = bundled.get("ready") or {}
             if ready.get("state") in ("need_human", "need_login"):
@@ -3910,7 +4324,7 @@ def publish_via_cdp(
                     snaps.append(snapshot_page(sess, tag=f"{plat}_upload_fail"))
                 except Exception:
                     pass
-                return {
+                return _emit({
                     "ok": False,
                     "need_human": True,
                     "phase": ready["state"],
@@ -3922,12 +4336,40 @@ def publish_via_cdp(
                     "pub_clicked": False,
                     "assets": assets,
                     "page_url": page_url,
-                }
+                })
             if not bundled.get("ok"):
                 # Soft continue when inject succeeded but wait classifier timed out
                 # (afternoon path: inject → fill without long waits)
                 # NEVER soft-continue while still uploading — covers would stick to mid-upload UI
                 ready_st = str((bundled.get("ready") or {}).get("state") or "")
+                upload_err = str((upload_r or {}).get("error") or "")
+                upload_phase = str((upload_r or {}).get("phase") or "")
+                if upload_err in ("need_login", "need_human") or upload_phase in (
+                    "need_login",
+                    "need_human",
+                ):
+                    try:
+                        from engine.reach.vision_reach import snapshot_page
+
+                        snaps.append(snapshot_page(sess, tag=f"{plat}_upload_fail"))
+                    except Exception:
+                        pass
+                    return _emit({
+                        "ok": False,
+                        "need_human": True,
+                        "phase": upload_phase or upload_err,
+                        "error": (
+                            "账号未登录创作者中心，已停下"
+                            if (upload_phase or upload_err) == "need_login"
+                            else "登录/验证未过，已停下"
+                        ),
+                        "upload": upload_r,
+                        "retries": bundled,
+                        "snapshots": snaps,
+                        "pub_clicked": False,
+                        "assets": assets,
+                        "page_url": page_url,
+                    })
                 if ready_st == "uploading" or not (upload_r or {}).get("ok"):
                     try:
                         from engine.reach.vision_reach import snapshot_page
@@ -3935,7 +4377,7 @@ def publish_via_cdp(
                         snaps.append(snapshot_page(sess, tag=f"{plat}_upload_fail"))
                     except Exception:
                         pass
-                    return {
+                    return _emit({
                         "ok": False,
                         "need_human": True,
                         "phase": "upload_failed" if ready_st != "uploading" else "uploading",
@@ -3948,44 +4390,85 @@ def publish_via_cdp(
                         "pub_clicked": False,
                         "assets": assets,
                         "page_url": page_url,
-                    }
+                    })
                 snaps.append({"wait_soft_continue": ready, "note": "inject_ok_wait_timeout"})
-                time.sleep(2.0)
+                time.sleep(0.4)
             else:
                 snaps.append({"wait_form": ready})
 
-        if plat == "channels":
-            fill = _fill_channels_copy(sess, assets["title"], assets["body"])
-        elif plat == "xhs":
-            fill = _fill_xhs_copy(sess, assets["title"], assets["body"])
-        elif plat == "kuaishou":
-            fill = _fill_kuaishou_copy(sess, assets["title"], assets["body"])
+        if reuse_existing_form:
+            fill = {"bodyOk": True, "source": "existing_form_checkpoint"}
+            t_cover0 = time.monotonic()
+            if plat == "xhs":
+                # XHS browser cover editor is unreliable; keep platform default frame.
+                cover_r = {
+                    "ok": False,
+                    "skipped": True,
+                    "reason": "xhs_cover_optional",
+                    "covers": [],
+                    "open_clicks": ["skipped_optional_on_resume"],
+                }
+            else:
+                # A resumed form cannot prove which cover is present; set the App cover again.
+                cover_r = _set_cover_files(
+                    sess,
+                    assets["covers"],
+                    platform=plat,
+                    deadline=time.monotonic() + COVER_SOFT_TIMEOUT_SEC,
+                )
+                for s in cover_r.get("snapshots") or []:
+                    if isinstance(s, dict):
+                        snaps.append(s)
+            timings["cover_ms"] = _ms_since(t_cover0)
         else:
-            # douyin also uses generic contenteditable fill
-            fill = _fill_xhs_copy(sess, assets["title"], assets["body"])
-        time.sleep(0.5)
-        cover_r = _set_cover_files(sess, assets["covers"], platform=plat)
-        for s in cover_r.get("snapshots") or []:
-            if isinstance(s, dict):
-                snaps.append(s)
-        time.sleep(0.5)
+            t_fill0 = time.monotonic()
+            if plat == "channels":
+                fill = _fill_channels_copy(sess, assets["title"], assets["body"])
+            elif plat == "xhs":
+                fill = _fill_xhs_copy(sess, assets["title"], assets["body"])
+            elif plat == "kuaishou":
+                fill = _fill_kuaishou_copy(sess, assets["title"], assets["body"])
+            else:
+                # douyin also uses generic contenteditable fill
+                fill = _fill_xhs_copy(sess, assets["title"], assets["body"])
+            timings["fill_ms"] = _ms_since(t_fill0)
+            if plat == "xhs":
+                # Do not open the fragile XHS cover editor; click 发布 with default frame.
+                t_cover0 = time.monotonic()
+                cover_r = {
+                    "ok": False,
+                    "skipped": True,
+                    "reason": "xhs_cover_optional",
+                    "covers": [],
+                    "open_clicks": ["skipped_optional"],
+                }
+                timings["cover_ms"] = _ms_since(t_cover0)
+            else:
+                t_cover0 = time.monotonic()
+                cover_r = _set_cover_files(
+                    sess,
+                    assets["covers"],
+                    platform=plat,
+                    deadline=time.monotonic() + COVER_SOFT_TIMEOUT_SEC,
+                )
+                timings["cover_ms"] = _ms_since(t_cover0)
+                for s in cover_r.get("snapshots") or []:
+                    if isinstance(s, dict):
+                        snaps.append(s)
+                _dismiss_publisher_popups(sess)
+                # refill body after cover UI interactions (may steal focus / clear fields)
+                t_refill = time.monotonic()
+                if plat == "channels":
+                    fill = _fill_channels_copy(sess, assets["title"], assets["body"])
+                elif plat == "kuaishou":
+                    fill = _fill_kuaishou_copy(sess, assets["title"], assets["body"])
+                elif plat == "douyin":
+                    fill = _fill_xhs_copy(sess, assets["title"], assets["body"])
+                timings["fill_ms"] = int(timings["fill_ms"]) + _ms_since(t_refill)
         _dismiss_publisher_popups(sess)
-        time.sleep(0.3)
-        # refill body after cover UI interactions (may steal focus / clear fields)
-        if plat == "channels":
-            fill = _fill_channels_copy(sess, assets["title"], assets["body"])
-            time.sleep(0.3)
-        elif plat == "xhs":
-            fill = _fill_xhs_copy(sess, assets["title"], assets["body"])
-            time.sleep(0.3)
-        elif plat == "kuaishou":
-            fill = _fill_kuaishou_copy(sess, assets["title"], assets["body"])
-            time.sleep(0.3)
-        elif plat == "douyin":
-            fill = _fill_xhs_copy(sess, assets["title"], assets["body"])
-            time.sleep(0.3)
-        _dismiss_publisher_popups(sess)
+        t_v0 = time.monotonic()
         verify = _verify_copy(sess, platform=plat)
+        timings["verify_ms"] = _ms_since(t_v0)
 
         if not verify.get("ok") or not fill.get("bodyOk"):
             try:
@@ -3994,7 +4477,7 @@ def publish_via_cdp(
                 snaps.append(snapshot_page(sess, tag=f"{plat}_copy_fail"))
             except Exception:
                 pass
-            return {
+            return _emit({
                 "ok": False,
                 "need_human": True,
                 "phase": "copy_verify_failed",
@@ -4007,36 +4490,37 @@ def publish_via_cdp(
                 "pub_clicked": False,
                 "assets": assets,
                 "page_url": page_url,
-            }
+            })
 
         cover_soft_fail = False
         cover_note = None
-        if not _covers_acceptable(sess, cover_r, plat):
+        cover_gate_ok = _covers_acceptable(sess, cover_r, plat)
+        if not cover_gate_ok:
             try:
                 from engine.reach.vision_reach import snapshot_page
 
                 snaps.append(snapshot_page(sess, tag=f"{plat}_cover_fail"))
             except Exception:
                 pass
-            # XHS creator web cover editor is often broken (blank modal / 「发生了一些错误」);
-            # allow publish with platform default frame and mark 封面待补 for human fix.
-            if plat == "xhs":
-                cover_soft_fail = True
-                cover_note = "小红书封面未设成功，已放行发布（封面待补）"
+            # G5.COVER.SOFT_TIMEOUT: do not pause humans on cover mismatch/timeout.
+            # Continue with the platform default cover and auto-click publish.
+            cover_soft_fail = True
+            if cover_r.get("timed_out") or cover_r.get("reason") == "cover_timeout_soft_pass":
+                cover_note = f"封面超过{int(COVER_SOFT_TIMEOUT_SEC)}秒未设成功，已放行并用平台默认封面继续发布"
+            elif plat == "xhs" or cover_r.get("skipped"):
+                cover_note = "封面未设/已跳过，已放行发布（使用平台默认封面）"
             else:
-                return {
-                    "ok": False,
-                    "need_human": True,
-                    "phase": "cover_failed",
-                    "error": "封面槽位未能全部设置，禁止点发布",
-                    "fill": fill,
-                    "covers": cover_r,
-                    "upload": upload_r,
-                    "snapshots": snaps,
-                    "pub_clicked": False,
-                    "assets": assets,
-                    "page_url": page_url,
-                }
+                cover_note = "封面核验未通过，已放行并用平台默认封面继续发布"
+            try:
+                _dismiss_cover_ui(sess)
+            except Exception:
+                pass
+            try:
+                _dismiss_publisher_popups(sess)
+                if plat == "xhs":
+                    _clear_xhs_overlays(sess)
+            except Exception:
+                pass
 
         # XHS: publish stays disabled while video still failed — one more reupload pass
         if plat == "xhs" and click_publish:
@@ -4059,7 +4543,7 @@ def publish_via_cdp(
                         snaps.append(snapshot_page(sess, tag=f"{plat}_upload_still_fail"))
                     except Exception:
                         pass
-                    return {
+                    return _emit({
                         "ok": False,
                         "need_human": True,
                         "phase": "upload_failed",
@@ -4070,7 +4554,7 @@ def publish_via_cdp(
                         "pub_clicked": False,
                         "assets": assets,
                         "page_url": page_url,
-                    }
+                    })
                 # refill copy after reupload may wipe fields
                 fill = _fill_xhs_copy(sess, assets["title"], assets["body"])
                 time.sleep(0.4)
@@ -4079,7 +4563,6 @@ def publish_via_cdp(
         pub = "skipped"
         if click_publish:
             _dismiss_publisher_popups(sess)
-            time.sleep(0.3)
             # Block publish when form still shows validation errors
             form_err = sess.evaluate(
                 f"""(() => {{
@@ -4110,7 +4593,7 @@ def publish_via_cdp(
                     snaps.append(snapshot_page(sess, tag=f"{plat}_prepub_copy_fail"))
                 except Exception:
                     pass
-                return {
+                return _emit({
                     "ok": False,
                     "need_human": True,
                     "phase": "copy_verify_failed",
@@ -4123,7 +4606,7 @@ def publish_via_cdp(
                     "pub_clicked": False,
                     "assets": assets,
                     "page_url": page_url,
-                }
+                })
             if form_err:
                 try:
                     from engine.reach.vision_reach import snapshot_page
@@ -4131,7 +4614,7 @@ def publish_via_cdp(
                     snaps.append(snapshot_page(sess, tag=f"{plat}_form_err"))
                 except Exception:
                     pass
-                return {
+                return _emit({
                     "ok": False,
                     "need_human": True,
                     "phase": "form_invalid",
@@ -4143,7 +4626,7 @@ def publish_via_cdp(
                     "pub_clicked": False,
                     "assets": assets,
                     "page_url": page_url,
-                }
+                })
             # channels: refuse to click 发表 if 视频描述 still empty/placeholder
             if plat == "channels" and (
                 not verify2.get("ok") or verify2.get("stillPlaceholder") or int(verify2.get("bodyLen") or 0) < 2
@@ -4154,7 +4637,7 @@ def publish_via_cdp(
                     snaps.append(snapshot_page(sess, tag=f"{plat}_desc_empty"))
                 except Exception:
                     pass
-                return {
+                return _emit({
                     "ok": False,
                     "need_human": True,
                     "phase": "copy_verify_failed",
@@ -4167,9 +4650,11 @@ def publish_via_cdp(
                     "pub_clicked": False,
                     "assets": assets,
                     "page_url": page_url,
-                }
+                })
             _dismiss_publisher_popups(sess)
+            t_sub0 = time.monotonic()
             pub_r = _click_publish_and_confirm(sess, platform=plat, attempts=3)
+            timings["submit_ms"] = _ms_since(t_sub0)
             pub = pub_r.get("result") or "failed"
             if not pub_r.get("ok"):
                 try:
@@ -4190,7 +4675,7 @@ def publish_via_cdp(
                     err = pub_r.get("error") or (
                         f"发布未真正提交: {pub} / {(pub_r.get('verify') or {}).get('reason')}"
                     )
-                return {
+                return _emit({
                     "ok": False,
                     "need_human": True,
                     "phase": phase,
@@ -4204,7 +4689,7 @@ def publish_via_cdp(
                     "publish": pub_r,
                     "assets": assets,
                     "page_url": page_url,
-                }
+                })
             snaps.append({"publish_trail": pub_r.get("trail"), "publish_verify": pub_r.get("verify")})
 
         try:
@@ -4215,7 +4700,8 @@ def publish_via_cdp(
             pass
         out: dict[str, Any] = {
             "ok": True,
-            "need_human": bool(cover_soft_fail),
+            # Soft cover pass must not pause humans; warn only.
+            "need_human": False,
             "phase": "done",
             "fill": fill,
             "covers": cover_r,
@@ -4231,7 +4717,4 @@ def publish_via_cdp(
             out["cover_soft_fail"] = True
             out["cover_note"] = cover_note
             out["warning"] = cover_note
-            # Still published; human should replace default frame later
-            if not click_publish:
-                out["need_human"] = True
-        return out
+        return _emit(out)

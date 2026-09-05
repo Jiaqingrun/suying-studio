@@ -7,6 +7,7 @@ import platform
 import shutil
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -22,8 +23,7 @@ VISION_ESCALATE_ALIASES = (
     "qwen3.5:27b",
 )
 
-# Vision ladder by RAM tier. 16GB / standard and below MUST default to 9b (no 27B).
-# pro / max: 9b primary + optional escalate to 27B (cascade). Vector always nomic.
+# All tiers use 9B only and only for selected candidates. Vector always nomic.
 VISION_BY_TIER: dict[str, dict[str, Any]] = {
     "lite": {
         "model": VISION_FAST,
@@ -53,28 +53,25 @@ VISION_BY_TIER: dict[str, dict[str, Any]] = {
         "model": VISION_FAST,
         "aliases": VISION_FAST_ALIASES,
         "approx_gb": 6.6,
-        "label": "中档视觉 9B 快筛 → 失败升级 27B",
+        "label": "中档视觉 9B 按需验证（不扫全库）",
         "min_ram_gb": 32,
         "timeout_sec": 240.0,
-        "escalate_model": VISION_ESCALATE,
-        "escalate_aliases": VISION_ESCALATE_ALIASES,
-        "escalate_timeout_sec": 300.0,
-        "cascade": True,
+        "escalate_model": None,
+        "escalate_timeout_sec": 240.0,
+        "cascade": False,
         "allow_27b_default": False,
     },
     "max": {
-        # Prefer cascade for throughput even on ≥96GB; 27B remains escalate.
         "model": VISION_FAST,
         "aliases": VISION_FAST_ALIASES,
         "approx_gb": 6.6,
-        "label": "高配视觉 9B 快筛 → 27B 升级（推荐级联提速）",
+        "label": "高配视觉 9B 按需验证（不扫全库）",
         "min_ram_gb": 96,
         "timeout_sec": 300.0,
-        "escalate_model": VISION_ESCALATE,
-        "escalate_aliases": VISION_ESCALATE_ALIASES,
+        "escalate_model": None,
         "escalate_timeout_sec": 300.0,
-        "cascade": True,
-        "allow_27b_default": True,
+        "cascade": False,
+        "allow_27b_default": False,
     },
     "compat": {
         "model": "gemma4",
@@ -181,6 +178,11 @@ def recommend_tier(ram_gb: float) -> str:
     return "lite"
 
 
+def install_vision_by_default(tier: str) -> bool:
+    """Low-memory hosts keep vision optional; all other tiers install 9B on demand."""
+    return tier != "lite"
+
+
 def is_27b_model(name: str | None) -> bool:
     n = (name or "").strip().lower()
     if not n:
@@ -203,7 +205,11 @@ def ensure_host_bin_path() -> str:
     parts = [p for p in cur.split(":") if p]
     seen = set(parts)
     prepend: list[str] = []
-    for d in _HOST_BIN_DIRS:
+    local_tools = (
+        str(Path.home() / "Suying" / "runtime" / "tools" / "bin"),
+        str(Path.home() / "Suying" / "runtime" / "tools" / "ffmpeg" / "bin"),
+    )
+    for d in (*local_tools, *_HOST_BIN_DIRS):
         if d not in seen and os.path.isdir(d):
             prepend.append(d)
             seen.add(d)
@@ -315,27 +321,49 @@ def resolve_vision_policy(
     timeout = float(spec.get("timeout_sec") or 180.0)
     esc_timeout = float(spec.get("escalate_timeout_sec") or timeout)
 
+    # Lab-only: pro/max may escalate 9B→27B when SUYING_ALLOW_VISION_CASCADE=1.
+    # Fleet VISION_BY_TIER stays 9B-only; recommend_models never advertises 27B.
+    lab_cascade = False
+    try:
+        from engine.config.settings import allow_vision_cascade_env
+
+        lab_cascade = bool(allow_vision_cascade_env()) and host.tier in {"pro", "max"}
+    except Exception:
+        lab_cascade = False
+    if lab_cascade and not escalate:
+        escalate = VISION_ESCALATE
+        esc_timeout = max(esc_timeout, 300.0)
+
     if settings is not None:
         embed = (getattr(settings, "ollama_embed_model", None) or "").strip() or EMBED_MODEL
         configured = (getattr(settings, "ollama_vision_model", None) or "").strip()
         if configured:
             primary = configured
         primary = clamp_primary_for_tier(host.tier, primary)
-        # Explicit cascade toggle (default True when tier supports escalate).
+        # Explicit cascade toggle. Fleet tiers have no escalate_model; lab injects it above.
+        want_cascade = bool(getattr(settings, "ollama_vision_cascade", False))
         if hasattr(settings, "ollama_vision_cascade"):
-            cascade = bool(getattr(settings, "ollama_vision_cascade")) and bool(
-                spec.get("escalate_model")
-            )
+            cascade = want_cascade and bool(escalate)
         else:
-            cascade = bool(spec.get("cascade"))
+            cascade = bool(spec.get("cascade")) and bool(escalate)
+        if lab_cascade and want_cascade:
+            cascade = True
         esc_cfg = (getattr(settings, "ollama_vision_escalate_model", None) or "").strip()
         if cascade:
-            escalate = esc_cfg or spec.get("escalate_model")
+            escalate = esc_cfg or escalate or (VISION_ESCALATE if lab_cascade else None)
         else:
             escalate = None
         if escalate and escalate == primary:
             escalate = None
             cascade = False
+        # gate_profile / settings_patch may raise vision timeout by tier.
+        try:
+            cfg_timeout = float(getattr(settings, "vision_timeout_sec", 0) or 0)
+            if cfg_timeout > 0:
+                timeout = max(timeout, cfg_timeout)
+                esc_timeout = max(esc_timeout, cfg_timeout)
+        except (TypeError, ValueError):
+            pass
 
     return VisionPolicy(
         tier=host.tier,

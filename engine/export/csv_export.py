@@ -18,9 +18,9 @@ def export_job_events_csv(session: Session, output_path: Path, *, customer_id: i
     events = session.scalars(stmt).all()
     with output_path.open("w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)
-        writer.writerow(["id", "job_id", "level", "message", "created_at", "payload"])
+        writer.writerow(["level", "message", "created_at"])
         for e in events:
-            writer.writerow([e.id, e.job_id, e.level, e.message, e.created_at.isoformat(), e.payload_json])
+            writer.writerow([e.level, e.message, e.created_at.isoformat()])
     return output_path
 
 
@@ -32,9 +32,14 @@ def export_renders_csv(session: Session, output_path: Path, *, customer_id: int 
     rows = session.scalars(stmt).all()
     with output_path.open("w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)
-        writer.writerow(["id", "job_id", "state", "seed", "output_path", "sidecar_path", "created_at", "qc"])
+        writer.writerow(["display_label", "state", "output_path", "created_at"])
         for r in rows:
             writer.writerow(
-                [r.id, r.job_id, r.state, r.seed, r.output_path, r.sidecar_path, r.created_at.isoformat(), r.qc_json]
+                [
+                    f"#{int(r.display_no):03d}" if r.display_no is not None else "",
+                    r.state,
+                    r.output_path,
+                    r.created_at.isoformat(),
+                ]
             )
     return output_path

@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import Any  # noqa: TC003 — runtime Any for settings duck-typing
 
 from PIL import Image
 from sqlalchemy import select
@@ -62,6 +62,28 @@ def locked_quality_floors() -> dict[str, Any]:
         "forbid_blur_in_plan": True,
         "forbid_unscored_vectorize": True,
     }
+
+
+def effective_min_quality_score(settings: Any | None = None) -> float:
+    """Hard floor 0.35; gate_profile may only raise via cliplet_quality_floor / blur_reject_floor."""
+    floor = float(MIN_QUALITY_SCORE)
+    cfg = settings
+    if cfg is None:
+        try:
+            from engine.config.settings import load_settings
+
+            cfg = load_settings()
+        except Exception:  # noqa: BLE001
+            cfg = None
+    if cfg is not None:
+        for key in ("cliplet_quality_floor", "blur_reject_floor"):
+            try:
+                raw = getattr(cfg, key, None)
+                if raw is not None:
+                    floor = max(floor, float(raw))
+            except (TypeError, ValueError):
+                continue
+    return floor
 
 
 def laplacian_variance(img: Image.Image) -> float:

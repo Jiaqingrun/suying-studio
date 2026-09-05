@@ -137,6 +137,15 @@ def lock_requires_edge(video_lock: dict[str, Any] | None) -> bool:
     return str(voice.get("provider") or "").lower() in ("edge", "xiaoxiao")
 
 
+def lock_requires_clone(video_lock: dict[str, Any] | None) -> bool:
+    if not isinstance(video_lock, dict) or not video_lock.get("locked"):
+        return False
+    from engine.pack.voice_clone import is_clone_provider
+
+    voice = video_lock.get("voice") if isinstance(video_lock.get("voice"), dict) else {}
+    return is_clone_provider(str(voice.get("provider") or ""))
+
+
 def tts_provider_from_meta(meta: dict[str, Any] | None) -> str:
     m = meta if isinstance(meta, dict) else {}
     raw = str(m.get("tts_provider") or m.get("provider") or "").strip().lower()
@@ -147,28 +156,37 @@ def tts_lock_violation(
     meta: dict[str, Any] | None,
     video_lock: dict[str, Any] | None = None,
 ) -> str | None:
-    """Return noncompliant code if VO violates VIDEO_LOCK Edge requirement."""
-    if not lock_requires_edge(video_lock):
-        # Still honor explicit stamp from earlier lock era
-        m = meta if isinstance(meta, dict) else {}
-        nc = str(m.get("noncompliant") or "")
-        return nc if nc in NONCOMPLIANT_TTS_CODES else None
+    """Return noncompliant code for truly bad VO providers (say/mock).
+
+    Legal Edge/clone narration already on the sidecar is never re-flagged when
+    VIDEO_LOCK later changes (avoids false tts_bad after voice switch).
+    """
+    from engine.pack.voice_clone import is_clone_provider
 
     m = meta if isinstance(meta, dict) else {}
-    nc = str(m.get("noncompliant") or "")
-    if nc in NONCOMPLIANT_TTS_CODES:
-        return nc
-
-    provider = tts_provider_from_meta(m)
     has_voice = bool(m.get("narration_path"))
     if not has_voice:
-        return None  # missing voice is a different ops bucket
-    if provider == "say":
+        return None
+
+    provider = tts_provider_from_meta(m)
+    nc = str(m.get("noncompliant") or "")
+
+    # Production-legal providers: keep compliant even if current lock differs.
+    if provider == "edge" or is_clone_provider(provider):
+        return None
+
+    if provider == "say" or nc == NONCOMPLIANT_TTS_SAY:
         return NONCOMPLIANT_TTS_SAY
-    if provider == "mock":
+    if provider == "mock" or nc == NONCOMPLIANT_TTS_MOCK:
         return NONCOMPLIANT_TTS_MOCK
-    if provider and provider not in ("edge",):
-        return NONCOMPLIANT_TTS_SAY if provider == "say" else f"tts_provider_{provider}"
+    if nc in NONCOMPLIANT_TTS_CODES:
+        return nc
+    if provider:
+        return f"tts_provider_{provider}"
+
+    # Missing provider with narration: only flag when a lock exists and expects VO.
+    if lock_requires_clone(video_lock) or lock_requires_edge(video_lock):
+        return "tts_provider_missing"
     return None
 
 

@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
+import threading
+import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from engine.catalog.db import (
     Asset,
@@ -23,6 +29,7 @@ from engine.catalog.db import (
     ReachMessageScan,
     ReachNotificationEvent,
     RenderOutput,
+    ReplyDraft,
     ReviewItem,
     Template,
     get_session,
@@ -46,38 +53,44 @@ from engine.catalog.calendar import (
     today_plan,
     upsert_entry,
 )
-from engine.catalog.keyword_pack import import_keyword_pack, parse_keyword_file
-from engine.catalog.vector_index import index_pending, search_cliplets
+from engine.catalog.keyword_pack import install_keyword_pack
+from engine.catalog.vector_index import search_cliplets
 from engine.config.paths import check_paths, ensure_layout
-from engine.config.settings import AppSettings, PathConfig, load_settings, save_settings
+from engine.config.settings import (
+    AppSettings,
+    PathConfig,
+    effective_semantic_full_backfill_enabled,
+    load_settings,
+    save_settings,
+    set_semantic_full_backfill_lab,
+)
+from engine.ops.settings_redact import redact_settings_payload
 from engine.export.csv_export import export_job_events_csv, export_renders_csv
 from engine.ingest.cliplet import (
-    create_cliplets_for_asset,
+    clear_semantic_claims,
     recaption_existing_cliplets,
     semantic_backfill_progress,
+    verify_cliplets_on_demand,
 )
 from engine.ingest.watcher import IngestWatcher
-from engine.jobs.queue import CreateJobRequest, create_job, pause_job, resume_job
+from engine.jobs.queue import CreateJobRequest, TopicIntentRequest, create_job, pause_job, resume_job
 from engine.jobs.worker import worker
-from engine.ops.cursor_key import (
-    apply_cursor_api_key_env,
-    public_cursor_key_fields,
-    redact_settings_payload,
-    verify_cursor_api_key,
-)
-from engine.ops.cursor_agent import cancel_session as cursor_cancel_session
-from engine.ops.cursor_agent import chat as cursor_chat
-from engine.ops.cursor_agent import iter_chat_events as cursor_iter_chat_events
-from engine.ops.cursor_agent import list_session_summary as cursor_session_summary
-from engine.ops.cursor_agent import reset_session as cursor_reset_session
-from engine.ops.cursor_agent import sse_bytes as cursor_sse_bytes
 from engine.ops.maintenance import assert_production_ready, clean_cache, disk_report, load_scheduler_state, maybe_run_daily_job
 from engine.ops.scheduler import scheduler
 from engine.template.engine import DEFAULT_TEMPLATE, TemplateDefinition, build_plan, plan_to_dict
 
 from engine.ops.scan_state import scan_state as _scan_state
+from engine.runtime import services as runtime_services
+from engine.runtime.pause_coordinator import (
+    SystemEventControl,
+    assert_runtime_active,
+    coordinator as pause_coordinator,
+    get_system_event_control_from_settings,
+)
+from engine.version import ENGINE_VERSION
 
 watcher: IngestWatcher | None = None
+_workspace_services_started = False
 
 
 def _run_scan_background(limit: int | None) -> None:
@@ -112,35 +125,214 @@ def _run_scan_background(limit: int | None) -> None:
         _scan_state["finished_at"] = datetime.now(timezone.utc).isoformat()
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global watcher
-    settings = load_settings()
-    ensure_layout(settings)
-    init_db(settings)
-    session = get_session()
+def try_start_workspace_services(settings: AppSettings | None = None) -> bool:
+    """Start watcher/worker/scheduler if workspace is ready and not yet started."""
+    global watcher, _workspace_services_started
+    from engine.config.workspace import STATE_LOCAL, STATE_READY, ensure_identity_on_ready, probe_workspace
+    from engine.runtime import boot_state
+
+    settings = settings or load_settings()
+    probe = probe_workspace(settings)
+    if probe.state not in (STATE_READY, STATE_LOCAL) or not probe.can_init_db:
+        return False
+    if not _workspace_services_started:
+        ensure_layout(settings)
+        init_db(settings)
+        if probe.is_external and probe.state == STATE_READY:
+            ensure_identity_on_ready(settings, volume_uuid=probe.volume_uuid)
+            save_settings(settings)
+        try:
+            pause_coordinator.ensure_system_token()
+        except HTTPException:
+            pass
+        session = get_session()
+        try:
+            settings = load_settings()
+            customer = require_active_customer(session, settings)
+            seed_week_if_empty(session, customer.id, customer.name)
+            from engine.catalog.keyword_pack import refresh_canonical_pack
+
+            refresh_canonical_pack(session, customer)
+            from engine.reach.publication_lifecycle import retry_pending_archives
+
+            retry_pending_archives(session)
+        finally:
+            session.close()
+        watcher = IngestWatcher(settings)
+        runtime_services.register("watcher", watcher)
+        from engine.catalog.vectorization_runtime import executor as vectorization_executor
+
+        runtime_services.register("vector_reconcile", vectorization_executor)
+        vectorization_executor.start()
+        from engine.reach.message_sync import message_sync
+
+        if pause_coordinator.is_active_for_new_work():
+            watcher.start()
+            worker.start()
+            scheduler.start()
+            message_sync.start_scheduler()
+        try:
+            from engine.ops.semantic_backfill_runtime import semantic_backfill_runtime
+
+            semantic_backfill_runtime.ensure_started()
+        except Exception:
+            logging.getLogger(__name__).exception("semantic backfill runtime start failed")
+        _workspace_services_started = True
+        boot_state.mark_ready()
+        return True
+    return True
+
+
+def _boot_workspace_services() -> None:
+    """Heavy startup after HTTP bind — keep /health available during this work."""
+    global watcher, _workspace_services_started
+    from engine.config.workspace import STATE_LOCAL, STATE_READY, ensure_identity_on_ready, probe_workspace
+    from engine.runtime import boot_state
+
+    log = logging.getLogger(__name__)
     try:
         settings = load_settings()
-        customer = require_active_customer(session, settings)
-        seed_week_if_empty(session, customer.id, customer.name)
-    finally:
-        session.close()
-    watcher = IngestWatcher(settings)
-    watcher.start()
-    worker.start()
-    scheduler.start()
-    from engine.reach.message_sync import message_sync
+        probe = probe_workspace(settings)
+        if probe.can_init_db and probe.state in (STATE_READY, STATE_LOCAL):
+            ensure_layout(settings)
+            init_db(settings)
+            if probe.is_external and probe.state == STATE_READY:
+                ensure_identity_on_ready(settings, volume_uuid=probe.volume_uuid)
+                try:
+                    save_settings(settings)
+                except OSError:
+                    pass
+            session = get_session()
+            try:
+                settings = load_settings()
+                customer = require_active_customer(session, settings)
+                seed_week_if_empty(session, customer.id, customer.name)
+                from engine.catalog.keyword_pack import refresh_canonical_pack
 
-    message_sync.start_scheduler()
+                refresh_canonical_pack(session, customer)
+                cleared = clear_semantic_claims(session)
+                if cleared:
+                    log.info("cleared %s stale semantic claim(s) on startup", cleared)
+                from engine.reach.publish_sources import release_all_content_reservations
+
+                released = release_all_content_reservations(session)
+                if released:
+                    session.commit()
+                    log.info(
+                        "released %s leftover content reservation(s) (policy_no_reserve)",
+                        released,
+                    )
+            finally:
+                session.close()
+            if boot_state.is_shutting_down():
+                boot_state.mark_blocked("shutdown_during_boot")
+                return
+            watcher = IngestWatcher(settings)
+            runtime_services.register("watcher", watcher)
+            from engine.catalog.vectorization_runtime import executor as vectorization_executor
+
+            runtime_services.register("vector_reconcile", vectorization_executor)
+            vectorization_executor.start()
+            from engine.reach.message_sync import message_sync
+
+            if pause_coordinator.is_active_for_new_work():
+                watcher.start()
+                worker.start()
+                scheduler.start()
+                message_sync.start_scheduler()
+            try:
+                from engine.ops.semantic_backfill_runtime import semantic_backfill_runtime
+
+                semantic_backfill_runtime.ensure_started()
+            except Exception:
+                log.exception("semantic backfill runtime start failed")
+            _workspace_services_started = True
+            boot_state.mark_ready()
+        else:
+            _workspace_services_started = False
+            watcher = None
+            reasons = ",".join(probe.reasons) if getattr(probe, "reasons", None) else probe.state
+            boot_state.mark_blocked(f"workspace:{reasons or probe.state}")
+    except Exception as exc:  # noqa: BLE001 — surface boot failure without killing HTTP
+        log.exception("engine background boot failed")
+        boot_state.mark_failed(f"{type(exc).__name__}: {exc}")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global watcher, _workspace_services_started
+    from engine.runtime import boot_state
+
+    boot_state.mark_starting()
+    try:
+        pause_coordinator.ensure_system_token()
+    except HTTPException:
+        pass
+
+    # Boot services before accepting traffic for DB consistency.
+    # Heavy Chrome workspace merge is already deferred (see REMOTE_DEPLOY /
+    # SUYING_SKIP_WORKSPACE_CHROME_MIGRATE). Empty-lab boot is ~tens of ms.
+    # Optional early-bind path for future cold-start profiling:
+    # SUYING_ASYNC_ENGINE_BOOT=1 runs workers in a background thread and
+    # exposes /health status=starting until complete.
+    async_boot = os.environ.get("SUYING_ASYNC_ENGINE_BOOT", "").strip() in {
+        "1",
+        "true",
+        "yes",
+    }
+    boot_thread: threading.Thread | None = None
+    if async_boot:
+        boot_thread = threading.Thread(
+            target=_boot_workspace_services,
+            name="suying-engine-boot",
+            daemon=True,
+        )
+        boot_thread.start()
+    else:
+        _boot_workspace_services()
+
     yield
-    message_sync.stop_scheduler()
-    scheduler.stop()
-    worker.stop()
+
+    boot_state.request_shutdown()
+    log = logging.getLogger(__name__)
+    if boot_thread is not None:
+        boot_thread.join(timeout=30)
+    try:
+        from engine.reach.message_sync import message_sync
+
+        message_sync.stop_scheduler()
+    except Exception:
+        log.exception("shutdown: message_sync.stop_scheduler failed")
+    try:
+        scheduler.stop()
+    except Exception:
+        log.exception("shutdown: scheduler.stop failed")
+    try:
+        worker.stop()
+    except Exception:
+        log.exception("shutdown: worker.stop failed")
     if watcher:
-        watcher.stop()
+        try:
+            watcher.stop()
+        except Exception:
+            log.exception("shutdown: watcher.stop failed")
+    try:
+        from engine.catalog.vectorization_runtime import executor as vectorization_executor
+
+        vectorization_executor.stop()
+    except Exception:
+        log.exception("shutdown: vectorization_executor.stop failed")
+    try:
+        from engine.ops.semantic_backfill_runtime import semantic_backfill_runtime
+
+        semantic_backfill_runtime.stop(join_timeout=1.0)
+    except Exception:
+        log.exception("shutdown: semantic_backfill_runtime.stop failed")
+    runtime_services.clear()
+    _workspace_services_started = False
 
 
-app = FastAPI(title="Montage Studio Engine", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Montage Studio Engine", version=ENGINE_VERSION, lifespan=lifespan)
 # Local desktop engine: never grant arbitrary web origins access to privileged
 # localhost operations (carrier/update/settings write paths).
 # Tauri 2 macOS/Windows webview origin is http(s)://tauri.localhost (not tauri://).
@@ -162,9 +354,72 @@ app.add_middleware(
     ),
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Accept", "Range"],
+    allow_headers=["Content-Type", "Accept", "Range", "X-Suying-System-Token"],
     expose_headers=["Accept-Ranges", "Content-Range", "Content-Length", "Content-Type"],
 )
+
+
+@app.middleware("http")
+async def _count_health_hits(request, call_next):  # type: ignore[no-untyped-def]
+    if request.url.path == "/health":
+        from engine.runtime.health_metrics import health_metrics
+
+        health_metrics.record()
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def _enforce_packaged_entitlement(request, call_next):  # type: ignore[no-untyped-def]
+    """A running packaged engine must lock every business API at trial expiry."""
+    if request.method == "OPTIONS" or request.url.path in {
+        "/health",
+        "/license/status",
+        "/readiness",
+    }:
+        return await call_next(request)
+    from engine.security.license import current_runtime_license, is_packaged_runtime
+
+    if is_packaged_runtime():
+        try:
+            current_runtime_license()
+        except Exception as exc:  # noqa: BLE001
+            return JSONResponse(
+                status_code=423,
+                content={
+                    "detail": str(exc),
+                    "code": "LICENSE_LOCKED",
+                },
+            )
+    return await call_next(request)
+
+
+from engine.api.reach_publish_routes import router as reach_publish_router
+from engine.api.content_routes import router as content_router
+from engine.api.production_rule_routes import router as production_rules_router
+from engine.api.scene_tour_routes import router as scene_tour_router
+from engine.api.semantic_ops_routes import router as semantic_ops_router
+from engine.api.system_routes import router as system_router
+from engine.api.vectorization_routes import router as vectorization_router
+from engine.api.workspace_routes import router as workspace_router
+from engine.api.maintenance_routes import router as maintenance_router
+from engine.api.job_routes import router as job_router
+from engine.api.catalog_routes import router as catalog_router
+from engine.api.reach_console_routes import router as reach_console_router
+from engine.api.library_review_routes import router as library_review_router
+
+app.include_router(reach_publish_router)
+app.include_router(content_router)
+app.include_router(production_rules_router)
+app.include_router(scene_tour_router)
+app.include_router(semantic_ops_router)
+app.include_router(system_router)
+app.include_router(vectorization_router)
+app.include_router(workspace_router)
+app.include_router(maintenance_router)
+app.include_router(job_router)
+app.include_router(catalog_router)
+app.include_router(reach_console_router)
+app.include_router(library_review_router)
 
 
 class SettingsUpdate(BaseModel):
@@ -183,31 +438,185 @@ class SettingsUpdate(BaseModel):
     active_customer: str | None = None
     vectorization_enabled: bool | None = None
     onboarded: bool | None = None
-    # None = leave unchanged; "" = clear; non-empty = set
-    cursor_api_key: str | None = None
     ollama_embed_model: str | None = None
     ollama_vision_model: str | None = None
     ollama_vision_escalate_model: str | None = None
     ollama_vision_cascade: bool | None = None
+    semantic_analysis_mode: str | None = None
+    semantic_full_backfill_enabled: bool | None = None
     ollama_narration_enabled: bool | None = None
     ollama_narration_model: str | None = None
     ollama_narration_burn_emoji: bool | None = None
+    ollama_rule_model: str | None = None
+    system_event_control: dict[str, Any] | None = None
+    # GVoiceClone
+    tts_provider: str | None = None
+    tts_clone_pack: str | None = None
+    tts_clone_speed: float | None = None
+    tts_chars_per_sec_zh: float | None = None
 
 
-class CursorKeyBody(BaseModel):
-    """Optional key for verify-before-save; omit to use stored key."""
+class TtsPreferenceUpdate(BaseModel):
+    """App Settings · 旁白音色：同步 settings + 当前客户 VIDEO_LOCK.voice。"""
 
-    cursor_api_key: str | None = None
+    provider: str  # edge | clone
+    voice_pack: str | None = None
+    # Edge Neural ShortName, e.g. zh-CN-XiaoyiNeural（provider=edge 时生效）
+    voice: str | None = None
+    clone_speed: float | None = Field(default=None, ge=0.5, le=1.5)
+    update_video_lock: bool = True
 
 
-class CursorChatBody(BaseModel):
-    message: str
-    session_id: str = "default"
-    customer: str | None = None
+def _active_customer_scoped_settings() -> tuple[Any, Any]:
+    """Return (scoped_settings, customer) for the current active tenant."""
+    settings = load_settings()
+    session = get_session()
+    try:
+        customer = require_active_customer(session, settings)
+        return settings_with_customer_paths(settings, customer), customer
+    finally:
+        session.close()
 
 
-class CursorSessionBody(BaseModel):
-    session_id: str = "default"
+def _list_voice_packs(settings: Any | None = None) -> list[dict[str, Any]]:
+    from engine.pack.voice_clone import (
+        bundled_voice_packs_root,
+        customer_brand_voice_dir,
+        _load_pack_dir,
+    )
+
+    # Always resolve brand voice packs under the *active* customer's output root.
+    if settings is None:
+        settings, _customer = _active_customer_scoped_settings()
+    packs: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def _add(root: Path, *, custom: bool) -> None:
+        if not root.is_dir():
+            return
+        for child in sorted(root.iterdir()):
+            if not child.is_dir():
+                continue
+            pack = _load_pack_dir(child, pack_id=child.name)
+            if pack is None or pack.id in seen:
+                continue
+            seen.add(pack.id)
+            from engine.pack.voice_clone import pack_confirmed
+
+            packs.append(
+                {
+                    "id": pack.id,
+                    "label": pack.label,
+                    "chars_per_sec_zh": pack.chars_per_sec_zh,
+                    "speed": pack.speed,
+                    "engine": pack.engine,
+                    "custom": custom,
+                    "readonly": not custom,
+                    "confirmed": pack_confirmed(pack.root, custom=custom),
+                }
+            )
+
+    brand = customer_brand_voice_dir(settings)
+    if brand:
+        _add(brand / "packs", custom=True)
+        # Legacy single-pack brand/voice root
+        legacy = _load_pack_dir(brand, pack_id=brand.name)
+        if legacy and legacy.id not in seen:
+            seen.add(legacy.id)
+            from engine.pack.voice_clone import pack_confirmed
+
+            packs.append(
+                {
+                    "id": legacy.id,
+                    "label": legacy.label,
+                    "chars_per_sec_zh": legacy.chars_per_sec_zh,
+                    "speed": legacy.speed,
+                    "engine": legacy.engine,
+                    "custom": True,
+                    "readonly": False,
+                    "confirmed": pack_confirmed(legacy.root, custom=True),
+                }
+            )
+    _add(bundled_voice_packs_root(), custom=False)
+    return packs
+
+
+def _apply_voice_to_video_lock(
+    *,
+    customer_name: str,
+    output_root: Path | str,
+    provider: str,
+    voice_pack: str,
+    clone_speed: float,
+    edge_voice: str | None = None,
+) -> dict[str, Any]:
+    """Update on-disk VIDEO_LOCK.voice for the active customer (05-品牌; never App bundle)."""
+    from engine.pack.edge_voices import edge_voice_label
+    from engine.pack.video_lock import load_video_lock
+    from engine.pack.voice_clone import is_clone_provider
+
+    lock = load_video_lock(customer_name, output_root=output_root)
+    voice = dict(lock.get("voice") if isinstance(lock.get("voice"), dict) else {})
+    if is_clone_provider(provider):
+        voice.update(
+            {
+                "provider": "clone",
+                "voice_pack": voice_pack,
+                "voice": voice_pack,
+                "label": "阿姨慢速旁白" if voice_pack == "aunt_slow" else voice_pack,
+                "clone_speed": float(clone_speed),
+                "chars_per_sec_zh": 3.3 if voice_pack == "aunt_slow" else float(voice.get("chars_per_sec_zh") or 3.3),
+                "rate": "clone",
+                "pitch": "clone",
+                "volume": "clone",
+                "emotion_boost": False,
+            }
+        )
+    else:
+        voice_id = (edge_voice or "").strip()
+        if not voice_id:
+            prev = str(voice.get("voice") or "").strip()
+            voice_id = prev if "Neural" in prev else "zh-CN-XiaoxiaoNeural"
+        if "Neural" not in voice_id:
+            voice_id = "zh-CN-XiaoxiaoNeural"
+        # Switching off clone: "clone" is not a valid Edge SSML rate/pitch/volume.
+        prev_rate = str(voice.get("rate") or "").strip()
+        prev_pitch = str(voice.get("pitch") or "").strip()
+        prev_volume = str(voice.get("volume") or "").strip()
+        if prev_rate in {"", "clone"} or not prev_rate.endswith("%"):
+            prev_rate = "-8%"
+        if prev_pitch in {"", "clone"}:
+            prev_pitch = "+18Hz"
+        if prev_volume in {"", "clone"}:
+            prev_volume = "+10%"
+        voice.update(
+            {
+                "provider": "edge",
+                "voice": voice_id,
+                "label": edge_voice_label(voice_id),
+                "rate": prev_rate,
+                "pitch": prev_pitch,
+                "volume": prev_volume,
+                "chars_per_sec_zh": 3.2 if prev_rate == "-8%" else float(voice.get("chars_per_sec_zh") or 3.8),
+                "emotion_boost": True,
+            }
+        )
+        voice.pop("voice_pack", None)
+        voice.pop("clone_speed", None)
+    lock["voice"] = voice
+
+    from engine.pack.video_lock import writable_lock_paths_for_customer
+
+    written: list[str] = []
+    for path in writable_lock_paths_for_customer(customer_name, output_root=output_root):
+        # Only write VIDEO_LOCK.json (not style_lock). Never write into the signed
+        # App runtime — that creates RUNTIME_MANIFEST extras and blocks engine start.
+        if path.name != "VIDEO_LOCK.json":
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(lock, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        written.append(str(path))
+    return {"voice": voice, "written": written}
 
 
 class CustomerCreate(BaseModel):
@@ -226,6 +635,8 @@ class CustomerUpdate(BaseModel):
     active: bool | None = None
     brand: dict[str, Any] | None = None
     expression: dict[str, Any] | None = None
+    review: dict[str, Any] | None = None
+    industry_pack: str | None = None
 
 
 class CustomerActivate(BaseModel):
@@ -236,52 +647,197 @@ class DryRunRequest(BaseModel):
     template_name: str = "default-vertical"
     theme: str = "default"
     category: str = "default"
+    orientation: str = Field(default="portrait", pattern="^(portrait|landscape)$")
     customer_name: str | None = None
     seed: int | None = None
     strict_semantic_v1: bool = False
+    rule_profile_id: int | None = None
+    use_active_rule: bool = True
+    topic_intent: TopicIntentRequest | None = None
+
+
+class VerifyClipletsRequest(BaseModel):
+    cliplet_ids: list[int] = Field(min_length=1, max_length=10)
+    force: bool = False
 
 
 def _active_scope(session, settings: AppSettings | None = None):
-    settings = settings or load_settings()
-    customer = require_active_customer(session, settings)
-    scoped = settings_with_customer_paths(settings, customer)
-    return settings, customer, scoped
+    from engine.api.scope import active_scope
+
+    return active_scope(session, settings)
 
 
 def _resolve_job_customer(session, settings: AppSettings, customer_name: str | None):
-    if customer_name:
-        row = resolve_customer(session, customer_name)
-        if not row:
-            raise HTTPException(404, f"客户不存在: {customer_name}")
-        return row
-    return require_active_customer(session, settings)
+    from engine.api.scope import resolve_job_customer
+
+    return resolve_job_customer(session, settings, customer_name)
+
+
+@app.get("/readiness")
+def engine_readiness() -> dict[str, Any]:
+    """Business readiness: license + workspace + runtime integrity (not just HTTP alive)."""
+    from engine.api.readiness import build_readiness_snapshot
+
+    return build_readiness_snapshot()
+
+
+@app.get("/license/status")
+def runtime_license_status() -> dict[str, Any]:
+    """License status for the desktop control plane and ops remote status."""
+    from engine.security.license import (
+        is_packaged_runtime,
+        license_status,
+    )
+
+    if not is_packaged_runtime():
+        return {
+            "authorized": True,
+            "development_build": True,
+            "license_kind": "development",
+            "locked_reason": "",
+            "code": "",
+            "issue_seq": None,
+            "expires_at": None,
+            "device_key_id": None,
+            "license_id": None,
+            "delivery_id": None,
+            "customer_ref": None,
+            "remaining_sec": None,
+            "trial_remaining_sec": None,
+            "ops_unlock_allowed": False,
+        }
+    try:
+        status = license_status(
+            allow_cached_device_binding=os.environ.get("SUYING_ALLOW_CACHED_LICENSE_BINDING") == "1"
+        )
+        status.setdefault("development_build", False)
+        status.setdefault("code", status.get("code") or "")
+        return status
+    except Exception as exc:
+        return {
+            "authorized": False,
+            "development_build": False,
+            "license_kind": "",
+            "locked_reason": str(exc),
+            "code": "INVALID",
+            "issue_seq": None,
+            "expires_at": None,
+            "device_key_id": None,
+            "license_id": None,
+            "delivery_id": None,
+            "customer_ref": None,
+            "remaining_sec": None,
+            "trial_remaining_sec": None,
+            "ops_unlock_allowed": False,
+        }
 
 
 @app.get("/health")
 def health() -> dict[str, Any]:
+    from engine.config.workspace import probe_workspace
+    from engine.runtime import boot_state
+
     settings = load_settings()
+    boot = boot_state.snapshot()
+    # Early bind only while lifespan is actively starting services (not module default).
+    if boot.get("boot_phase") == "starting":
+        return {
+            "status": "starting",
+            "boot": boot,
+            "product_name": settings.product_name,
+            "engine_version": ENGINE_VERSION,
+            "active_customer": settings.active_customer,
+            "worker_running": worker.is_alive(),
+            "scheduler_running": scheduler.is_alive(),
+            "watcher_running": bool(watcher and watcher.is_alive()),
+        }
+    if boot.get("boot_phase") == "failed":
+        return {
+            "status": "failed",
+            "boot": boot,
+            "product_name": settings.product_name,
+            "engine_version": ENGINE_VERSION,
+            "active_customer": settings.active_customer,
+            "error": boot.get("boot_error"),
+        }
+
+    probe = probe_workspace(settings)
+    rt = pause_coordinator.snapshot()
+    from engine.catalog.ollama_status import check_ollama
+
+    ollama = check_ollama()
+
+    if not probe.can_init_db or probe.state not in ("ready", "local"):
+        return {
+            "status": "blocked",
+            "boot": boot,
+            "workspace_state": probe.state,
+            "workspace": probe.to_dict(),
+            "product_name": settings.product_name,
+            "engine_version": ENGINE_VERSION,
+            "active_customer": settings.active_customer,
+            "active_customer_id": None,
+            "paths": settings.paths.model_dump(mode="json"),
+            "frames_root": str(settings.paths.frames_root()),
+            "render_root": str(settings.paths.render_root),
+            "vector_store": {
+                "kind": "sqlite",
+                "db": str(settings.paths.data_root / "montage.db"),
+                "table": "cliplets",
+                "column": "embedding_json",
+                "note": "外接工作区未就绪；拒绝创建空库",
+            },
+            "path_health": {
+                "ok": False,
+                "library_mounted": False,
+                "output_mounted": False,
+                "free_disk_gb": 0,
+                "warnings": list(probe.warnings),
+                "errors": list(probe.reasons),
+                "libraries": [],
+            },
+            "disk": {"ok": False, "errors": list(probe.reasons)},
+            "auto_daily_enabled": settings.auto_daily_enabled,
+            "auto_daily_hour": settings.auto_daily_hour,
+            "vectorization_enabled": settings.vectorization_enabled,
+            "onboarded": settings.onboarded,
+            "setup_complete": False,
+            "worker_running": worker.is_alive(),
+            "scheduler_running": scheduler.is_alive(),
+            "watcher_running": bool(watcher and watcher.is_alive()),
+            "runtime_state": rt.get("state"),
+            "pause_reasons": rt.get("pause_reasons"),
+            "system_event_generation": rt.get("generation"),
+            "resume_blockers": rt.get("resume_blockers"),
+            "system_event_control": get_system_event_control_from_settings(settings).model_dump(),
+            "ollama": {
+                "reachable": ollama.get("reachable"),
+                "ready": ollama.get("ready"),
+                "message": ollama.get("message"),
+            },
+        }
+
     session = get_session()
     try:
         _, customer, scoped = _active_scope(session, settings)
         ensure_layout(scoped)
         health_info = check_paths(scoped)
-        # One-time setup is done once paths exist — never keep pushing the welcome wizard
-        configured = bool(customer.library_root and customer.output_root)
-        if configured and not settings.onboarded:
-            settings.onboarded = True
-            save_settings(settings)
+        from engine.ingest.orientation import orientation_lock_snapshot
+
+        orientation_lock = orientation_lock_snapshot(session, customer_id=customer.id)
     finally:
         session.close()
     disks = disk_report(settings)
-    from engine.catalog.ollama_status import check_ollama
-
-    ollama = check_ollama()
+    status = "ok" if health_info.ok else "degraded"
     return {
-        "status": "ok" if health_info.ok else "degraded",
+        "status": status,
+        "boot": boot,
+        "workspace_state": probe.state,
+        "workspace": probe.to_dict(),
         "product_name": settings.product_name,
-        "engine_version": "0.4.0",
-        "active_customer": settings.active_customer,
-        "active_customer_id": customer.id,
+            "engine_version": ENGINE_VERSION,
+            "active_customer": settings.active_customer,
+            "active_customer_id": customer.id,
         "paths": scoped.paths.model_dump(mode="json"),
         "frames_root": str(scoped.paths.frames_root()),
         "render_root": str(scoped.paths.render_root),
@@ -299,14 +855,24 @@ def health() -> dict[str, Any]:
         "vectorization_enabled": settings.vectorization_enabled,
         "vectorization_enabled_at": settings.vectorization_enabled_at,
         "vectorization_mode": getattr(settings, "vectorization_mode", "incremental"),
+        "orientation_hard_lock": True,
+        "orientation_lock": orientation_lock,
+        "semantic_analysis_mode": settings.semantic_analysis_mode,
+        "semantic_full_backfill_enabled": effective_semantic_full_backfill_enabled(settings),
         "ollama_narration_enabled": bool(getattr(settings, "ollama_narration_enabled", False)),
         "ollama_narration_model": getattr(settings, "ollama_narration_model", "") or "",
         "ollama_narration_burn_emoji": bool(getattr(settings, "ollama_narration_burn_emoji", True)),
+        "ollama_rule_model": getattr(settings, "ollama_rule_model", "") or "",
         "onboarded": settings.onboarded,
         "setup_complete": bool(customer.library_root and customer.output_root),
         "worker_running": worker.is_alive(),
         "scheduler_running": scheduler.is_alive(),
         "watcher_running": bool(watcher and watcher.is_alive()),
+        "runtime_state": rt.get("state"),
+        "pause_reasons": rt.get("pause_reasons"),
+        "system_event_generation": rt.get("generation"),
+        "resume_blockers": rt.get("resume_blockers"),
+        "system_event_control": get_system_event_control_from_settings(settings).model_dump(),
         "ollama": {
             "reachable": ollama.get("reachable"),
             "embed_ready": ollama.get("embed_ready"),
@@ -327,16 +893,71 @@ def health() -> dict[str, Any]:
             "install_url": ollama.get("install_url"),
             "pull": ollama.get("pull"),
         },
-        **public_cursor_key_fields(settings.cursor_api_key),
     }
 
 
 @app.get("/health/ollama")
 def health_ollama() -> dict[str, Any]:
-    """Local AI dependency: Ollama daemon + embed/vision models."""
+    """Local AI dependency status without triggering expensive inference on every poll.
+
+    Four distinct layers so the UI never shows false green when only tag
+    listing succeeded: service reachable (/api/tags) → model present (exact
+    tag match) → inference available (cached functional chat/embed probe,
+    refreshed by background warmup/recovery, not by this endpoint) → circuit
+    open (machine-wide gate tripped by recent failures).
+    """
+    from engine.catalog.ollama_runtime import ollama_health_snapshot
     from engine.catalog.ollama_status import check_ollama
 
-    return check_ollama()
+    base = check_ollama()
+    gateway = ollama_health_snapshot()
+    circuit = gateway.get("circuit") or {}
+    circuit_open = str(circuit.get("state") or "") == "open"
+    inference_available = bool(gateway.get("chat_probe_ok")) and not circuit_open
+    from engine.config.settings import load_settings
+    from engine.pack.ollama_narration import resolve_narration_model
+
+    settings = load_settings()
+    narration_model = resolve_narration_model(settings)
+    model_names = {str(n) for n in (base.get("models") or [])}
+    short_names = {str(n).split(":")[0] for n in model_names}
+    want = str(narration_model or "").strip()
+    narration_model_missing = bool(
+        want
+        and base.get("reachable")
+        and want not in model_names
+        and want.split(":")[0] not in short_names
+    )
+    return {
+        **base,
+        "embed_gateway": gateway,
+        "circuit": circuit,
+        "circuit_open": circuit_open,
+        "inference_available": inference_available,
+        "ollama_narration_enabled": bool(getattr(settings, "ollama_narration_enabled", False)),
+        "ollama_narration_model": narration_model,
+        "chat_probe_ok": bool(gateway.get("chat_probe_ok")),
+        "narration_model_missing": narration_model_missing,
+        "narration_model_warning": (
+            f"旁白模型未安装: {narration_model}" if narration_model_missing else ""
+        ),
+        "status_layers": {
+            "service_reachable": bool(base.get("reachable")),
+            "model_present": bool(base.get("ready")),
+            "inference_available": inference_available,
+            "circuit_open": circuit_open,
+        },
+    }
+
+
+class InstallPlanRequest(BaseModel):
+    plan_id: str = ""
+    include_vision: bool | None = None
+    include_narration: bool = False
+
+
+class ApprovedInstallPlanRequest(BaseModel):
+    plan_id: str
 
 
 @app.get("/setup/status")
@@ -358,11 +979,116 @@ def setup_status() -> dict[str, Any]:
     }
 
 
+@app.get("/setup/install-plan")
+def setup_install_plan(
+    include_vision: bool | None = None,
+    include_narration: bool = False,
+) -> dict[str, Any]:
+    """Preview the deterministic machine install plan without changing state."""
+    from engine.ops.install_profile import build_install_plan
+
+    return build_install_plan(
+        include_vision=include_vision,
+        include_narration=include_narration,
+    )
+
+
+@app.get("/setup/install-state")
+def setup_install_state() -> dict[str, Any]:
+    from engine.ops.install_profile import read_install_state
+
+    return read_install_state()
+
+
+@app.post("/setup/install-plan")
+def setup_approve_install_plan(body: InstallPlanRequest) -> dict[str, Any]:
+    """Approve and persist the exact plan; model downloads are a separate step."""
+    from datetime import datetime, timezone
+
+    from engine.ops.install_profile import build_install_plan, persist_install_plan
+
+    assert_runtime_active("install_plan")
+    plan = build_install_plan(
+        include_vision=body.include_vision,
+        include_narration=body.include_narration,
+    )
+    if not body.plan_id or body.plan_id != plan["plan_id"]:
+        raise HTTPException(409, "PLAN_STALE：机器配置或模型选择已变化，请重新预览并确认")
+    plan["approved_at"] = datetime.now(timezone.utc).isoformat()
+    persist_install_plan(plan)
+    return plan
+
+
+@app.post("/setup/install-plan/apply")
+def setup_apply_install_plan(body: ApprovedInstallPlanRequest) -> dict[str, Any]:
+    """Apply an already approved immutable plan, then pull selected models."""
+    from engine.catalog.ollama_status import start_pull_models
+    from engine.ops.install_profile import (
+        apply_install_plan_settings,
+        load_approved_install_plan,
+        mark_install_plan_stage,
+    )
+
+    assert_runtime_active("install_models")
+    try:
+        plan = load_approved_install_plan(body.plan_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    blocking = [
+        str(gate["id"])
+        for gate in plan["gates"]
+        if gate["id"] in {"platform", "architecture", "python", "ffmpeg", "disk", "ollama"}
+        and not gate["ok"]
+    ]
+    if blocking:
+        raise HTTPException(409, f"安装门禁未通过：{', '.join(blocking)}")
+    try:
+        applied = apply_install_plan_settings(body.plan_id)
+        plan = mark_install_plan_stage(body.plan_id, "configured")
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    pull = start_pull_models(list(plan["selected_models"]))
+    if not pull.get("ok"):
+        raise HTTPException(409, str(pull.get("message") or "模型安装未启动"))
+    plan = mark_install_plan_stage(body.plan_id, "models_started")
+    return {"ok": True, "plan": plan, "settings": applied, "pull": pull}
+
+
+@app.post("/setup/install-plan/configure")
+def setup_configure_install_plan(body: ApprovedInstallPlanRequest) -> dict[str, Any]:
+    """Apply an approved plan without downloading; used by remote installer."""
+    from engine.ops.install_profile import (
+        apply_install_plan_settings,
+        load_approved_install_plan,
+        mark_install_plan_stage,
+    )
+
+    assert_runtime_active("install_models")
+    try:
+        plan = load_approved_install_plan(body.plan_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    blocking = [
+        str(gate["id"])
+        for gate in plan["gates"]
+        if gate["id"] in {"platform", "architecture", "disk"} and not gate["ok"]
+    ]
+    if blocking:
+        raise HTTPException(409, f"安装门禁未通过：{', '.join(blocking)}")
+    try:
+        settings = apply_install_plan_settings(body.plan_id)
+        plan = mark_install_plan_stage(body.plan_id, "configured")
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"ok": True, "plan": plan, "settings": settings}
+
+
 @app.post("/ollama/pull")
 def ollama_pull(model: str = "nomic-embed-text") -> dict[str, Any]:
     """Start background `ollama pull <model>` (embed or vision)."""
     from engine.catalog.ollama_status import allowed_pull_models, start_pull
 
+    assert_runtime_active("install_models")
     model = (model or "nomic-embed-text").strip()
     allowed = allowed_pull_models()
     if model not in allowed and model.split(":")[0] not in {a.split(":")[0] for a in allowed}:
@@ -378,6 +1104,7 @@ def ollama_pull_recommended() -> dict[str, Any]:
     """Detect host RAM tier, persist model choices, pull embed + vision."""
     from engine.catalog.ollama_status import start_pull_recommended
 
+    assert_runtime_active("install_models")
     return start_pull_recommended()
 
 
@@ -386,12 +1113,18 @@ def setup_apply_recommended_models() -> dict[str, Any]:
     """Only write recommended model names into settings (no download)."""
     from engine.catalog.ollama_status import apply_recommended_to_settings
 
+    assert_runtime_active("install_models")
     return apply_recommended_to_settings()
 
 
 @app.get("/settings")
 def get_settings() -> dict[str, Any]:
-    return redact_settings_payload(load_settings().model_dump(mode="json"))
+    settings = load_settings()
+    payload = redact_settings_payload(settings.model_dump(mode="json"))
+    payload["semantic_full_backfill_enabled"] = effective_semantic_full_backfill_enabled(
+        settings
+    )
+    return payload
 
 
 @app.put("/settings")
@@ -442,8 +1175,6 @@ def update_settings(body: SettingsUpdate) -> dict[str, Any]:
                 settings.vectorization_enabled_at = datetime.now(timezone.utc).isoformat()
         elif not body.vectorization_enabled:
             settings.vectorization_enabled = False
-    if body.cursor_api_key is not None:
-        settings.cursor_api_key = body.cursor_api_key.strip()
     if body.ollama_embed_model is not None:
         settings.ollama_embed_model = body.ollama_embed_model.strip() or "nomic-embed-text"
     if body.ollama_vision_model is not None:
@@ -452,13 +1183,58 @@ def update_settings(body: SettingsUpdate) -> dict[str, Any]:
         settings.ollama_vision_escalate_model = body.ollama_vision_escalate_model.strip()
     if body.ollama_vision_cascade is not None:
         settings.ollama_vision_cascade = bool(body.ollama_vision_cascade)
+    if body.semantic_analysis_mode is not None:
+        mode = str(body.semantic_analysis_mode).strip().lower()
+        if mode not in {"off", "on_demand"}:
+            raise HTTPException(400, "semantic_analysis_mode 仅支持 off / on_demand")
+        if mode == "on_demand" and not bool(getattr(settings, "semantic_toggle_enabled", True)):
+            raise HTTPException(409, "当前机型档位未开放语义按需（lite 请升配或安装视觉包）")
+        settings.semantic_analysis_mode = mode
+    lab_backfill_toggle: bool | None = None
+    if body.semantic_full_backfill_enabled is not None:
+        want = bool(body.semantic_full_backfill_enabled)
+        if want and not bool(getattr(settings, "semantic_toggle_enabled", True)):
+            raise HTTPException(
+                409,
+                "当前机型档位未开放严格语义全库回填（lite 请升配或安装视觉包）",
+            )
+        # Never persist True into settings.json (fleet-safe); lab env + worker only.
+        lab_backfill_toggle = want
+        settings.semantic_full_backfill_enabled = False
     if body.ollama_narration_enabled is not None:
         settings.ollama_narration_enabled = bool(body.ollama_narration_enabled)
     if body.ollama_narration_model is not None:
         settings.ollama_narration_model = body.ollama_narration_model.strip()
     if body.ollama_narration_burn_emoji is not None:
         settings.ollama_narration_burn_emoji = bool(body.ollama_narration_burn_emoji)
+    if body.ollama_rule_model is not None:
+        settings.ollama_rule_model = body.ollama_rule_model.strip()
+    if body.system_event_control is not None:
+        current = get_system_event_control_from_settings(settings).model_dump()
+        current.update({k: v for k, v in body.system_event_control.items() if v is not None})
+        settings.system_event_control = SystemEventControl.model_validate(current)
+    if body.tts_provider is not None:
+        from engine.pack.voice_clone import is_clone_provider
+
+        raw = body.tts_provider.strip().lower()
+        if is_clone_provider(raw):
+            settings.tts_provider = "clone"
+        elif raw in ("edge", "xiaoxiao", "say", "mock", "auto"):
+            settings.tts_provider = "edge" if raw == "xiaoxiao" else raw
+        else:
+            raise HTTPException(400, f"不支持的 tts_provider: {body.tts_provider}")
+    if body.tts_clone_pack is not None:
+        settings.tts_clone_pack = body.tts_clone_pack.strip() or "aunt_slow"
+    if body.tts_clone_speed is not None:
+        settings.tts_clone_speed = float(body.tts_clone_speed)
+    if body.tts_chars_per_sec_zh is not None:
+        settings.tts_chars_per_sec_zh = float(body.tts_chars_per_sec_zh)
     save_settings(settings)
+    if lab_backfill_toggle is not None:
+        set_semantic_full_backfill_lab(lab_backfill_toggle)
+        from engine.ops.semantic_backfill_runtime import semantic_backfill_runtime
+
+        semantic_backfill_runtime.apply_lab_enabled(lab_backfill_toggle)
     ensure_layout(settings)
     if data_root_changed:
         from engine.catalog.db import reset_engine
@@ -467,3333 +1243,417 @@ def update_settings(body: SettingsUpdate) -> dict[str, Any]:
         init_db(settings)
     if watcher:
         watcher.reload()
-    return redact_settings_payload(settings.model_dump(mode="json"))
-
-
-@app.post("/cursor/verify")
-def cursor_verify(body: CursorKeyBody | None = None) -> dict[str, Any]:
-    """Verify a Cursor API key (body key or already-saved settings)."""
-    settings = load_settings()
-    candidate = ""
-    if body and body.cursor_api_key is not None and body.cursor_api_key.strip():
-        candidate = body.cursor_api_key.strip()
-    else:
-        candidate = (settings.cursor_api_key or "").strip()
-    if not candidate:
-        raise HTTPException(400, "请先填写 Cursor API Key")
-    result = verify_cursor_api_key(candidate)
-    if result.get("ok"):
-        # Persist only when verifying a newly typed key (not empty overwrite).
-        if body and body.cursor_api_key and body.cursor_api_key.strip():
-            settings.cursor_api_key = body.cursor_api_key.strip()
-            save_settings(settings)
-        else:
-            apply_cursor_api_key_env(candidate)
-        return {
-            "ok": True,
-            "message": "API Key 有效，已可用",
-            **public_cursor_key_fields(settings.cursor_api_key or candidate),
-            "me": result.get("me"),
-        }
-    err = result.get("error") or "验证失败"
-    detail = result.get("detail")
-    msg = f"API Key 验证失败: {err}"
-    if detail:
-        msg = f"{msg} — {detail}"
-    raise HTTPException(400, msg)
-
-
-@app.get("/cursor/chat")
-def cursor_chat_get(session_id: str = "default") -> dict[str, Any]:
-    return cursor_session_summary(session_id)
-
-
-@app.post("/cursor/chat")
-def cursor_chat_post(body: CursorChatBody) -> dict[str, Any]:
-    try:
-        return cursor_chat(
-            message=body.message,
-            session_id=body.session_id or "default",
-            customer=body.customer,
-        )
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
-    except RuntimeError as e:
-        raise HTTPException(409, str(e)) from e
-    except Exception as e:
-        raise HTTPException(500, f"助手调用失败: {e}") from e
-
-
-@app.post("/cursor/chat/stream")
-def cursor_chat_stream(body: CursorChatBody) -> StreamingResponse:
-    """SSE stream: delta / tool / status / done / error."""
-
-    def gen():
-        try:
-            yield from cursor_sse_bytes(
-                cursor_iter_chat_events(
-                    message=body.message,
-                    session_id=body.session_id or "default",
-                    customer=body.customer,
-                )
-            )
-        except Exception as e:
-            payload = json.dumps({"type": "error", "message": str(e)}, ensure_ascii=False)
-            yield f"data: {payload}\n\n".encode("utf-8")
-
-    return StreamingResponse(
-        gen(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+    payload = redact_settings_payload(settings.model_dump(mode="json"))
+    payload["semantic_full_backfill_enabled"] = effective_semantic_full_backfill_enabled(
+        settings
     )
+    return payload
 
 
-@app.post("/cursor/chat/reset")
-def cursor_chat_reset(body: CursorSessionBody | None = None) -> dict[str, Any]:
-    sid = (body.session_id if body else None) or "default"
-    return cursor_reset_session(sid)
+@app.get("/voice/tts")
+def get_tts_voice_status() -> dict[str, Any]:
+    """Settings UI: effective TTS provider + available clone packs."""
+    from engine.pack.edge_voices import edge_voice_label
+    from engine.pack.video_lock import load_video_lock
+    from engine.pack.voice_clone import f5_available, is_clone_provider
 
-
-@app.post("/cursor/chat/cancel")
-def cursor_chat_cancel(body: CursorSessionBody | None = None) -> dict[str, Any]:
-    """Clear stuck busy lock after client abort / UI stop."""
-    sid = (body.session_id if body else None) or "default"
-    return cursor_cancel_session(sid)
-
-
-@app.get("/customers")
-def get_customers() -> list[dict[str, Any]]:
     settings = load_settings()
     session = get_session()
     try:
-        rows = list_customers(session)
-        return [customer_to_dict(c) for c in rows]
+        customer = require_active_customer(session, settings)
+        scoped = settings_with_customer_paths(settings, customer)
+        lock = load_video_lock(customer.name, output_root=customer.output_root)
+        customer_name = customer.name
+        customer_id = customer.id
     finally:
         session.close()
-
-
-@app.post("/customers")
-def post_customer(body: CustomerCreate) -> dict[str, Any]:
-    session = get_session()
-    try:
-        row = get_or_create_customer(
-            session,
-            body.name,
-            library_root=body.library_root,
-            library_roots=body.library_roots,
-            output_root=body.output_root,
+    voice = lock.get("voice") if isinstance(lock.get("voice"), dict) else {}
+    lock_provider = str(voice.get("provider") or "").strip().lower() or None
+    settings_provider = str(getattr(settings, "tts_provider", "edge") or "edge").lower()
+    if lock_provider:
+        effective = (
+            "clone"
+            if is_clone_provider(lock_provider)
+            else ("edge" if lock_provider in ("edge", "xiaoxiao") else lock_provider)
         )
-        if body.keyword_pack_path is not None:
-            row.keyword_pack_path = body.keyword_pack_path
-            session.commit()
-            session.refresh(row)
-        return customer_to_dict(row)
-    finally:
-        session.close()
-
-
-@app.patch("/customers/{customer_id}")
-def patch_customer(customer_id: int, body: CustomerUpdate) -> dict[str, Any]:
-    session = get_session()
-    try:
-        row = session.get(Customer, customer_id)
-        if not row:
-            raise HTTPException(404, "客户不存在")
-        if body.library_root is not None:
-            row.library_root = body.library_root
-        if body.library_roots is not None:
-            row.library_roots = body.library_roots
-        if body.output_root is not None:
-            row.output_root = body.output_root
-        if body.keyword_pack_path is not None:
-            row.keyword_pack_path = body.keyword_pack_path
-        if body.active is not None:
-            row.active = body.active
-        if body.brand is not None:
-            from sqlalchemy.orm.attributes import flag_modified
-
-            from engine.render.logo import merge_brand_patch
-
-            row.profile_json = merge_brand_patch(
-                row.profile_json if isinstance(row.profile_json, dict) else {},
-                body.brand,
-            )
-            flag_modified(row, "profile_json")
-        if body.expression is not None:
-            from sqlalchemy.orm.attributes import flag_modified
-
-            from engine.pack.expression import resolve_expression_prefs
-
-            profile = dict(row.profile_json) if isinstance(row.profile_json, dict) else {}
-            prefs = resolve_expression_prefs(profile, overrides=body.expression)
-            profile["expression"] = prefs
-            row.profile_json = profile
-            flag_modified(row, "profile_json")
-        session.commit()
-        session.refresh(row)
-        return customer_to_dict(row)
-    finally:
-        session.close()
-
-
-@app.post("/customers/activate")
-def activate_customer(body: CustomerActivate) -> dict[str, Any]:
-    global watcher
-    settings = load_settings()
-    session = get_session()
-    try:
-        row = resolve_customer(session, body.name)
-        if not row:
-            raise HTTPException(404, f"客户不存在: {body.name}")
-        settings.active_customer = row.name
-        save_settings(settings)
-        if watcher:
-            watcher.reload()
-        scoped = settings_with_customer_paths(settings, row)
-        return {
-            "active_customer": row.name,
-            "active_customer_id": row.id,
-            "paths": scoped.paths.model_dump(mode="json"),
-        }
-    finally:
-        session.close()
-
-
-@app.get("/assets")
-def list_assets(category: str | None = None) -> list[dict[str, Any]]:
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        q = select(Asset).where(Asset.customer_id == customer.id).order_by(Asset.id.desc())
-        if category:
-            q = q.where(Asset.category == category)
-        rows = session.scalars(q).all()
-        return [
-            {
-                "id": a.id,
-                "uuid": a.uuid,
-                "customer_id": a.customer_id,
-                "category": a.category,
-                "status": a.status,
-                "duration_sec": a.duration_sec,
-                "width": a.width,
-                "height": a.height,
-                "source_path": a.source_path,
-            }
-            for a in rows
-        ]
-    finally:
-        session.close()
-
-
-@app.post("/assets/scan")
-def scan_assets(limit: int | None = 20, background: bool = True) -> dict[str, Any]:
-    """Scan libraries. Default limit=20; pass limit=0 for full scan.
-    By default runs in a background thread so the API stays responsive.
-    """
-    global watcher
-    import threading
-
-    if not watcher:
-        raise HTTPException(503, "Watcher not ready")
-    if _scan_state.get("running"):
-        return {"status": "already_running", **{k: _scan_state.get(k) for k in ("ingested", "limit", "started_at")}}
-    real_limit = None if limit == 0 else limit
-    if background:
-        t = threading.Thread(target=_run_scan_background, args=(real_limit,), daemon=True, name="montage-scan")
-        t.start()
-        return {"status": "started", "limit": real_limit, "background": True}
-    count = watcher.scan_existing(limit=real_limit)
-    return {"ingested": count, "limit": real_limit, "status": "completed"}
-
-
-@app.get("/assets/scan/status")
-def scan_status() -> dict[str, Any]:
-    return dict(_scan_state)
-
-
-@app.post("/assets/reconcile")
-def reconcile_assets(
-    limit: int = 50,
-    use_vision: bool = True,
-    mode: str = "incremental",
-) -> dict[str, Any]:
-    """Backfill cliplets/embeddings — default incremental (gaps only).
-
-    mode=incremental (default): keep existing cliplets/embeddings; only fill gaps.
-    mode=rebuild: force re-slice cliplets (destructive; not used by first-enable).
-    """
-    from engine.ingest.pipeline import reconcile_pending_assets
-
-    settings = load_settings()
-    if not settings.vectorization_enabled:
-        raise HTTPException(
-            400,
-            "向量化未开启。请在速影 App「运维」中手动开启后再补齐索引。",
-        )
-    if mode not in ("incremental", "rebuild"):
-        raise HTTPException(400, "mode 须为 incremental 或 rebuild")
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        return reconcile_pending_assets(
-            session,
-            settings,
-            customer_id=customer.id,
-            limit=limit,
-            use_vision=use_vision,
-            mode=mode,
-        )
-    finally:
-        session.close()
-
-
-@app.get("/assets/vectorization-status")
-def vectorization_status() -> dict[str, Any]:
-    """Gap report for current customer — used before/after enabling vectorization."""
-    from engine.ingest.pipeline import vectorization_gap_report
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        report = vectorization_gap_report(session, customer_id=customer.id)
-        report["vectorization_enabled"] = settings.vectorization_enabled
-        report["vectorization_mode"] = settings.vectorization_mode
-        report["customer_id"] = customer.id
-        report["customer_name"] = customer.name
-        return report
-    finally:
-        session.close()
-
-
-@app.post("/vectorization/enable")
-def enable_vectorization_endpoint(
-    kick_reconcile: bool = True,
-    limit: int = 50,
-) -> dict[str, Any]:
-    """Flip vectorization on (incremental) and return immediately.
-
-    Gap reporting + optional reconcile run in a daemon thread so SQLite locks
-    or vision work cannot freeze the App.
-    """
-    import threading
-
-    from engine.config.settings import enable_vectorization
-
-    settings = enable_vectorization()
-    settings.vectorization_mode = "incremental"
-    save_settings(settings)
-
-    if kick_reconcile:
-
-        def _bg() -> None:
-            from engine.ingest.pipeline import reconcile_pending_assets, vectorization_gap_report
-
-            s = load_settings()
-            sess = get_session()
-            try:
-                _, customer, _ = _active_scope(sess, s)
-                gaps = vectorization_gap_report(sess, customer_id=customer.id)
-                if gaps.get("gap_assets", 0) > 0:
-                    reconcile_pending_assets(
-                        sess,
-                        s,
-                        customer_id=customer.id,
-                        limit=limit,
-                        use_vision=True,
-                        mode="incremental",
-                    )
-            except Exception:
-                import logging
-
-                logging.getLogger("montage.api").exception("background incremental reconcile failed")
-            finally:
-                sess.close()
-
-        threading.Thread(target=_bg, name="vec-enable-reconcile", daemon=True).start()
-
+    else:
+        effective = "clone" if is_clone_provider(settings_provider) else settings_provider
+    raw_voice = str(voice.get("voice") or "").strip()
+    settings_voice = str(getattr(settings, "tts_voice", "") or "").strip()
+    edge_voice = settings_voice or "zh-CN-XiaoxiaoNeural"
+    if effective != "clone":
+        if raw_voice and ("Neural" in raw_voice or "-" in raw_voice):
+            # Skip obvious clone pack ids (no locale dashes), keep Neural ShortNames
+            if raw_voice != str(voice.get("voice_pack") or ""):
+                edge_voice = raw_voice
+        label = str(voice.get("label") or "") or edge_voice_label(edge_voice)
+    else:
+        label = str(voice.get("label") or "")
     return {
-        "enabled": True,
-        "mode": "incremental",
-        "message": "已开启增量向量化：已有向量保留，仅补齐缺口；后台将逐步处理缺口。",
-        "gaps": None,
-        "reconcile_started": bool(kick_reconcile),
-        "reconcile": None,
+        "ok": True,
+        "customer": customer_name,
+        "customer_id": customer_id,
+        "settings_provider": settings_provider,
+        "lock_provider": lock_provider,
+        "effective_provider": effective,
+        "voice_pack": str(voice.get("voice_pack") or getattr(settings, "tts_clone_pack", "") or "aunt_slow"),
+        "edge_voice": edge_voice,
+        "tts_voice": edge_voice,
+        "label": label,
+        "clone_speed": float(voice.get("clone_speed") or getattr(settings, "tts_clone_speed", 1.0) or 1.0),
+        "chars_per_sec_zh": float(
+            voice.get("chars_per_sec_zh") or getattr(settings, "tts_chars_per_sec_zh", 3.8) or 3.8
+        ),
+        "clone_available": f5_available(),
+        "packs": _list_voice_packs(scoped),
+        "hint": (
+            "当前客户 VIDEO_LOCK 已锁定旁白音色；设置页保存会同步改锁。"
+            if lock_provider
+            else "未锁 VIDEO_LOCK 音色时，以本机 settings.tts_provider 为准。"
+        ),
     }
 
-@app.post("/assets/proxies/backfill")
-def backfill_asset_proxies(limit: int = 500) -> dict[str, Any]:
-    """Generate low-bitrate proxies for analysis on existing assets."""
-    from engine.ingest.metadata import backfill_proxies
 
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        return backfill_proxies(session, settings, limit=limit, customer_id=customer.id)
-    finally:
-        session.close()
-
-
-@app.post("/keywords/import")
-def import_keywords(customer_name: str, path: str) -> dict[str, Any]:
-    from pathlib import Path
-
-    session = get_session()
-    try:
-        pack = import_keyword_pack(session, customer_name, parse_keyword_file(Path(path)))
-        return {"id": pack.id, "name": pack.name, "customer_id": pack.customer_id}
-    finally:
-        session.close()
-
-
-@app.post("/keywords/import-file")
-async def import_keywords_file(customer_name: str = "default", file: UploadFile = File(...)) -> dict[str, Any]:
-    import json
-    import tempfile
-    from pathlib import Path
-
-    content = await file.read()
-    session = get_session()
-    try:
-        text = content.decode("utf-8")
-        if text.strip().startswith("{"):
-            data = json.loads(text)
-        else:
-            tmp = Path(tempfile.gettempdir()) / file.filename
-            tmp.write_bytes(content)
-            data = parse_keyword_file(tmp)
-        pack = import_keyword_pack(session, customer_name, data)
-        return {"id": pack.id, "name": pack.name}
-    finally:
-        session.close()
-
-
-@app.get("/keywords/active-summary")
-def keywords_active_summary(customer_id: int | None = None) -> dict[str, Any]:
-    """Active keyword pack summary including on-screen title_pool."""
-    from engine.catalog.keyword_pack import get_active_pack, list_title_pool, title_pool_meta
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        if customer_id is not None:
-            row = session.get(Customer, customer_id)
-            if not row:
-                raise HTTPException(404, "客户不存在")
-            customer_name = row.name
-            pack_path = row.keyword_pack_path
-        else:
-            _, row, _ = _active_scope(session, settings)
-            customer_name = row.name
-            pack_path = row.keyword_pack_path
-        pack = get_active_pack(session, customer_name)
-        if not pack:
-            return {
-                "customer": customer_name,
-                "keyword_pack_path": pack_path,
-                "loaded": False,
-                "title_pool_count": 0,
-                "title_pool_sample": [],
-                "hooks_count": 0,
-            }
-        titles = list_title_pool(pack)
-        hooks = (pack.data_json.get("keyword_pool") or {}).get("hooks") or []
-        meta = title_pool_meta(pack)
-        return {
-            "customer": customer_name,
-            "keyword_pack_path": pack_path,
-            "loaded": True,
-            "pack_id": pack.id,
-            "version": pack.version,
-            "title_pool_count": len(titles),
-            "title_pool_sample": titles[:40],
-            "title_pool_meta": meta,
-            "hooks_count": len(hooks) if isinstance(hooks, list) else 0,
-            "max_chars_per_line": int(meta.get("max_chars_per_line") or 12),
-        }
-    finally:
-        session.close()
-
-
-@app.post("/keywords/reload-from-path")
-def reload_keywords_from_path(customer_id: int | None = None) -> dict[str, Any]:
-    """Reload keyword pack from Customer.keyword_pack_path."""
-    from pathlib import Path
-
-    from engine.catalog.keyword_pack import list_title_pool
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        if customer_id is not None:
-            row = session.get(Customer, customer_id)
-            if not row:
-                raise HTTPException(404, "客户不存在")
-        else:
-            _, row, _ = _active_scope(session, settings)
-        path_str = row.keyword_pack_path
-        if not path_str:
-            raise HTTPException(400, "未配置词池路径 keyword_pack_path")
-        path = Path(path_str)
-        if not path.exists():
-            raise HTTPException(400, f"词池文件不存在: {path}")
-        pack = import_keyword_pack(session, row.name, parse_keyword_file(path))
-        titles = list_title_pool(pack)
-        return {
-            "id": pack.id,
-            "name": pack.name,
-            "customer_id": pack.customer_id,
-            "path": str(path),
-            "version": pack.version,
-            "title_pool_count": len(titles),
-        }
-    finally:
-        session.close()
-
-
-@app.get("/templates")
-def list_templates() -> list[dict[str, Any]]:
-    session = get_session()
-    try:
-        from engine.jobs.queue import ensure_default_template
-
-        ensure_default_template(session)
-        rows = session.scalars(select(Template)).all()
-        if not rows:
-            from engine.template.engine import BUILTIN_TEMPLATES
-
-            return [t.model_dump() for t in BUILTIN_TEMPLATES.values()]
-        return [{"name": t.name, "definition": t.definition_json, "active": t.active} for t in rows]
-    finally:
-        session.close()
-
-
-@app.post("/dry-run")
-def dry_run(body: DryRunRequest) -> dict[str, Any]:
-    import random
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        from engine.jobs.queue import ensure_default_template
-        from engine.template.engine import BUILTIN_TEMPLATES, template_for_theme
-
-        ensure_default_template(session)
-        customer = _resolve_job_customer(session, settings, body.customer_name)
-        from engine.catalog.industry_pack import pack_id_for_customer
-
-        pack_id = pack_id_for_customer(customer.name, customer.profile_json)
-        tpl_name = body.template_name or "default-vertical"
-        if tpl_name == "default-vertical":
-            mapped = template_for_theme(body.theme, pack_id=pack_id)
-            if mapped != tpl_name:
-                tpl_name = mapped
-        tpl_row = session.scalar(select(Template).where(Template.name == tpl_name))
-        builtin = BUILTIN_TEMPLATES.get(tpl_name, DEFAULT_TEMPLATE)
-        template = TemplateDefinition(
-            **(tpl_row.definition_json if tpl_row else builtin.model_dump())
-        )
-        seed = body.seed if body.seed is not None else random.randint(1, 2_000_000_000)
-        plan = build_plan(
-            session,
-            template,
-            customer_name=customer.name,
-            theme=body.theme,
-            category=body.category,
-            seed=seed,
-            strict_semantic_v1=body.strict_semantic_v1,
-        )
-        out = plan_to_dict(plan)
-        out["resolved_template"] = tpl_name
-        return out
-    finally:
-        session.close()
-
-
-@app.get("/jobs")
-def list_jobs() -> list[dict[str, Any]]:
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        rows = session.scalars(
-            select(Job).where(Job.customer_id == customer.id).order_by(Job.id.desc())
-        ).all()
-        return [
-            {
-                "id": j.id,
-                "customer_id": j.customer_id,
-                "status": j.status,
-                "mode": j.mode,
-                "target_count": j.target_count,
-                "target_duration_sec": j.target_duration_sec,
-                "produced_count": j.produced_count,
-                "template_name": j.template_name,
-                "theme": j.theme,
-                "category": j.category,
-                "consecutive_failures": j.consecutive_failures,
-            }
-            for j in rows
-        ]
-    finally:
-        session.close()
-
-
-@app.post("/jobs")
-def post_job(body: CreateJobRequest) -> dict[str, Any]:
-    try:
-        assert_production_ready()
-    except ValueError as e:
-        raise HTTPException(409, str(e)) from e
-    settings = load_settings()
-    session = get_session()
-    try:
-        if body.customer_name is None:
-            body.customer_name = settings.active_customer
-        customer = _resolve_job_customer(session, settings, body.customer_name)
-        body.customer_name = customer.name
-        job = create_job(session, body, customer_id=customer.id)
-        return {"id": job.id, "status": job.status, "customer_id": job.customer_id}
-    finally:
-        session.close()
-
-
-@app.post("/jobs/{job_id}/pause")
-def post_pause(job_id: int) -> dict[str, Any]:
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        job = session.get(Job, job_id)
-        if not job or job.customer_id != customer.id:
-            raise HTTPException(404, "Job not found")
-        job = pause_job(session, job_id)
-        if not job:
-            raise HTTPException(404, "Job not found")
-        return {"id": job.id, "status": job.status}
-    finally:
-        session.close()
-
-
-@app.post("/jobs/{job_id}/resume")
-def post_resume(job_id: int) -> dict[str, Any]:
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        job = session.get(Job, job_id)
-        if not job or job.customer_id != customer.id:
-            raise HTTPException(404, "Job not found")
-        job = resume_job(session, job_id)
-        if not job:
-            raise HTTPException(404, "Job not found")
-        return {"id": job.id, "status": job.status}
-    finally:
-        session.close()
-
-
-@app.get("/calendar")
-def calendar_list(from_day: str | None = None, to_day: str | None = None) -> list[dict[str, Any]]:
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        return [entry_to_dict(e) for e in list_entries(session, customer.id, from_day, to_day)]
-    finally:
-        session.close()
-
-
-@app.get("/calendar/today")
-def calendar_today(day: str | None = None) -> dict[str, Any]:
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        row = today_plan(session, customer.id, day)
-        if not row:
-            raise HTTPException(404, "今日无日历计划（或已停用）")
-        return entry_to_dict(row)
-    finally:
-        session.close()
-
-
-@app.put("/calendar/{day}")
-def calendar_upsert(day: str, body: CalendarEntryIn) -> dict[str, Any]:
-    settings = load_settings()
-    body.day = day
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        body.customer_name = customer.name
-        row = upsert_entry(session, customer.id, body)
-        return entry_to_dict(row)
-    finally:
-        session.close()
-
-
-@app.delete("/calendar/{day}")
-def calendar_delete(day: str) -> dict[str, Any]:
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        ok = delete_entry(session, customer.id, day)
-        if not ok:
-            raise HTTPException(404, "calendar entry not found")
-        return {"deleted": day}
-    finally:
-        session.close()
-
-
-@app.post("/jobs/from-calendar")
-def post_job_from_calendar(day: str | None = None) -> dict[str, Any]:
-    """Create a count job using today's (or given day's) calendar quota/theme."""
-    try:
-        assert_production_ready()
-    except ValueError as e:
-        raise HTTPException(409, str(e)) from e
-    session = get_session()
-    try:
-        settings = load_settings()
-        _, customer, _ = _active_scope(session, settings)
-        row = today_plan(session, customer.id, day)
-        if not row:
-            raise HTTPException(404, "无可用日历计划")
-        from engine.catalog.industry_pack import pack_id_for_customer
-        from engine.template.engine import template_for_theme
-
-        # Prefer calendar template; if still default, bind by theme (Sprint B)
-        pack_id = pack_id_for_customer(customer.name, customer.profile_json)
-        tpl_name = row.template_name or "default-vertical"
-        if tpl_name == "default-vertical":
-            mapped = template_for_theme(row.theme, pack_id=pack_id)
-            if mapped != tpl_name:
-                tpl_name = mapped
-        req = CreateJobRequest(
-            mode="count",
-            target_count=row.quota,
-            template_name=tpl_name,
-            theme=row.theme,
-            category=row.category,
-            customer_name=row.customer_name,
-        )
-        job = create_job(session, req, customer_id=customer.id)
-        return {
-            "id": job.id,
-            "status": job.status,
-            "calendar_day": row.day,
-            "theme": row.theme,
-            "template_name": tpl_name,
-            "quota": row.quota,
-        }
-    finally:
-        session.close()
-
-
-@app.get("/outputs")
-def list_outputs(
-    state: str | None = None,
-    missing_voice: bool = False,
-    missing_subtitle: bool = False,
-    noncompliant_tts: bool = False,
-) -> list[dict[str, Any]]:
-    from pathlib import Path
-
-    from engine.ops.publish_trail import (
-        merge_publish_trail,
-        tts_lock_violation,
-        tts_provider_from_meta,
-        voice_flags_from_meta,
-    )
-    from engine.pack.video_lock import load_video_lock
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        video_lock = load_video_lock(customer.name, output_root=customer.output_root)
-        q = (
-            select(RenderOutput)
-            .join(Job, RenderOutput.job_id == Job.id)
-            .where(Job.customer_id == customer.id)
-            .order_by(RenderOutput.id.desc())
-        )
-        if state:
-            q = q.where(RenderOutput.state == state)
-        rows = session.scalars(q).all()
-        from engine.catalog.db import ReviewItem
-
-        result = []
-        for r in rows:
-            title = ""
-            covers: list[str] = []
-            copywriting: dict[str, Any] = {}
-            if isinstance(r.qc_json, dict):
-                covers = list(r.qc_json.get("covers") or [])
-            if r.sidecar_path:
-                try:
-                    import json
-
-                    data = json.loads(Path(r.sidecar_path).read_text(encoding="utf-8"))
-                    title = str(data.get("title") or "")
-                    if not covers:
-                        covers = list(data.get("covers") or [])
-                    if isinstance(data.get("copywriting"), dict):
-                        copywriting = data["copywriting"]
-                    meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
-                except Exception:
-                    meta = {}
-            else:
-                meta = {}
-            has_voice, subtitle_burned = voice_flags_from_meta(meta)
-            violation = tts_lock_violation(meta, video_lock)
-            if missing_voice and has_voice:
-                continue
-            if missing_subtitle and subtitle_burned:
-                continue
-            if noncompliant_tts and not violation:
-                continue
-            media_ok = bool(r.output_path and Path(r.output_path).is_file())
-            last_review = session.scalars(
-                select(ReviewItem)
-                .where(ReviewItem.render_output_id == r.id)
-                .order_by(ReviewItem.id.desc())
-                .limit(1)
-            ).first()
-            publish_trail = merge_publish_trail(session, r.id, meta)
-            result.append(
-                {
-                    "id": r.id,
-                    "job_id": r.job_id,
-                    "state": r.state,
-                    "seed": r.seed,
-                    "title": title,
-                    "output_path": r.output_path,
-                    "sidecar_path": r.sidecar_path,
-                    "covers": covers,
-                    "qc": r.qc_json,
-                    "media_ok": media_ok,
-                    "cover_count": len(covers),
-                    "review_status": last_review.status if last_review else None,
-                    "has_voice": has_voice,
-                    "subtitle_burned": subtitle_burned,
-                    "tts_provider": tts_provider_from_meta(meta) or None,
-                    "tts_compliant": violation is None,
-                    "tts_noncompliant": violation,
-                    "copywriting": copywriting,
-                    "publish_trail": publish_trail,
-                    "published": bool(publish_trail),
-                }
-            )
-        return result
-    finally:
-        session.close()
-
-
-@app.get("/outputs/{output_id}/publish-card")
-def output_publish_card(output_id: int) -> dict[str, Any]:
-    """Title + per-platform copy + local paths for the Publish desk tab."""
-    from pathlib import Path
-
-    from engine.pack.publish import build_platform_copy
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        out = _scoped_output(session, output_id, customer.id)
-        side: dict[str, Any] = {}
-        if out.sidecar_path and Path(out.sidecar_path).is_file():
-            try:
-                import json
-
-                side = json.loads(Path(out.sidecar_path).read_text(encoding="utf-8"))
-            except Exception:
-                side = {}
-        title = str(side.get("title") or f"成片 #{out.id}")
-        copy0 = side.get("copywriting") if isinstance(side.get("copywriting"), dict) else {}
-        brand = "品牌"
-        if customer.profile_json and isinstance(customer.profile_json, dict):
-            brand = str((customer.profile_json.get("brand") or {}).get("display_name") or brand)
-        pack = None
-        try:
-            from engine.catalog.keyword_pack import get_active_pack
-
-            pack = get_active_pack(session, customer.name)
-            if pack and isinstance(pack.data_json, dict):
-                brand = str(
-                    (pack.data_json.get("company_info") or {}).get("display_name_preferred") or brand
-                )
-        except Exception:
-            pass
-        platforms = build_platform_copy(
-            title=title,
-            brand=brand,
-            theme=str(side.get("theme") or "default"),
-            hashtags=list(copy0.get("hashtags") or []),
-            music_credit=str(copy0.get("music_credit") or ""),
-            description=str(copy0.get("description") or ""),
-        )
-        meta = side.get("meta") if isinstance(side.get("meta"), dict) else {}
-        from engine.ops.publish_trail import merge_publish_trail
-
-        publish_trail = merge_publish_trail(session, out.id, meta)
-        return {
-            "ok": True,
-            "id": out.id,
-            "state": out.state,
-            "title": title,
-            "description": str(copy0.get("description") or ""),
-            "hashtags": list(copy0.get("hashtags") or []),
-            "platforms": platforms.get("platforms") or platforms,
-            "output_path": out.output_path,
-            "media_ok": bool(out.output_path and Path(out.output_path).is_file()),
-            "has_narration": bool(meta.get("narration_path")),
-            "subtitle_burned": bool(meta.get("subtitle_burned")),
-            "publish_trail": publish_trail,
-            "published": bool(publish_trail),
-            "video_url": f"/outputs/{out.id}/video",
-        }
-    finally:
-        session.close()
-
-
-def _scoped_output(session, output_id: int, customer_id: int) -> RenderOutput:
-    out = session.get(RenderOutput, output_id)
-    if not out:
-        raise HTTPException(404, "output not found")
-    if out.job_id:
-        job = session.get(Job, out.job_id)
-        if job and job.customer_id and job.customer_id != customer_id:
-            raise HTTPException(403, "output 不属于当前客户")
-    return out
-
-
-def _output_cover_paths(out: RenderOutput) -> list[str]:
-    covers: list[str] = []
-    if isinstance(out.qc_json, dict):
-        covers = [str(c) for c in (out.qc_json.get("covers") or []) if c]
-    if not covers and out.sidecar_path:
-        try:
-            import json
-            from pathlib import Path
-
-            data = json.loads(Path(out.sidecar_path).read_text(encoding="utf-8"))
-            covers = [str(c) for c in (data.get("covers") or []) if c]
-        except Exception:
-            covers = []
-    return covers
-
-
-@app.api_route("/outputs/{output_id}/video", methods=["GET", "HEAD"])
-def stream_output_video(output_id: int):
-    """Stream ready mp4 for in-app review preview (GET+HEAD + Range).
-
-    Local desktop engine: stream by output id + file existence.
-    Do not gate on active customer — switching customers briefly leaves stale
-    UI cards that would otherwise get 403 and poison the webview media cache.
-    Listing endpoints remain customer-scoped.
-    """
-    from pathlib import Path
-
-    from fastapi.responses import FileResponse
-
-    session = get_session()
-    try:
-        out = session.get(RenderOutput, output_id)
-        if not out:
-            raise HTTPException(404, "output not found")
-        path = Path(out.output_path or "")
-        if not path.is_file():
-            raise HTTPException(404, f"成片文件不存在: {path}")
-        return FileResponse(
-            path,
-            media_type="video/mp4",
-            filename=path.name,
-            content_disposition_type="inline",
-            headers={
-                "Accept-Ranges": "bytes",
-                # Avoid no-store: some WebKit builds refuse range playback with it
-                "Cache-Control": "private, max-age=0, must-revalidate",
-            },
-        )
-    finally:
-        session.close()
-
-
-@app.api_route("/outputs/{output_id}/cover/{index}", methods=["GET", "HEAD"])
-def stream_output_cover(output_id: int, index: int = 0):
-    """Serve cover frame for review thumbnails (GET+HEAD)."""
-    from pathlib import Path
-
-    from fastapi.responses import FileResponse
-
-    session = get_session()
-    try:
-        out = session.get(RenderOutput, output_id)
-        if not out:
-            raise HTTPException(404, "output not found")
-        covers = _output_cover_paths(out)
-        if index < 0 or index >= len(covers):
-            raise HTTPException(404, "封面不存在")
-        path = Path(covers[index])
-        if not path.is_file():
-            raise HTTPException(404, f"封面文件不存在: {path}")
-        suffix = path.suffix.lower()
-        media = {
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".png": "image/png",
-            ".webp": "image/webp",
-        }.get(suffix, "application/octet-stream")
-        return FileResponse(
-            path,
-            media_type=media,
-            filename=path.name,
-            content_disposition_type="inline",
-            headers={
-                "Accept-Ranges": "bytes",
-                "Cache-Control": "private, max-age=0, must-revalidate",
-            },
-        )
-    finally:
-        session.close()
-
-
-@app.get("/expression/languages")
-def list_expression_languages() -> dict[str, Any]:
-    """Global language catalog for voice / subtitle selectors (物料页)."""
-    from engine.pack.languages import languages_for_api
-
-    rows = languages_for_api(include_none=True)
-    regions: dict[str, list[dict[str, Any]]] = {}
-    for row in rows:
-        regions.setdefault(str(row.get("region") or "其他"), []).append(row)
-    return {"languages": rows, "regions": regions}
-
-
-@app.post("/outputs/{output_id}/publish-pack")
-def export_output_publish_pack(
-    output_id: int,
-    voice_lang: str | None = None,
-    subtitle_lang: str | None = None,
-    subtitle_burn: str | None = None,
-    dual_secondary_lang: str | None = None,
+@app.get("/voice/edge-voices")
+def get_edge_voices(
+    lang: str | None = None,
+    locale: str | None = None,
+    all_locales: bool = False,
+    refresh: bool = False,
 ) -> dict[str, Any]:
-    """G3: export ready output into a publish_pack folder beside the mp4.
+    """Full Edge Neural catalog for rule lab / settings selection."""
+    from engine.pack.edge_voices import list_edge_voices
 
-    Optional query overrides: voice_lang / subtitle_lang / subtitle_burn / dual_secondary_lang.
-    """
-    from pathlib import Path
+    return list_edge_voices(
+        lang=lang,
+        locale=locale,
+        all_locales=bool(all_locales),
+        prefer_live=bool(refresh),
+    )
 
-    from engine.catalog.keyword_pack import get_active_pack
-    from engine.pack.publish import export_publish_pack
+
+class VoicePackImportBody(BaseModel):
+    source_path: str
+    label: str
+    ref_text: str
+    pack_id: str | None = None
+    speed: float = Field(default=1.0, ge=0.5, le=1.5)
+    confirm_authorized: bool = False
+
+
+class VoicePackPatchBody(BaseModel):
+    label: str | None = None
+    ref_text: str | None = None
+    speed: float | None = Field(default=None, ge=0.5, le=1.5)
+
+
+@app.post("/voice/packs/import")
+def import_voice_pack(body: VoicePackImportBody) -> dict[str, Any]:
+    from engine.pack.voice_clone import f5_available, import_customer_voice_pack
 
     settings = load_settings()
-    session = get_session()
+    if not bool(getattr(settings, "custom_voice_import_allowed", True)):
+        raise HTTPException(409, "当前机型档位未开放自定义克隆音色导入")
+    if not f5_available():
+        raise HTTPException(400, "本机未安装 f5-tts，无法导入克隆音色")
+    if not body.confirm_authorized:
+        raise HTTPException(400, "请确认参考音已获本人/客户授权")
+    scoped, _customer = _active_customer_scoped_settings()
     try:
-        _, customer, _ = _active_scope(session, settings)
-        out = session.get(RenderOutput, output_id)
-        if not out:
-            raise HTTPException(404, "output not found")
-        # scope: output must belong to active customer via job
-        if out.job_id:
-            job = session.get(Job, out.job_id)
-            if job and job.customer_id and job.customer_id != customer.id:
-                raise HTTPException(403, "output 不属于当前客户")
-        pack_row = get_active_pack(session, customer.name)
-        pack_data = pack_row.data_json if pack_row else None
-        overrides = {
-            k: v
-            for k, v in {
-                "voice_lang": voice_lang,
-                "subtitle_lang": subtitle_lang,
-                "subtitle_burn": subtitle_burn,
-                "dual_secondary_lang": dual_secondary_lang,
-            }.items()
-            if v is not None
-        }
-        try:
-            manifest = export_publish_pack(
-                output_path=Path(out.output_path),
-                sidecar_path=Path(out.sidecar_path) if out.sidecar_path else None,
-                profile=customer.profile_json if isinstance(customer.profile_json, dict) else {},
-                pack_data=pack_data,
-                expression_overrides=overrides or None,
-            )
-        except FileNotFoundError as e:
-            raise HTTPException(404, str(e)) from e
-        return {"ok": True, "output_id": output_id, "manifest": manifest}
-    finally:
-        session.close()
+        pack = import_customer_voice_pack(
+            scoped,
+            source_audio=body.source_path,
+            label=body.label,
+            ref_text=body.ref_text,
+            pack_id=body.pack_id,
+            speed=float(body.speed),
+        )
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "pack": pack.to_dict(), "packs": _list_voice_packs(scoped)}
 
 
-class NarrationPreviewRequest(BaseModel):
-    """G4: script → mock/say TTS → real durations → template slot budget."""
+@app.patch("/voice/packs/{pack_id}")
+def patch_voice_pack(pack_id: str, body: VoicePackPatchBody) -> dict[str, Any]:
+    from engine.pack.voice_clone import patch_customer_voice_pack
 
-    script: str = Field(..., min_length=1)
-    lang: str = "zh"
-    provider: str = "mock"  # mock | say
-    voice: str | None = None
-    template_name: str = "default-vertical"
+    scoped, _customer = _active_customer_scoped_settings()
+    try:
+        pack = patch_customer_voice_pack(
+            scoped,
+            pack_id,
+            label=body.label,
+            ref_text=body.ref_text,
+            speed=body.speed,
+        )
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "pack": pack.to_dict(), "packs": _list_voice_packs(scoped)}
 
 
-@app.post("/pack/narration/preview")
-def pack_narration_preview(body: NarrationPreviewRequest) -> dict[str, Any]:
-    """Offline-friendly narration preview (default provider=mock)."""
-    import uuid
-    from pathlib import Path
+@app.delete("/voice/packs/{pack_id}")
+def delete_voice_pack(pack_id: str) -> dict[str, Any]:
+    from engine.pack.voice_clone import delete_customer_voice_pack
 
-    from engine.pack.narration_plan import duration_budget_from_narration, template_from_narration
-    from engine.pack.tts import synthesize_script
-    from engine.template.engine import BUILTIN_TEMPLATES, DEFAULT_TEMPLATE
+    scoped, _customer = _active_customer_scoped_settings()
+    try:
+        delete_customer_voice_pack(scoped, pack_id)
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "packs": _list_voice_packs(scoped)}
+
+
+@app.post("/voice/packs/{pack_id}/confirm")
+def confirm_voice_pack(pack_id: str) -> dict[str, Any]:
+    from engine.pack.voice_clone import confirm_customer_voice_pack
+
+    scoped, _customer = _active_customer_scoped_settings()
+    try:
+        pack = confirm_customer_voice_pack(scoped, pack_id)
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "pack": pack.to_dict(), "packs": _list_voice_packs(scoped)}
+
+
+class VoicePreviewBody(BaseModel):
+    text: str = Field(default="您好，这是自定义音色试听。", min_length=2, max_length=80)
+    voice_pack: str | None = None
+    speed: float = Field(default=1.0, ge=0.5, le=1.5)
+
+
+@app.post("/voice/packs/preview")
+def preview_voice_pack(body: VoicePreviewBody) -> dict[str, Any]:
+    """Synthesize a short clone preview clip (TTS single-slot)."""
+    assert_runtime_active("voice_preview")
+    import shutil
+    import subprocess
+    import sys
+
+    from engine.pack.tts import narration_bed_from_result, synthesize_script
+    from engine.pack.voice_clone import f5_available
 
     settings = load_settings()
-    provider = (body.provider or getattr(settings, "tts_provider", "mock") or "mock").lower()
-    if provider not in ("mock", "say"):
-        raise HTTPException(400, "provider 仅支持 mock 或 say")
-    lang = (body.lang or "zh").lower()
-    out_dir = Path(settings.paths.cache_root) / "tts" / f"preview_{uuid.uuid4().hex[:12]}"
+    if not bool(getattr(settings, "clone_tts_allowed", True)):
+        raise HTTPException(409, "当前机型档位未开放本地克隆 TTS")
+    if not f5_available():
+        raise HTTPException(400, "本机未安装 f5-tts，无法试听克隆音色")
+    pack = (body.voice_pack or getattr(settings, "tts_clone_pack", "") or "aunt_slow").strip()
+    out_dir = Path(settings.paths.cache_root) / "tts" / f"voice_preview_{uuid.uuid4().hex[:12]}"
+    out_dir.mkdir(parents=True, exist_ok=True)
     try:
         narr = synthesize_script(
-            body.script,
+            body.text.strip(),
             out_dir,
-            lang=lang,
-            provider=provider,  # type: ignore[arg-type]
-            voice=body.voice or (settings.tts_voice or None) or None,
+            provider="clone",
+            clone_pack_id=pack,
+            clone_speed=float(body.speed),
+            allow_fallback=False,
         )
-    except RuntimeError as e:
-        raise HTTPException(500, str(e)) from e
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(400, f"试听失败: {exc}") from exc
 
-    base = BUILTIN_TEMPLATES.get(body.template_name, DEFAULT_TEMPLATE)
-    timed = template_from_narration(base, narr)
-    budget = duration_budget_from_narration(narr)
+    # synthesize_script returns NarrationResult (segments[]), not a flat audio_path.
+    bed = out_dir / "preview.wav"
+    playing = False
+    try:
+        narration_bed_from_result(narr, bed)
+    except Exception as exc:  # noqa: BLE001
+        segs = list(getattr(narr, "segments", None) or [])
+        if not segs:
+            raise HTTPException(400, f"试听无波形: {exc}") from exc
+        shutil.copy2(segs[0].audio_path, bed)
+    if not bed.is_file() or bed.stat().st_size < 100:
+        raise HTTPException(400, "试听波形生成失败")
+    audio = str(bed.resolve())
+    duration = float(getattr(narr, "total_duration_sec", 0) or 0) or None
+
+    # macOS desktop: system play so 试听 works even when App UI only shows a path.
+    if sys.platform == "darwin" and shutil.which("afplay"):
+        try:
+            subprocess.Popen(  # noqa: S603
+                ["afplay", audio],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            playing = True
+        except OSError:
+            playing = False
+
     return {
         "ok": True,
-        "provider": narr.provider,
-        "lang": narr.lang,
-        "total_duration_sec": narr.total_duration_sec,
-        "duration_budget": budget,
-        "manifest_path": narr.manifest_path,
-        "out_dir": narr.out_dir,
-        "segments": [
-            {
-                "index": s.index,
-                "text": s.text,
-                "duration_sec": s.duration_sec,
-                "audio_path": s.audio_path,
-            }
-            for s in narr.segments
-        ],
-        "template": {
-            "name": timed.name,
-            "target_duration": timed.target_duration,
-            "duration_from_tts": timed.duration_from_tts,
-            "slots": [s.model_dump() for s in timed.slots],
-        },
+        "audio_path": audio,
+        "pack": pack,
+        "duration_sec": duration,
+        "playing": playing,
     }
 
 
-class ReachEnqueueRequest(BaseModel):
-    """G5: enqueue a human-in-the-loop publish task (no auto-post)."""
-
-    platform: str
-    title: str = ""
-    body: str = ""
-    video_path: str = ""
-    pack_dir: str | None = None
-    output_id: int | None = None
-    note: str = ""
-
-
-class ReachStatusRequest(BaseModel):
-    status: str
-    note: str | None = None
-    error: str | None = None
-
-
-@app.post("/reach/queue")
-def reach_enqueue(body: ReachEnqueueRequest) -> dict[str, Any]:
-    from engine.reach.limits import assert_can_enqueue
-    from engine.reach.queue import enqueue, item_to_dict
+@app.put("/voice/tts")
+def put_tts_voice_preference(body: TtsPreferenceUpdate) -> dict[str, Any]:
+    from engine.pack.voice_clone import f5_available, is_clone_provider, pack_confirmed, resolve_voice_pack
 
     settings = load_settings()
+    raw = (body.provider or "").strip().lower()
+    if is_clone_provider(raw):
+        provider = "clone"
+        if not bool(getattr(settings, "clone_tts_allowed", True)):
+            raise HTTPException(409, "当前机型档位未开放本地克隆 TTS")
+        if not f5_available():
+            raise HTTPException(400, "本机未安装 f5-tts，无法启用本地克隆音色（pip install f5-tts）")
+    elif raw in ("edge", "xiaoxiao"):
+        provider = "edge"
+    else:
+        raise HTTPException(400, "provider 仅支持 edge 或 clone")
+
+    pack = (body.voice_pack or "aunt_slow").strip() or "aunt_slow"
+    speed = float(body.clone_speed if body.clone_speed is not None else 1.0)
+    edge_voice = (body.voice or "").strip() or str(getattr(settings, "tts_voice", "") or "").strip()
     session = get_session()
     try:
-        _, customer, _ = _active_scope(session, settings)
-        try:
-            assert_can_enqueue(
-                session,
-                customer_id=customer.id,
-                daily_quota=int(getattr(settings, "reach_daily_quota", 5) or 5),
-                fail_threshold=int(getattr(settings, "reach_fail_threshold", 3) or 3),
-                platform=body.platform,
-                platform_quotas=getattr(settings, "reach_platform_quotas", None) or {},
-            )
-            item = enqueue(
-                session,
-                customer_id=customer.id,
-                platform=body.platform,
-                title=body.title,
-                body=body.body,
-                video_path=body.video_path,
-                pack_dir=body.pack_dir,
-                output_id=body.output_id,
-                note=body.note,
-            )
-        except ValueError as e:
-            raise HTTPException(400, str(e)) from e
-        return {"ok": True, "item": item_to_dict(item), "auto_publish": False}
-    finally:
-        session.close()
-
-
-@app.get("/reach/queue")
-def reach_list(status: str | None = None, platform: str | None = None, limit: int = 100) -> dict[str, Any]:
-    from engine.reach.queue import item_to_dict, list_items
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        rows = list_items(
-            session,
-            customer_id=customer.id,
-            status=status,
-            platform=platform,
-            limit=limit,
-        )
-        return {
-            "ok": True,
-            "items": [item_to_dict(r) for r in rows],
-            "human_in_loop": True,
-            "auto_publish": False,
-        }
-    finally:
-        session.close()
-
-
-@app.get("/reach/queue/{item_id}")
-def reach_get(item_id: int) -> dict[str, Any]:
-    from engine.reach.queue import get_item, item_to_dict
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        item = get_item(session, item_id, customer_id=customer.id)
-        if not item:
-            raise HTTPException(404, "reach item not found")
-        return {"ok": True, "item": item_to_dict(item)}
-    finally:
-        session.close()
-
-
-@app.post("/reach/queue/{item_id}/status")
-def reach_set_status(item_id: int, body: ReachStatusRequest) -> dict[str, Any]:
-    from engine.ops.publish_trail import append_publish_trail
-    from engine.reach.queue import get_item, item_to_dict, set_status
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        item = get_item(session, item_id, customer_id=customer.id)
-        if not item:
-            raise HTTPException(404, "reach item not found")
-        try:
-            item = set_status(session, item, body.status, note=body.note, error=body.error)
-        except ValueError as e:
-            raise HTTPException(400, str(e)) from e
-        trail: list[dict[str, Any]] = []
-        archive: dict[str, Any] = {}
-        if body.status == "published" and item.output_id:
-            out = _scoped_output(session, item.output_id, customer.id)
-            trail = append_publish_trail(
-                out,
-                platform=str(item.platform or ""),
-                reach_item_id=item.id,
-                note=body.note or "",
-            )
-            from engine.ops.published_archive import archive_published_output
-
-            archive = archive_published_output(
-                out,
-                output_root=customer.output_root or settings.paths.output_root,
-                platform=str(item.platform or ""),
-                note=body.note or "",
-            )
-            session.add(out)
-            session.commit()
-        return {
-            "ok": True,
-            "item": item_to_dict(item),
-            "publish_trail": trail,
-            "archive": archive,
-        }
-    finally:
-        session.close()
-
-
-class ReachFromPackRequest(BaseModel):
-    pack_dir: str
-    platforms: list[str] | None = None
-    locale: str = "zh"
-    output_id: int | None = None
-    mark_ready: bool = True
-
-
-@app.post("/reach/queue/from-pack")
-def reach_enqueue_from_pack(body: ReachFromPackRequest) -> dict[str, Any]:
-    """G5: prefill queue rows from a publish_pack directory (human still clicks publish)."""
-    from pathlib import Path
-
-    from engine.reach.limits import assert_can_enqueue
-    from engine.reach.prefill import enqueue_from_pack
-    from engine.reach.queue import item_to_dict
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        pack_dir = Path(body.pack_dir).expanduser().resolve()
-        root = Path(customer.output_root or settings.paths.output_root).expanduser().resolve()
-        if not pack_dir.is_relative_to(root):
-            raise HTTPException(403, "publish_pack 必须位于当前客户成片目录")
-        if body.output_id:
-            out = _scoped_output(session, body.output_id, customer.id)
-            if (
-                out.state == "published"
-                or (out.output_path and "published" in Path(out.output_path).parts)
-            ):
-                raise HTTPException(
-                    400,
-                    "该成片已归档到 published/，禁止再次入队；请从待发 ready 列表选择",
-                )
-        quota = int(getattr(settings, "reach_daily_quota", 5) or 5)
-        fail_th = int(getattr(settings, "reach_fail_threshold", 3) or 3)
-        plat_quotas = getattr(settings, "reach_platform_quotas", None) or {}
-        try:
-            from engine.reach.limits import count_today_attempts
-            from engine.reach.queue import PLATFORMS as _PLATS
-
-            wanted = [p.lower() for p in (body.platforms or list(_PLATS))]
-            wanted = [p for p in wanted if p in _PLATS]
-            used = count_today_attempts(session, customer_id=customer.id)
-            if used + len(wanted) > quota:
-                raise ValueError(
-                    f"触达日配额不足：今日已用 {used}/{quota}，本次需入队 {len(wanted)} 条"
-                )
-            for plat in wanted:
-                assert_can_enqueue(
-                    session,
-                    customer_id=customer.id,
-                    daily_quota=quota,
-                    fail_threshold=fail_th,
-                    platform=plat,
-                    platform_quotas=plat_quotas,
-                )
-            items = enqueue_from_pack(
-                session,
-                customer_id=customer.id,
-                pack_dir=pack_dir,
-                platforms=body.platforms,
-                locale=body.locale,
-                output_id=body.output_id,
-                mark_ready=body.mark_ready,
-            )
-        except FileNotFoundError as e:
-            raise HTTPException(404, str(e)) from e
-        except ValueError as e:
-            raise HTTPException(400, str(e)) from e
-        return {
-            "ok": True,
-            "count": len(items),
-            "items": [item_to_dict(i) for i in items],
-            "auto_publish": False,
-            "human_in_loop": True,
-        }
-    finally:
-        session.close()
-
-
-@app.get("/reach/quota")
-def reach_quota(platform: str | None = None) -> dict[str, Any]:
-    from engine.reach.limits import quota_status
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        st = quota_status(
-            session,
-            customer_id=customer.id,
-            daily_quota=int(getattr(settings, "reach_daily_quota", 5) or 5),
-            fail_threshold=int(getattr(settings, "reach_fail_threshold", 3) or 3),
-            platform=platform,
-            platform_quotas=getattr(settings, "reach_platform_quotas", None) or {},
-        )
-        return {"ok": True, **st}
-    finally:
-        session.close()
-
-
-class ReachQuotaUpdate(BaseModel):
-    daily_quota: int | None = None
-    platform_quotas: dict[str, int] | None = None
-    fail_threshold: int | None = None
-
-
-@app.put("/reach/quota")
-def reach_quota_update(body: ReachQuotaUpdate) -> dict[str, Any]:
-    """Set daily total + per-platform quotas (sum of platforms must be <= total)."""
-    from engine.reach.limits import quota_status, validate_quota_config
-    from engine.reach.queue import PLATFORMS
-
-    settings = load_settings()
-    daily = int(settings.reach_daily_quota if body.daily_quota is None else body.daily_quota)
-    if daily < 0 or daily > 500:
-        raise HTTPException(400, "daily_quota must be 0-500")
-    plats_raw = (
-        settings.reach_platform_quotas
-        if body.platform_quotas is None
-        else body.platform_quotas
-    )
-    try:
-        plats = validate_quota_config(daily, plats_raw)
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
-    # When client sends platform_quotas, empty dict clears per-platform caps (total only).
-    # Non-empty: persist full known map (missing → 0) for clear UX.
-    if body.platform_quotas is not None:
-        if len(body.platform_quotas) == 0:
-            plats = {}
-        else:
-            plats = {p: int(plats.get(p, 0)) for p in PLATFORMS}
+        customer = require_active_customer(session, settings)
+        scoped = settings_with_customer_paths(settings, customer)
+        if provider == "clone":
             try:
-                plats = validate_quota_config(daily, plats)
-            except ValueError as e:
-                raise HTTPException(400, str(e)) from e
-    settings.reach_daily_quota = daily
-    settings.reach_platform_quotas = plats
-    if body.fail_threshold is not None:
-        th = int(body.fail_threshold)
-        if th < 1 or th > 50:
-            raise HTTPException(400, "fail_threshold must be 1-50")
-        settings.reach_fail_threshold = th
-    save_settings(settings)
-
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        st = quota_status(
-            session,
-            customer_id=customer.id,
-            daily_quota=settings.reach_daily_quota,
-            fail_threshold=settings.reach_fail_threshold,
-            platform_quotas=settings.reach_platform_quotas,
-        )
-        return {"ok": True, "saved": True, **st}
-    finally:
-        session.close()
-
-
-class ReachOpenRequest(BaseModel):
-    dry_run: bool = False
-    chrome_profile: str | None = None
-
-
-class ReachChromeOpenRequest(BaseModel):
-    name: str
-    platform: str | None = None
-    dry_run: bool = False
-
-
-class ReachChromeSelectRequest(BaseModel):
-    name: str
-    platform: str | None = None
-
-
-class ReachChromeCreateRequest(BaseModel):
-    platform: str
-    count: int = 1
-    name_prefix: str | None = None
-
-
-@app.post("/reach/queue/{item_id}/open")
-def reach_open_official(item_id: int, body: ReachOpenRequest | None = None) -> dict[str, Any]:
-    """Open official creator URL + write paste card. Never auto-publishes."""
-    from engine.reach.browser import prepare_and_open
-    from engine.reach.queue import get_item, item_to_dict
-
-    body = body or ReachOpenRequest()
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        item = get_item(session, item_id, customer_id=customer.id)
-        if not item:
-            raise HTTPException(404, "reach item not found")
-        profile = customer.profile_json if isinstance(customer.profile_json, dict) else {}
-        try:
-            result = prepare_and_open(
-                session,
-                item,
-                profile=profile,
-                dry_run=bool(body.dry_run),
-                chrome_profile=body.chrome_profile,
-            )
-        except ValueError as e:
-            raise HTTPException(400, str(e)) from e
-        result["item"] = item_to_dict(item)
-        return result
-    finally:
-        session.close()
-
-
-@app.get("/reach/chrome-profiles")
-def reach_chrome_profiles() -> dict[str, Any]:
-    """List local Chrome user-data-dir profiles (no cookies; serial switch only)."""
-    from engine.reach.browser import list_chrome_profiles
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        profile = customer.profile_json if isinstance(customer.profile_json, dict) else {}
-        listed = list_chrome_profiles()
-        reach = (profile.get("reach") or {}) if isinstance(profile, dict) else {}
-        selected = str(reach.get("last_chrome_profile") or "").strip()
-        selected_platform = str(reach.get("last_chrome_platform") or "").strip() or None
-        if not selected:
-            # fall back to any platform's chrome_profile_name
-            browsers = reach.get("browsers") or {}
-            if isinstance(browsers, dict):
-                for cfg in browsers.values():
-                    if isinstance(cfg, dict) and cfg.get("chrome_profile_name"):
-                        selected = str(cfg.get("chrome_profile_name")).strip()
-                        break
-        return {
-            **listed,
-            "selected": selected or None,
-            "selected_platform": selected_platform,
-        }
-    finally:
-        session.close()
-
-
-@app.post("/reach/chrome-profiles/create")
-def reach_chrome_profiles_create(body: ReachChromeCreateRequest) -> dict[str, Any]:
-    """Create N empty Chrome profiles bound to a platform. Does not launch Chrome."""
-    from engine.reach.browser import create_chrome_profiles, set_selected_chrome_profile
-    from sqlalchemy.orm.attributes import flag_modified
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        try:
-            result = create_chrome_profiles(
-                platform=body.platform,
-                count=int(body.count or 1),
-                name_prefix=body.name_prefix,
-            )
-        except ValueError as e:
-            raise HTTPException(400, str(e)) from e
-        selected = result.get("selected")
-        if selected:
-            profile = customer.profile_json if isinstance(customer.profile_json, dict) else {}
-            customer.profile_json = set_selected_chrome_profile(
-                profile, name=str(selected), platform=body.platform
-            )
-            flag_modified(customer, "profile_json")
-            session.commit()
-        return result
-    finally:
-        session.close()
-
-
-@app.post("/reach/chrome-profiles/open")
-def reach_chrome_profiles_open(body: ReachChromeOpenRequest) -> dict[str, Any]:
-    """Open official entry in an isolated Chrome user-data-dir. Never auto-publishes."""
-    from engine.reach.browser import entry_for_platform, open_chrome_profile, resolve_profile_platform
-
-    try:
-        plat = resolve_profile_platform(body.name, body.platform)
-        entry = entry_for_platform(plat)
-        info = open_chrome_profile(body.name, url=entry["url"], dry_run=bool(body.dry_run))
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
-    return {
-        "ok": True,
-        "platform": plat,
-        "label": entry["label"],
-        "open": info,
-        "auto_publish": False,
-        "human_in_loop": True,
-        "disclaimer": "仅打开本机 Chrome 独立配置 + 对应平台官方入口；登录与发布须本人完成。",
-    }
-
-
-@app.post("/reach/chrome-profiles/select")
-def reach_chrome_profiles_select(body: ReachChromeSelectRequest) -> dict[str, Any]:
-    """Remember selected Chrome profile on active customer (for queue open)."""
-    from engine.reach.browser import list_chrome_profiles, resolve_profile_platform, set_selected_chrome_profile
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        profile = customer.profile_json if isinstance(customer.profile_json, dict) else {}
-        try:
-            plat = resolve_profile_platform(body.name, body.platform)
-            updated = set_selected_chrome_profile(profile, name=body.name, platform=plat)
-        except ValueError as e:
-            raise HTTPException(400, str(e)) from e
-        customer.profile_json = updated
-        from sqlalchemy.orm.attributes import flag_modified
-
-        flag_modified(customer, "profile_json")
-        session.commit()
-        session.refresh(customer)
-        listed = list_chrome_profiles()
-        return {
-            "ok": True,
-            "selected": body.name,
-            "platform": plat,
-            "profiles": listed.get("profiles"),
-            "root": listed.get("root"),
-            "auto_publish": False,
-            "human_in_loop": True,
-        }
-    finally:
-        session.close()
-
-
-class ReachAutoUploadStartRequest(BaseModel):
-    chrome_profile: str | None = None
-    queue_id: int | None = None
-    platform: str | None = None
-    accept_risk: bool = False
-    timeout_sec: float = 300
-    dry_run: bool = False
-
-
-@app.post("/reach/auto-upload/start")
-def reach_auto_upload_start(body: ReachAutoUploadStartRequest) -> dict[str, Any]:
-    """G5.V: open Chrome profile → wait login ready → auto upload (douyin) or handoff."""
-    from engine.reach.auto_upload import pick_queue_item, start_job
-    from engine.reach.browser import resolve_profile_platform
-    from engine.reach.queue import item_to_dict
-
-    if not body.accept_risk:
-        raise HTTPException(400, "须 accept_risk=true（G5.V 风控自负）")
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        profile = customer.profile_json if isinstance(customer.profile_json, dict) else {}
-        reach = profile.get("reach") or {}
-        browsers = reach.get("browsers") or {}
-        plat_hint = (body.platform or "").strip() or None
-        # Prefer App customer browser binding for platform before last_chrome_profile
-        chrome_name = (body.chrome_profile or "").strip()
-        if not chrome_name and plat_hint:
-            bcfg = browsers.get(plat_hint) if isinstance(browsers, dict) else None
-            if isinstance(bcfg, dict):
-                chrome_name = str(
-                    bcfg.get("chrome_profile_name") or bcfg.get("profile_dir") or ""
-                ).strip()
-        if not chrome_name:
-            chrome_name = str(reach.get("last_chrome_profile") or "").strip()
-        if not chrome_name:
-            raise HTTPException(400, "未指定 Chrome 配置名（请在 App 客户配置中绑定平台浏览器）")
-        try:
-            # Resolve platform: body → profile binding → queue item later
-            plat = resolve_profile_platform(chrome_name, plat_hint)
-            item = pick_queue_item(
-                session,
-                customer.id,
-                body.queue_id,
-                platform=plat,
-            )
-            # Queue item platform wins when explicit queue_id
-            if body.queue_id is not None:
-                plat = item.platform
-            if chrome_name and plat and item.platform != plat and body.queue_id is not None:
-                # Allow but warn via message in job — still use item.platform for upload path
-                plat = item.platform
-            status = start_job(
-                chrome_profile=chrome_name,
-                queue_id=int(item.id),
-                customer_id=customer.id,
-                platform=plat,
-                title=item.title or "",
-                body=item.body or "",
-                video_path=item.video_path or "",
-                pack_dir=item.pack_dir,
-                accept_risk=True,
-                timeout_sec=float(body.timeout_sec or 300),
-                dry_run=bool(body.dry_run),
-            )
-        except ValueError as e:
-            raise HTTPException(400, str(e)) from e
-        status["item"] = item_to_dict(item)
-        return status
-    finally:
-        session.close()
-
-
-@app.get("/reach/auto-upload/status")
-def reach_auto_upload_status() -> dict[str, Any]:
-    from engine.reach.auto_upload import get_status
-
-    return get_status()
-
-
-@app.post("/reach/auto-upload/cancel")
-def reach_auto_upload_cancel() -> dict[str, Any]:
-    from engine.reach.auto_upload import cancel_job
-
-    return cancel_job()
-
-
-@app.get("/reach/platforms")
-def reach_platforms() -> dict[str, Any]:
-    from engine.reach.browser import OFFICIAL_ENTRY
-    from engine.reach.cover_templates import DEFAULT_SLOT_COUNTS, PLATFORM_COVER_SPECS
-
-    return {
-        "ok": True,
-        "platforms": [
-            {
-                "id": k,
-                "label": v["label"],
-                "url": v["url"],
-                "short": v.get("short") or k,
-                "cover_slots": int(DEFAULT_SLOT_COUNTS.get(k, 1)),
-            }
-            for k, v in OFFICIAL_ENTRY.items()
-        ],
-        "slot_specs": {p: [dict(s) for s in specs] for p, specs in PLATFORM_COVER_SPECS.items()},
-        "auto_publish": False,
-        "human_in_loop": True,
-    }
-
-
-class CoverTemplateCreateRequest(BaseModel):
-    name: str = "未命名封面套"
-
-
-class CoverTemplateRenameRequest(BaseModel):
-    name: str
-
-
-class CoverTemplateSelectRequest(BaseModel):
-    template_id: str
-
-
-class CoverTemplateSlotRequest(BaseModel):
-    platform: str
-    slot_index: int = 0
-    source_path: str = ""
-
-
-class CoverTemplateSeedRequest(BaseModel):
-    pack_dir: str
-    platforms: list[str] | None = None
-
-
-class CoverResolveRequest(BaseModel):
-    platform: str
-    pack_dir: str | None = None
-    template_id: str | None = None
-
-
-@app.get("/reach/cover-templates")
-def reach_cover_templates_list() -> dict[str, Any]:
-    from engine.reach.cover_templates import list_templates, resolve_cover_store_for_settings
-
-    settings = load_settings()
-    return list_templates(resolve_cover_store_for_settings(settings))
-
-
-@app.post("/reach/cover-templates")
-def reach_cover_templates_create(body: CoverTemplateCreateRequest) -> dict[str, Any]:
-    from engine.reach.cover_templates import create_template, resolve_cover_store_for_settings
-
-    settings = load_settings()
-    store = resolve_cover_store_for_settings(settings)
-    tpl = create_template(store, name=body.name)
-    return {"ok": True, "template": tpl, "store": str(store)}
-
-
-@app.post("/reach/cover-templates/{template_id}/rename")
-def reach_cover_templates_rename(template_id: str, body: CoverTemplateRenameRequest) -> dict[str, Any]:
-    from engine.reach.cover_templates import rename_template, resolve_cover_store_for_settings
-
-    settings = load_settings()
-    try:
-        tpl = rename_template(resolve_cover_store_for_settings(settings), template_id, body.name)
-    except ValueError as e:
-        raise HTTPException(404, str(e)) from e
-    return {"ok": True, "template": tpl}
-
-
-@app.delete("/reach/cover-templates/{template_id}")
-def reach_cover_templates_delete(template_id: str) -> dict[str, Any]:
-    from engine.reach.cover_templates import delete_template, resolve_cover_store_for_settings
-
-    settings = load_settings()
-    try:
-        return delete_template(resolve_cover_store_for_settings(settings), template_id)
-    except ValueError as e:
-        raise HTTPException(404, str(e)) from e
-
-
-@app.post("/reach/cover-templates/select")
-def reach_cover_templates_select(body: CoverTemplateSelectRequest) -> dict[str, Any]:
-    from engine.reach.cover_templates import select_template, resolve_cover_store_for_settings
-
-    settings = load_settings()
-    try:
-        return select_template(resolve_cover_store_for_settings(settings), body.template_id)
-    except ValueError as e:
-        raise HTTPException(404, str(e)) from e
-
-
-@app.post("/reach/cover-templates/{template_id}/slot")
-def reach_cover_templates_set_slot(template_id: str, body: CoverTemplateSlotRequest) -> dict[str, Any]:
-    from engine.reach.cover_templates import resolve_cover_store_for_settings, set_slot_image
-
-    settings = load_settings()
-    try:
-        tpl = set_slot_image(
-            resolve_cover_store_for_settings(settings),
-            template_id=template_id,
-            platform=body.platform,
-            slot_index=int(body.slot_index),
-            source_path=body.source_path,
-        )
-    except (ValueError, FileNotFoundError) as e:
-        raise HTTPException(400, str(e)) from e
-    return {"ok": True, "template": tpl}
-
-
-@app.post("/reach/cover-templates/{template_id}/slot/clear")
-def reach_cover_templates_clear_slot(template_id: str, body: CoverTemplateSlotRequest) -> dict[str, Any]:
-    from engine.reach.cover_templates import clear_slot, resolve_cover_store_for_settings
-
-    settings = load_settings()
-    try:
-        tpl = clear_slot(
-            resolve_cover_store_for_settings(settings),
-            template_id=template_id,
-            platform=body.platform,
-            slot_index=int(body.slot_index),
-        )
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
-    return {"ok": True, "template": tpl}
-
-
-@app.post("/reach/cover-templates/{template_id}/seed")
-def reach_cover_templates_seed(template_id: str, body: CoverTemplateSeedRequest) -> dict[str, Any]:
-    from engine.reach.cover_templates import resolve_cover_store_for_settings, seed_template_from_pack
-
-    settings = load_settings()
-    try:
-        tpl = seed_template_from_pack(
-            resolve_cover_store_for_settings(settings),
-            template_id=template_id,
-            pack_dir=body.pack_dir,
-            platforms=body.platforms,
-        )
-    except (ValueError, FileNotFoundError) as e:
-        raise HTTPException(400, str(e)) from e
-    return {"ok": True, "template": tpl}
-
-
-@app.post("/reach/cover-templates/resolve")
-def reach_cover_templates_resolve(body: CoverResolveRequest) -> dict[str, Any]:
-    from engine.reach.cover_templates import resolve_cover_store_for_settings, resolve_covers
-    from engine.reach.publish_assets import PublishAssetsError, require_publish_assets
-
-    settings = load_settings()
-    store = resolve_cover_store_for_settings(settings)
-    resolved = resolve_covers(
-        store,
-        platform=body.platform,
-        pack_dir=body.pack_dir,
-        template_id=body.template_id,
-    )
-    gate: dict[str, Any] | None = None
-    if body.pack_dir:
-        try:
-            gate = require_publish_assets(
-                platform=body.platform,
-                pack_dir=body.pack_dir,
-                data_root=store,
-                template_id=body.template_id,
-            )
-        except PublishAssetsError as e:
-            gate = {"ok": False, "error": str(e)}
-    return {"ok": True, "resolve": resolved, "gate": gate, "store": str(store)}
-
-
-class ReachMessageAccountCreate(BaseModel):
-    platform: str
-    profile_name: str
-    display_name: str = ""
-    enabled: bool = True
-    cooldown_sec: Literal[1800] = 1800
-    message_url: str | None = None
-
-
-class ReachMessageAccountPatch(BaseModel):
-    display_name: str | None = None
-    enabled: bool | None = None
-    cooldown_sec: Literal[1800] | None = None
-    message_url: str | None = None
-
-
-class ReachMessageScanRequest(BaseModel):
-    account_id: int | None = None
-    dry_run: bool = False
-
-
-class ReachMessageOpenRequest(BaseModel):
-    dry_run: bool = False
-
-
-class ReachNtfyConfigUpdate(BaseModel):
-    enabled: bool = False
-    server_url: str
-    topic: str
-    auth_mode: Literal["none", "token", "basic"] = "none"
-    token: str | None = Field(default=None, max_length=512)
-    username: str | None = Field(default=None, max_length=256)
-    password: str | None = Field(default=None, max_length=512)
-    clear_token: bool = False
-    clear_username: bool = False
-    clear_password: bool = False
-
-
-class ReachNotificationReport(BaseModel):
-    message_id: int
-    channel: Literal["app", "macos"]
-    status: Literal["sent", "failed", "permission_denied"]
-    detail: str = Field(default="", max_length=300)
-
-
-@app.get("/reach/message-accounts")
-def reach_message_accounts_list() -> dict[str, Any]:
-    from engine.reach.message_sync import account_to_dict
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        rows = session.scalars(
-            select(ReachMessageAccount)
-            .where(ReachMessageAccount.customer_id == customer.id)
-            .order_by(ReachMessageAccount.id)
-        ).all()
-        accounts: list[dict[str, Any]] = []
-        for row in rows:
-            item = account_to_dict(row)
-            latest = session.scalar(
-                select(ReachMessageScan)
-                .where(ReachMessageScan.account_id == row.id)
-                .order_by(ReachMessageScan.id.desc())
-                .limit(1)
-            )
-            item["last_status"] = latest.status if latest else None
-            item["last_error"] = latest.error if latest and latest.error else None
-            accounts.append(item)
-        return {"ok": True, "accounts": accounts}
-    finally:
-        session.close()
-
-
-@app.post("/reach/message-accounts")
-def reach_message_accounts_create(body: ReachMessageAccountCreate) -> dict[str, Any]:
-    from engine.reach.browser import validate_chrome_profile_name
-    from engine.reach.message_sync import account_to_dict
-    from engine.reach.messages_adapters import spec_for, validate_official_url
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        try:
-            spec = spec_for(body.platform)
-            profile_name = validate_chrome_profile_name(body.profile_name)
-            message_url = validate_official_url(body.platform, body.message_url or spec.message_url)
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from exc
-        existing = session.scalar(
-            select(ReachMessageAccount).where(
-                ReachMessageAccount.profile_name == profile_name,
-            )
-        )
-        if existing:
-            raise HTTPException(409, "该 Chrome profile 已绑定消息账号；客户之间不得共用登录 profile")
-        row = ReachMessageAccount(
-            customer_id=customer.id,
-            platform=spec.platform,
-            profile_name=profile_name,
-            display_name=body.display_name[:128],
-            enabled=body.enabled,
-            cooldown_sec=1800,
-            message_url=message_url,
-        )
-        session.add(row)
-        session.commit()
-        session.refresh(row)
-        return {"ok": True, "account": account_to_dict(row)}
-    finally:
-        session.close()
-
-
-@app.patch("/reach/message-accounts/{account_id}")
-def reach_message_accounts_patch(
-    account_id: int, body: ReachMessageAccountPatch
-) -> dict[str, Any]:
-    from engine.reach.message_sync import account_to_dict
-    from engine.reach.messages_adapters import validate_official_url
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        row = session.scalar(
-            select(ReachMessageAccount).where(
-                ReachMessageAccount.id == account_id,
-                ReachMessageAccount.customer_id == customer.id,
-            )
-        )
-        if not row:
-            raise HTTPException(404, "消息账号不存在")
-        if body.display_name is not None:
-            row.display_name = body.display_name[:128]
-        if body.enabled is not None:
-            row.enabled = body.enabled
-        if body.cooldown_sec is not None:
-            row.cooldown_sec = 1800
-        if body.message_url is not None:
-            try:
-                row.message_url = validate_official_url(row.platform, body.message_url)
-            except ValueError as exc:
+                resolved = resolve_voice_pack(pack_id=pack, settings=scoped)
+            except Exception as exc:  # noqa: BLE001
                 raise HTTPException(400, str(exc)) from exc
-        from datetime import datetime, timezone
-
-        row.updated_at = datetime.now(timezone.utc)
-        session.commit()
-        session.refresh(row)
-        return {"ok": True, "account": account_to_dict(row)}
-    finally:
-        session.close()
-
-
-@app.post("/reach/messages/scan")
-def reach_messages_scan(body: ReachMessageScanRequest) -> dict[str, Any]:
-    from engine.reach.message_sync import message_sync
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        query = select(ReachMessageAccount.id).where(
-            ReachMessageAccount.customer_id == customer.id,
-            ReachMessageAccount.enabled.is_(True),
-        )
-        if body.account_id is not None:
-            query = query.where(ReachMessageAccount.id == body.account_id)
-        account_ids = list(session.scalars(query).all())
-        if body.account_id is not None and not account_ids:
-            raise HTTPException(404, "消息账号不存在或未启用")
-        if not account_ids:
-            raise HTTPException(400, "当前客户没有已启用的消息账号")
-        return {"ok": True, **message_sync.enqueue(account_ids, dry_run=body.dry_run)}
-    finally:
-        session.close()
-
-
-@app.get("/reach/messages/status")
-def reach_messages_status() -> dict[str, Any]:
-    from engine.reach.message_sync import message_sync
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        scans = session.scalars(
-            select(ReachMessageScan)
-            .where(ReachMessageScan.customer_id == customer.id)
-            .order_by(ReachMessageScan.id.desc())
-            .limit(20)
-        ).all()
-        worker_status = message_sync.status()
-        worker_account_id = worker_status.get("account_id")
-        if worker_account_id is not None:
-            owned = session.scalar(
-                select(ReachMessageAccount.id).where(
-                    ReachMessageAccount.id == worker_account_id,
-                    ReachMessageAccount.customer_id == customer.id,
-                )
-            )
-            if owned is None:
-                worker_status = {
-                    **worker_status,
-                    "account_id": None,
-                    "platform": None,
-                    "task_id": None,
-                    "error": None,
-                    "error_code": None,
-                    "phase": "other_customer_active" if worker_status.get("active") else "idle",
-                }
-        return {
-            "ok": True,
-            "worker": worker_status,
-            "scans": [
-                {
-                    "id": row.id,
-                    "account_id": row.account_id,
-                    "status": row.status,
-                    "source": row.source,
-                    "found_count": row.found_count,
-                    "error_code": row.error_code,
-                    "error": row.error,
-                    "started_at": row.started_at.isoformat() if row.started_at else None,
-                    "finished_at": row.finished_at.isoformat() if row.finished_at else None,
-                }
-                for row in scans
-            ],
-        }
-    finally:
-        session.close()
-
-
-@app.post("/reach/messages/cancel")
-def reach_messages_cancel() -> dict[str, Any]:
-    from engine.reach.message_sync import message_sync
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        account_ids = set(
-            session.scalars(
-                select(ReachMessageAccount.id).where(
-                    ReachMessageAccount.customer_id == customer.id
-                )
-            ).all()
-        )
-        return {"ok": True, **message_sync.cancel(account_ids)}
-    finally:
-        session.close()
-
-
-@app.get("/reach/messages")
-def reach_messages_list(
-    account_id: int | None = None, unread: bool | None = None, limit: int = 100
-) -> dict[str, Any]:
-    from engine.reach.message_sync import message_to_dict
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        query = select(ReachMessage).where(ReachMessage.customer_id == customer.id)
-        if account_id is not None:
-            query = query.where(ReachMessage.account_id == account_id)
-        if unread is not None:
-            query = query.where(ReachMessage.unread.is_(unread))
-        rows = session.scalars(
-            query.order_by(ReachMessage.last_seen_at.desc()).limit(max(1, min(limit, 500)))
-        ).all()
-        return {"ok": True, "messages": [message_to_dict(row) for row in rows]}
-    finally:
-        session.close()
-
-
-@app.post("/reach/messages/{message_id}/read")
-def reach_messages_mark_read(message_id: int) -> dict[str, Any]:
-    from datetime import datetime, timezone
-    from engine.reach.message_sync import message_to_dict
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        row = session.scalar(
-            select(ReachMessage).where(
-                ReachMessage.id == message_id,
-                ReachMessage.customer_id == customer.id,
-            )
-        )
-        if not row:
-            raise HTTPException(404, "消息不存在")
-        row.unread = False
-        row.read_at = datetime.now(timezone.utc)
-        session.commit()
-        session.refresh(row)
-        return {"ok": True, "message": message_to_dict(row)}
-    finally:
-        session.close()
-
-
-@app.post("/reach/notifications/claim")
-def reach_notifications_claim(limit: int = 20) -> dict[str, Any]:
-    """Claim each unread summary once for local macOS notification delivery."""
-    from datetime import datetime, timezone
-    from engine.reach.message_sync import message_to_dict, notification_claim_lock
-
-    with notification_claim_lock:
-        settings = load_settings()
-        session = get_session()
-        try:
-            _, customer, _ = _active_scope(session, settings)
-            rows = session.scalars(
-                select(ReachMessage)
-                .where(
-                    ReachMessage.customer_id == customer.id,
-                    ReachMessage.unread.is_(True),
-                    ReachMessage.notification_claimed_at.is_(None),
-                )
-                .order_by(ReachMessage.first_seen_at)
-                .limit(max(1, min(limit, 100)))
-            ).all()
-            claimed_at = datetime.now(timezone.utc)
-            for row in rows:
-                row.notification_claimed_at = claimed_at
-            session.commit()
-            return {"ok": True, "messages": [message_to_dict(row) for row in rows]}
-        finally:
-            session.close()
-
-
-@app.get("/reach/notifications/ntfy")
-def reach_notifications_ntfy_get() -> dict[str, Any]:
-    from dataclasses import asdict
-
-    from engine.reach.notifications import public_config
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        return {"ok": True, "config": asdict(public_config(customer.id))}
-    finally:
-        session.close()
-
-
-@app.put("/reach/notifications/ntfy")
-def reach_notifications_ntfy_put(body: ReachNtfyConfigUpdate) -> dict[str, Any]:
-    from dataclasses import asdict
-
-    from engine.reach.notifications import save_config
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        try:
-            config = save_config(customer.id, body.model_dump())
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from exc
-        return {"ok": True, "config": asdict(config)}
-    finally:
-        session.close()
-
-
-@app.post("/reach/notifications/ntfy/test")
-def reach_notifications_ntfy_test() -> dict[str, Any]:
-    from engine.reach.notifications import send_ntfy
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        event = ReachNotificationEvent(
-            customer_id=customer.id,
-            message_id=None,
-            channel="ntfy",
-            status="sending",
-            is_test=True,
-        )
-        session.add(event)
-        session.commit()
-        try:
-            result = send_ntfy(
-                customer.id,
-                title="速影 ntfy 测试通知",
-                summary="这是测试通知，不代表收到真实平台消息。",
-                reply_url="",
-                test=True,
-            )
-            event.status = str(result.get("status") or "sent")
-            event.detail = "test"
-            session.commit()
-            return {"ok": True, "sent": bool(result.get("sent")), "test": True}
-        except Exception as exc:  # noqa: BLE001
-            event.status = "failed"
-            event.detail = str(exc)[:300]
-            session.commit()
-            raise HTTPException(502, str(exc)) from exc
-    finally:
-        session.close()
-
-
-@app.post("/reach/notifications/report")
-def reach_notifications_report(body: ReachNotificationReport) -> dict[str, Any]:
-    from datetime import datetime, timezone
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        message = session.scalar(
-            select(ReachMessage).where(
-                ReachMessage.id == body.message_id,
-                ReachMessage.customer_id == customer.id,
-            )
-        )
-        if message is None:
-            raise HTTPException(404, "消息不存在")
-        event = session.scalar(
-            select(ReachNotificationEvent).where(
-                ReachNotificationEvent.customer_id == customer.id,
-                ReachNotificationEvent.message_id == message.id,
-                ReachNotificationEvent.channel == body.channel,
-            )
-        )
-        if event is None:
-            event = ReachNotificationEvent(
-                customer_id=customer.id,
-                message_id=message.id,
-                channel=body.channel,
-                status=body.status,
-                is_test=False,
-            )
-            session.add(event)
-        event.status = body.status
-        event.detail = body.detail[:300]
-        event.updated_at = datetime.now(timezone.utc)
-        session.commit()
-        return {"ok": True}
-    finally:
-        session.close()
-
-
-@app.get("/reach/notifications/events")
-def reach_notifications_events(limit: int = 50) -> dict[str, Any]:
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        rows = session.scalars(
-            select(ReachNotificationEvent)
-            .where(ReachNotificationEvent.customer_id == customer.id)
-            .order_by(ReachNotificationEvent.id.desc())
-            .limit(max(1, min(limit, 200)))
-        ).all()
-        return {
-            "ok": True,
-            "events": [
-                {
-                    "id": row.id,
-                    "message_id": row.message_id,
-                    "channel": row.channel,
-                    "status": row.status,
-                    "is_test": row.is_test,
-                    "detail": row.detail,
-                    "created_at": row.created_at.isoformat() if row.created_at else None,
-                    "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-                }
-                for row in rows
-            ],
-        }
-    finally:
-        session.close()
-
-
-@app.post("/reach/messages/{message_id}/open")
-def reach_messages_open(
-    message_id: int, body: ReachMessageOpenRequest | None = None
-) -> dict[str, Any]:
-    """Open only the saved official reply URL; never fills or sends a reply."""
-    from engine.reach.browser import open_chrome_profile
-    from engine.reach.chrome_runtime import ChromeRuntimeError, operation
-    from engine.reach.messages_adapters import validate_official_url
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        row = session.scalar(
-            select(ReachMessage).where(
-                ReachMessage.id == message_id,
-                ReachMessage.customer_id == customer.id,
-            )
-        )
-        if not row:
-            raise HTTPException(404, "消息不存在")
-        account = session.get(ReachMessageAccount, row.account_id)
-        if not account or account.customer_id != customer.id:
-            raise HTTPException(404, "消息账号不存在")
-        try:
-            url = validate_official_url(row.platform, row.reply_url)
-            with operation("message_open"):
-                opened = open_chrome_profile(
-                    account.profile_name,
-                    url=url,
-                    dry_run=bool(body.dry_run) if body else False,
-                )
-        except (ValueError, ChromeRuntimeError) as exc:
-            raise HTTPException(409 if isinstance(exc, ChromeRuntimeError) else 400, str(exc)) from exc
-        return {
-            "ok": True,
-            "opened": opened,
-            "auto_reply": False,
-            "human_in_loop": True,
-        }
-    finally:
-        session.close()
-
-
-@app.get("/reach/inbox")
-def reach_inbox(limit: int = 50) -> dict[str, Any]:
-    """G5 message hub: local unread summaries + official deep links (no auto-reply)."""
-    from engine.reach.inbox import build_inbox
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        return build_inbox(session, customer_id=customer.id, limit=limit)
-    finally:
-        session.close()
-
-
-@app.get("/logs/events")
-def list_events(limit: int = 200) -> list[dict[str, Any]]:
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        rows = session.scalars(
-            select(JobEvent)
-            .join(Job, JobEvent.job_id == Job.id)
-            .where(Job.customer_id == customer.id)
-            .order_by(JobEvent.id.desc())
-            .limit(limit)
-        ).all()
-        return [
-            {
-                "id": e.id,
-                "job_id": e.job_id,
-                "level": e.level,
-                "message": e.message,
-                "payload": e.payload_json,
-                "created_at": e.created_at.isoformat(),
-            }
-            for e in rows
-        ]
-    finally:
-        session.close()
-
-
-@app.post("/export/events.csv")
-def export_events() -> dict[str, str]:
-    settings = load_settings()
-    out = settings.paths.data_root / "exports" / "job_events.csv"
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        export_job_events_csv(session, out, customer_id=customer.id)
-        return {"path": str(out)}
-    finally:
-        session.close()
-
-
-@app.post("/export/renders.csv")
-def export_renders() -> dict[str, str]:
-    settings = load_settings()
-    out = settings.paths.data_root / "exports" / "render_outputs.csv"
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        export_renders_csv(session, out, customer_id=customer.id)
-        return {"path": str(out)}
-    finally:
-        session.close()
-
-
-@app.post("/index/cliplets")
-def build_cliplets(force: bool = False, limit: int = 50, use_vision: bool = True) -> dict[str, Any]:
-    """Create cliplets for ready assets then embed them."""
-    from engine.catalog.vector_index import index_cliplet
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        assets = list(
-            session.scalars(
-                select(Asset).where(Asset.status == "ready", Asset.customer_id == customer.id).limit(limit)
-            ).all()
-        )
-        created = 0
-        for asset in assets:
-            rows = create_cliplets_for_asset(session, asset, force=force, use_vision=use_vision)
-            created += len(rows)
-            for row in rows:
-                if row.embedding_json is None:
-                    index_cliplet(session, row)
-        pending = index_pending(session, limit=500, customer_id=customer.id)
-        cliplet_rows = list(
-            session.scalars(
-                select(Cliplet).join(Asset, Cliplet.asset_id == Asset.id).where(Asset.customer_id == customer.id)
-            ).all()
-        )
-        count = len(cliplet_rows)
-        return {"assets": len(assets), "cliplets_created": created, "indexed": pending, "cliplet_total": count, "ok": count > 0}
-    finally:
-        session.close()
-
-
-@app.post("/index/captions")
-def rebuild_captions(limit: int = 10, use_vision: bool = True) -> dict[str, Any]:
-    """Bounded, resumable strict-semantic backfill for the active customer."""
-    if not 1 <= limit <= 500:
-        raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        result = recaption_existing_cliplets(
-            session,
-            customer_id=customer.id,
-            limit=limit,
-            use_vision=use_vision,
-        )
-        return result
-    finally:
-        session.close()
-
-
-@app.get("/index/captions/status")
-def captions_backfill_status() -> dict[str, Any]:
-    """Auditable progress for strict-semantic migration of the active customer."""
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        return semantic_backfill_progress(session, customer_id=customer.id)
-    finally:
-        session.close()
-
-
-@app.get("/cliplets")
-def list_cliplets(limit: int = 50) -> list[dict[str, Any]]:
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        rows = session.scalars(
-            select(Cliplet)
-            .join(Asset, Cliplet.asset_id == Asset.id)
-            .where(Asset.customer_id == customer.id)
-            .order_by(Cliplet.id.desc())
-            .limit(limit)
-        ).all()
-        return [
-            {
-                "id": c.id,
-                "asset_uuid": c.asset_uuid,
-                "start_sec": c.start_sec,
-                "end_sec": c.end_sec,
-                "duration_sec": c.duration_sec,
-                "category": c.category,
-                "theme": c.theme,
-                "theme_score": c.theme_score,
-                "scene": c.scene,
-                "objects": c.objects_json or [],
-                "actions": c.actions_json or [],
-                "description": c.description,
-                "indexed": c.embedding_json is not None,
-            }
-            for c in rows
-        ]
-    finally:
-        session.close()
-
-
-@app.post("/cliplets/themes/backfill")
-def backfill_cliplet_themes_api(limit: int = 2000, force: bool = False) -> dict[str, Any]:
-    """Tag existing cliplets with themes from the active industry pack."""
-    from engine.catalog.theme_tags import backfill_cliplet_themes
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        return backfill_cliplet_themes(
-            session, customer_id=customer.id, limit=limit, force=force
-        )
-    finally:
-        session.close()
-
-
-@app.post("/cliplets/quality/backfill")
-def backfill_cliplet_quality_api(
-    limit: int = 2000,
-    force: bool = False,
-    only_unscored: bool = True,
-) -> dict[str, Any]:
-    """Sprint B3: recompute visual quality scores (default: only legacy score=1.0)."""
-    from engine.ingest.quality import backfill_cliplet_quality
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        return backfill_cliplet_quality(
-            session,
-            customer_id=customer.id,
-            limit=limit,
-            force=force,
-            only_unscored=only_unscored,
-        )
-    finally:
-        session.close()
-
-
-@app.post("/cliplets/quality/purge-blur")
-def purge_blur_catalog_api(
-    limit: int = 5000,
-    rescore: bool = True,
-    purge_assets: bool = True,
-) -> dict[str, Any]:
-    """QUALITY_LOCK: reject blur cliplets/assets; clear their embeddings (no vectorize)."""
-    from engine.ingest.quality import purge_blur_from_catalog
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        return purge_blur_from_catalog(
-            session,
-            customer_id=customer.id,
-            limit=limit,
-            rescore=rescore,
-            purge_assets=purge_assets,
-        )
-    finally:
-        session.close()
-
-
-@app.get("/search")
-def semantic_search(
-    q: str,
-    category: str | None = None,
-    theme: str | None = None,
-    scene: str | None = None,
-    object: str | None = None,
-    top_k: int = 10,
-) -> list[dict[str, Any]]:
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        hits = search_cliplets(
-            session,
-            q,
-            category=category,
-            theme=theme,
-            scene=scene,
-            object_tag=object,
-            top_k=top_k,
-            customer_id=customer.id,
-        )
-        return [
-            {
-                "id": c.id,
-                "score": round(score, 4),
-                "asset_uuid": c.asset_uuid,
-                "start_sec": c.start_sec,
-                "end_sec": c.end_sec,
-                "description": c.description,
-                "category": c.category,
-                "theme": c.theme,
-                "scene": c.scene,
-                "objects": c.objects_json or [],
-                "actions": c.actions_json or [],
-            }
-            for c, score in hits
-        ]
-    finally:
-        session.close()
-
-
-@app.get("/reports/summary")
-def report_summary() -> dict[str, Any]:
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        job_ids = [
-            j.id for j in session.scalars(select(Job).where(Job.customer_id == customer.id)).all()
-        ]
-        if job_ids:
-            outputs = list(session.scalars(select(RenderOutput).where(RenderOutput.job_id.in_(job_ids))).all())
+            brand = str(resolved.root or "")
+            custom = "/packs/" in brand.replace("\\", "/")
+            if custom and not pack_confirmed(resolved.root, custom=True):
+                raise HTTPException(400, "请先试听并确认自定义音色后再启用")
+
+        settings.tts_provider = provider
+        if provider == "clone":
+            settings.tts_clone_pack = pack
+            settings.tts_clone_speed = speed
+            settings.tts_chars_per_sec_zh = 3.3 if pack == "aunt_slow" else settings.tts_chars_per_sec_zh
         else:
-            outputs = []
-        assets = list(session.scalars(select(Asset).where(Asset.customer_id == customer.id)).all())
-        cliplets = list(
-            session.scalars(
-                select(Cliplet).join(Asset, Cliplet.asset_id == Asset.id).where(Asset.customer_id == customer.id)
-            ).all()
-        )
-        usages = list(
-            session.scalars(
-                select(KeywordUsage)
-                .where(KeywordUsage.customer_id == customer.id)
-                .order_by(KeywordUsage.id.desc())
-                .limit(500)
-            ).all()
-        )
-        output_ids = {o.id for o in outputs}
-        if output_ids:
-            reviews = list(
-                session.scalars(select(ReviewItem).where(ReviewItem.render_output_id.in_(output_ids))).all()
+            if edge_voice and "Neural" in edge_voice:
+                settings.tts_voice = edge_voice
+            settings.tts_chars_per_sec_zh = 3.8
+        save_settings(settings)
+
+        lock_result: dict[str, Any] = {}
+        if body.update_video_lock:
+            lock_result = _apply_voice_to_video_lock(
+                customer_name=customer.name,
+                output_root=customer.output_root,
+                provider=provider,
+                voice_pack=pack,
+                clone_speed=speed,
+                edge_voice=edge_voice if provider == "edge" else None,
             )
-        else:
-            reviews = []
-
-        by_state: dict[str, int] = {}
-        for o in outputs:
-            by_state[o.state] = by_state.get(o.state, 0) + 1
-        total_out = len(outputs)
-        ready = by_state.get("ready", 0)
-        failed = by_state.get("failed", 0)
-        failure_rate = round(failed / total_out, 4) if total_out else 0.0
-
-        # duplicate asset rate across ready sidecars
-        asset_hits: dict[str, int] = {}
-        for o in outputs:
-            if o.state != "ready" or not o.sidecar_path:
-                continue
-            try:
-                import json
-                from pathlib import Path
-
-                data = json.loads(Path(o.sidecar_path).read_text(encoding="utf-8"))
-                for c in data.get("clips", []):
-                    uid = c.get("asset_uuid")
-                    if uid:
-                        asset_hits[uid] = asset_hits.get(uid, 0) + 1
-            except Exception:
-                continue
-        reused = sum(1 for n in asset_hits.values() if n > 1)
-        dup_rate = round(reused / len(asset_hits), 4) if asset_hits else 0.0
-
-        theme_dist: dict[str, int] = {}
-        keyword_dist: dict[str, int] = {}
-        for u in usages:
-            theme_dist[u.theme] = theme_dist.get(u.theme, 0) + 1
-            keyword_dist[u.keyword] = keyword_dist.get(u.keyword, 0) + 1
-
-        review_dist: dict[str, int] = {}
-        for r in reviews:
-            review_dist[r.status] = review_dist.get(r.status, 0) + 1
-
-        top_keywords = sorted(keyword_dist.items(), key=lambda x: -x[1])[:15]
-        return {
-            "assets": len(assets),
-            "cliplets": len(cliplets),
-            "cliplets_indexed": sum(1 for c in cliplets if c.embedding_json),
-            "outputs": by_state,
-            "ready": ready,
-            "failed": failed,
-            "ready_rate": round(ready / total_out, 4) if total_out else 0.0,
-            "failure_rate": failure_rate,
-            "duplicate_asset_rate": dup_rate,
-            "theme_dist": theme_dist,
-            "theme_distribution": theme_dist,
-            "top_keywords": top_keywords,
-            "keyword_top": [{"keyword": k, "count": n} for k, n in top_keywords],
-            "reviews": review_dist,
-        }
+        customer_name = customer.name
     finally:
         session.close()
 
-
-@app.get("/reports/quality")
-def report_quality() -> dict[str, Any]:
-    """Sprint C quality daily: ready rate, reject reason top, hook/title repeat hints."""
-    from collections import Counter
-    import json
-    from pathlib import Path
-
-    from engine.catalog.review_learn import REJECT_REASONS, parse_reject_reason
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        job_ids = [j.id for j in session.scalars(select(Job).where(Job.customer_id == customer.id)).all()]
-        outputs = (
-            list(session.scalars(select(RenderOutput).where(RenderOutput.job_id.in_(job_ids))).all())
-            if job_ids
-            else []
-        )
-        by_state: dict[str, int] = {}
-        for o in outputs:
-            by_state[o.state] = by_state.get(o.state, 0) + 1
-        total = len(outputs)
-        ready = by_state.get("ready", 0)
-        output_ids = {o.id for o in outputs}
-        reviews = (
-            list(session.scalars(select(ReviewItem).where(ReviewItem.render_output_id.in_(output_ids))).all())
-            if output_ids
-            else []
-        )
-        reason_counter: Counter[str] = Counter()
-        for r in reviews:
-            if r.status != "rejected":
-                continue
-            code = parse_reject_reason(r.note or "")
-            reason_counter[code] += 1
-        titles: Counter[str] = Counter()
-        hooks: Counter[str] = Counter()
-        for o in outputs:
-            if o.state != "ready" or not o.sidecar_path:
-                continue
-            try:
-                data = json.loads(Path(o.sidecar_path).read_text(encoding="utf-8"))
-            except Exception:
-                continue
-            title = (data.get("title") or "").strip()
-            if title:
-                titles[title] += 1
-                hooks[title.split("\n")[0].strip()] += 1
-        reject_top = [
-            {"code": c, "label": REJECT_REASONS.get(c, c), "count": n}
-            for c, n in reason_counter.most_common(10)
-        ]
-        return {
-            "customer_id": customer.id,
-            "customer_name": customer.name,
-            "outputs": by_state,
-            "ready_rate": round(ready / total, 4) if total else 0.0,
-            "reject_reason_top": reject_top,
-            "hook_repeat_top": [{"hook": h, "count": n} for h, n in hooks.most_common(10) if n > 1],
-            "title_repeat_top": [{"title": t, "count": n} for t, n in titles.most_common(10) if n > 1],
-            "reason_codes": REJECT_REASONS,
-        }
-    finally:
-        session.close()
+    status = get_tts_voice_status()
+    status["saved"] = True
+    status["customer"] = customer_name
+    status["lock_written"] = lock_result.get("written") or []
+    return status
 
 
-@app.get("/reports/golden")
-def report_golden() -> dict[str, Any]:
-    """L0 golden sample scores (must be in DB, not only docs)."""
-    from engine.catalog.golden import list_golden
+# Customers/assets/keywords/templates/dry-run: engine.api.catalog_routes
 
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        rows = list_golden(session, customer.id)
-        signed = [r for r in rows if r.get("signed") and r.get("look_score") is not None]
-        return {
-            "customer_id": customer.id,
-            "customer_name": customer.name,
-            "samples": rows,
-            "signed_count": len(signed),
-            "complete": len(signed) >= 2 and all(
-                (r.get("look_score") or 0) >= 4 and r.get("shippable") for r in signed if r.get("code") in {"G1", "G2"}
-            ),
-        }
-    finally:
-        session.close()
+# Jobs + calendar routes: engine.api.job_routes (include_router)
 
 
-@app.post("/reports/golden/seed")
-def seed_golden() -> dict[str, Any]:
-    """Upsert frozen G1/G2 scores from GOLDEN_SAMPLES baseline into authority DB."""
-    from engine.catalog.db import init_db
-    from engine.catalog.golden import list_golden, upsert_frozen_golden
 
-    settings = load_settings()
-    init_db(settings)
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        seeded = upsert_frozen_golden(session, settings, customer_id=customer.id)
-        return {
-            "customer_id": customer.id,
-            "customer_name": customer.name,
-            "seeded": seeded,
-            "samples": list_golden(session, customer.id),
-        }
-    finally:
-        session.close()
-
-
-@app.get("/reviews")
-def list_reviews(limit: int = 100) -> list[dict[str, Any]]:
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        rows = session.scalars(
-            select(ReviewItem)
-            .join(RenderOutput, ReviewItem.render_output_id == RenderOutput.id)
-            .join(Job, RenderOutput.job_id == Job.id)
-            .where(Job.customer_id == customer.id)
-            .order_by(ReviewItem.id.desc())
-            .limit(limit)
-        ).all()
-        return [
-            {
-                "id": r.id,
-                "render_output_id": r.render_output_id,
-                "status": r.status,
-                "note": r.note,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-                "decided_at": r.decided_at.isoformat() if r.decided_at else None,
-            }
-            for r in rows
-        ]
-    finally:
-        session.close()
-
-
-@app.get("/review/reasons")
-def review_reasons() -> dict[str, Any]:
-    from engine.catalog.review_learn import REJECT_REASONS
-
-    return {"reasons": [{"code": k, "label": v} for k, v in REJECT_REASONS.items()]}
-
-
-@app.post("/review/{output_id}")
-def review_output(
-    output_id: int,
-    status: str = "approved",
-    note: str = "",
-    reason: str = "",
-    downweight: bool = True,
-    rerender: bool = False,
-) -> dict[str, Any]:
-    from datetime import datetime, timezone
-
-    from engine.catalog.review_learn import (
-        create_rerender_job,
-        downweight_cliplets_for_reject,
-        parse_reject_reason,
-    )
-
-    if status not in {"approved", "rejected", "pending"}:
-        raise HTTPException(400, "status must be approved/rejected/pending")
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        out = session.get(RenderOutput, output_id)
-        if not out or not out.job_id:
-            raise HTTPException(404, "output not found")
-        job = session.get(Job, out.job_id)
-        if not job or job.customer_id != customer.id:
-            raise HTTPException(403, "output 不属于当前客户")
-        reason_code = parse_reject_reason(note, reason or None) if status == "rejected" else ""
-        note_store = note
-        if status == "rejected" and reason_code and f"[{reason_code}]" not in (note or ""):
-            note_store = f"[{reason_code}] {note}".strip()
-        item = ReviewItem(
-            render_output_id=output_id,
-            status=status,
-            note=note_store,
-            decided_at=datetime.now(timezone.utc),
-        )
-        session.add(item)
-        learn: dict[str, Any] = {}
-        rerender_job: dict[str, Any] | None = None
-        if status == "rejected":
-            out.state = "review"
-            session.commit()
-            if downweight:
-                learn = downweight_cliplets_for_reject(session, out, reason=reason_code or "other")
-            if rerender:
-                try:
-                    job = create_rerender_job(session, out, reason=reason_code or "other")
-                    rerender_job = {"id": job.id, "status": job.status}
-                except ValueError as e:
-                    raise HTTPException(409, str(e)) from e
-        else:
-            session.commit()
-        return {
-            "id": item.id,
-            "status": item.status,
-            "output_id": output_id,
-            "state": out.state,
-            "reason": reason_code or None,
-            "learn": learn,
-            "rerender_job": rerender_job,
-        }
-    finally:
-        session.close()
-
-
-@app.post("/review/{output_id}/rerender")
-def review_rerender(output_id: int, reason: str = "") -> dict[str, Any]:
-    """One-click re-render from an existing (usually rejected) output."""
-    from engine.catalog.review_learn import create_rerender_job, parse_reject_reason
-
-    try:
-        assert_production_ready()
-    except ValueError as e:
-        raise HTTPException(409, str(e)) from e
-    session = get_session()
-    try:
-        settings = load_settings()
-        _, customer, _ = _active_scope(session, settings)
-        out = session.get(RenderOutput, output_id)
-        if not out or not out.job_id:
-            raise HTTPException(404, "output not found")
-        job = session.get(Job, out.job_id)
-        if not job or job.customer_id != customer.id:
-            raise HTTPException(403, "output 不属于当前客户")
-        # Prefer reason from latest reject note
-        note = ""
-        last = session.scalar(
-            select(ReviewItem)
-            .where(ReviewItem.render_output_id == output_id, ReviewItem.status == "rejected")
-            .order_by(ReviewItem.id.desc())
-            .limit(1)
-        )
-        if last:
-            note = last.note or ""
-        reason_code = parse_reject_reason(note, reason or None)
-        try:
-            job = create_rerender_job(session, out, reason=reason_code)
-        except ValueError as e:
-            raise HTTPException(409, str(e)) from e
-        return {
-            "output_id": output_id,
-            "reason": reason_code,
-            "job": {"id": job.id, "status": job.status, "theme": job.theme, "category": job.category},
-        }
-    finally:
-        session.close()
-
-
-class BatchRerenderRequest(BaseModel):
-    output_ids: list[int] | None = None
-    missing_voice: bool = True
-    missing_subtitle: bool = False
-    noncompliant_tts: bool = False
-    limit: int = 20
-    reason: str = "ops_voice_subtitle"
-
-
-@app.post("/outputs/batch-rerender")
-def outputs_batch_rerender(body: BatchRerenderRequest) -> dict[str, Any]:
-    """G6: queue re-renders for outputs missing voice/subs or lock TTS violations (max 20)."""
-    from engine.catalog.review_learn import create_rerender_job
-    from engine.ops.publish_trail import (
-        read_sidecar,
-        stamp_tts_noncompliant,
-        tts_lock_violation,
-        voice_flags_from_meta,
-    )
-    from engine.pack.video_lock import load_video_lock
-
-    try:
-        assert_production_ready()
-    except ValueError as e:
-        raise HTTPException(409, str(e)) from e
-
-    limit = max(1, min(int(body.limit or 20), 20))
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        video_lock = load_video_lock(customer.name, output_root=customer.output_root)
-        ids = list(body.output_ids or [])
-        reason = body.reason or "ops_voice_subtitle"
-        if body.noncompliant_tts and reason in ("ops_voice_subtitle", "other", ""):
-            reason = "ops_tts_noncompliant"
-        if not ids:
-            rows = session.scalars(
-                select(RenderOutput)
-                .join(Job, RenderOutput.job_id == Job.id)
-                .where(Job.customer_id == customer.id, RenderOutput.state.in_(["ready", "review"]))
-                .order_by(RenderOutput.id.desc())
-                .limit(200)
-            ).all()
-            for r in rows:
-                meta = (read_sidecar(r.sidecar_path).get("meta") or {}) if r.sidecar_path else {}
-                if not isinstance(meta, dict):
-                    meta = {}
-                has_voice, has_sub = voice_flags_from_meta(meta)
-                violation = tts_lock_violation(meta, video_lock)
-                need = False
-                if body.noncompliant_tts and violation:
-                    need = True
-                    if r.sidecar_path:
-                        stamp_tts_noncompliant(r.sidecar_path, violation)
-                    if r.state == "ready":
-                        r.state = "review"
-                        session.add(r)
-                if body.missing_voice and not has_voice:
-                    need = True
-                if body.missing_subtitle and not has_sub:
-                    need = True
-                # Pure TTS-lock batch: ignore missing_* unless also requested with empty voice
-                if body.noncompliant_tts and not body.missing_voice and not body.missing_subtitle:
-                    need = bool(violation)
-                if need:
-                    ids.append(r.id)
-                if len(ids) >= limit:
-                    break
-            session.commit()
-        ids = ids[:limit]
-        queued: list[dict[str, Any]] = []
-        errors: list[dict[str, Any]] = []
-        for oid in ids:
-            try:
-                out = _scoped_output(session, oid, customer.id)
-                job = create_rerender_job(session, out, reason=reason)
-                queued.append({"output_id": oid, "job_id": job.id, "status": job.status})
-            except HTTPException as e:
-                errors.append({"output_id": oid, "error": str(e.detail)})
-            except ValueError as e:
-                errors.append({"output_id": oid, "error": str(e)})
-        return {
-            "ok": True,
-            "queued": queued,
-            "errors": errors,
-            "count": len(queued),
-            "limit": limit,
-            "reason": reason,
-        }
-    finally:
-        session.close()
-
-
-@app.get("/reports/ops")
-def report_ops() -> dict[str, Any]:
-    """G6 ops dashboard: ready/fail/voice coverage + TTS lock hard-fails + reach quota."""
-    from pathlib import Path
-
-    from engine.catalog.db import ReachQueueItem
-    from engine.ops.maintenance import disk_report
-    from engine.ops.publish_trail import (
-        read_sidecar,
-        stamp_tts_noncompliant,
-        tts_lock_violation,
-        tts_provider_from_meta,
-        voice_flags_from_meta,
-    )
-    from engine.pack.video_lock import load_video_lock
-    from engine.reach.limits import quota_status
-
-    settings = load_settings()
-    session = get_session()
-    try:
-        _, customer, _ = _active_scope(session, settings)
-        video_lock = load_video_lock(customer.name, output_root=customer.output_root)
-        job_ids = [j.id for j in session.scalars(select(Job).where(Job.customer_id == customer.id)).all()]
-        outputs = (
-            list(session.scalars(select(RenderOutput).where(RenderOutput.job_id.in_(job_ids))).all())
-            if job_ids
-            else []
-        )
-
-        tts_noncompliant = 0
-        tts_say = 0
-        tts_edge_ok = 0
-        demoted = 0
-        # Pass 1: stamp + demote lock TTS violations (say/mock under Edge lock)
-        for o in outputs:
-            if o.state not in ("ready", "review"):
-                continue
-            meta: dict[str, Any] = {}
-            if o.sidecar_path:
-                side = read_sidecar(o.sidecar_path)
-                meta = side.get("meta") if isinstance(side.get("meta"), dict) else {}
-            provider = tts_provider_from_meta(meta)
-            hv, _hs = voice_flags_from_meta(meta)
-            violation = tts_lock_violation(meta, video_lock)
-            if violation:
-                tts_noncompliant += 1
-                if provider == "say" or "say" in violation:
-                    tts_say += 1
-                if o.sidecar_path:
-                    stamp_tts_noncompliant(o.sidecar_path, violation)
-                if o.state == "ready":
-                    o.state = "review"
-                    session.add(o)
-                    demoted += 1
-            elif hv and provider == "edge":
-                tts_edge_ok += 1
-        if demoted:
-            session.commit()
-
-        by_state: dict[str, int] = {}
-        ready_with_voice = 0
-        ready_with_sub = 0
-        ready_published = 0
-        ready_n = 0
-        for o in outputs:
-            by_state[o.state] = by_state.get(o.state, 0) + 1
-            if o.state != "ready":
-                continue
-            ready_n += 1
-            meta = {}
-            if o.sidecar_path:
-                side = read_sidecar(o.sidecar_path)
-                meta = side.get("meta") if isinstance(side.get("meta"), dict) else {}
-            hv, hs = voice_flags_from_meta(meta)
-            violation = tts_lock_violation(meta, video_lock)
-            # say under lock never counts as voice coverage
-            if hv and not violation:
-                ready_with_voice += 1
-            if hs:
-                ready_with_sub += 1
-            trail = meta.get("publish_trail") if isinstance(meta, dict) else None
-            if trail:
-                ready_published += 1
-            else:
-                hit = session.scalar(
-                    select(ReachQueueItem.id).where(
-                        ReachQueueItem.output_id == o.id,
-                        ReachQueueItem.status == "published",
-                    )
-                )
-                if hit:
-                    ready_published += 1
-
-        total = len(outputs)
-        ready = by_state.get("ready", 0)
-        failed = by_state.get("failed", 0)
-        quota = quota_status(
-            session,
-            customer_id=customer.id,
-            daily_quota=int(getattr(settings, "reach_daily_quota", 5) or 5),
-            fail_threshold=int(getattr(settings, "reach_fail_threshold", 3) or 3),
-            platform_quotas=getattr(settings, "reach_platform_quotas", None) or {},
-        )
-
-        try:
-            disk = disk_report(settings)
-            path_h = disk.get("path_health") or {}
-            if hasattr(path_h, "__dict__"):
-                path_h = dict(path_h)
-            disk_ok = bool(disk.get("ok"))
-            free = (disk.get("volumes") or {}).get("output", {}).get("free_gb")
-            if free is None:
-                free = path_h.get("free_disk_gb")
-            err_list = list(disk.get("errors") or []) + list(path_h.get("errors") or [])
-        except Exception:
-            disk_ok = False
-            path_h = {"ok": False, "errors": ["disk_report unavailable"], "warnings": []}
-            free = None
-            err_list = ["disk_report unavailable"]
-
-        lib = Path(str(customer.library_root or "")) if customer.library_root else None
-        out_root = Path(str(customer.output_root or "")) if customer.output_root else None
-        lib_ok = bool(lib and lib.exists())
-        out_ok = bool(out_root and out_root.exists())
-        parts: list[str] = []
-        if disk_ok and lib_ok and out_ok:
-            parts.append("路径正常")
-        else:
-            if not lib_ok:
-                parts.append("片库缺失")
-            if not out_ok:
-                parts.append("成片目录缺失")
-            for e in err_list[:2]:
-                parts.append(str(e))
-        if free is not None:
-            parts.append(f"磁盘 {float(free):.0f} GB")
-        if tts_noncompliant:
-            parts.append(f"音色违规 {tts_noncompliant}")
-
-        from engine.catalog.db import db_path
-        from engine.ops.db_health import db_health_phrase, inspect_montage_db
-
-        db_info = inspect_montage_db(db_path(settings))
-        db_phrase = db_health_phrase(db_info)
-        if not db_info.get("ok") or db_info.get("empty"):
-            parts.insert(0, db_phrase)
-        else:
-            parts.append(db_phrase)
-
-        from engine.ops.published_archive import publish_stats
-
-        fs_stats = publish_stats(customer.output_root or settings.paths.output_root)
-
-        health_line = " · ".join(parts) if parts else "状态未知"
-
-        return {
-            "ok": True,
-            "customer_id": customer.id,
-            "customer_name": customer.name,
-            "outputs": by_state,
-            "ready": ready,
-            "failed": failed,
-            "ready_rate": round(ready / total, 4) if total else 0.0,
-            "failure_rate": round(failed / total, 4) if total else 0.0,
-            "voice_coverage": round(ready_with_voice / ready_n, 4) if ready_n else 0.0,
-            "subtitle_coverage": round(ready_with_sub / ready_n, 4) if ready_n else 0.0,
-            "ready_with_voice": ready_with_voice,
-            "ready_with_subtitle": ready_with_sub,
-            "ready_count": ready_n,
-            "published_ready": ready_published,
-            "published_state_count": by_state.get("published", 0),
-            "published_count": by_state.get("published", 0) or fs_stats.get("published_files") or 0,
-            "pending_publish": max(0, ready_n - ready_published),
-            "pending_ready": max(0, ready_n - ready_published),
-            "fs_ready_files": fs_stats.get("ready_files"),
-            "fs_published_files": fs_stats.get("published_files"),
-            "today_published_files": fs_stats.get("today_published_files"),
-            "today_ready_files": fs_stats.get("today_ready_files"),
-            "ready_today": fs_stats.get("today_ready_files") or 0,
-            "published_today": fs_stats.get("today_published_files") or 0,
-            "missing_voice": max(0, ready_n - ready_with_voice),
-            "tts_noncompliant": tts_noncompliant,
-            "tts_say": tts_say,
-            "tts_edge_ok": tts_edge_ok,
-            "tts_lock_hard_fail": tts_noncompliant,
-            "tts_demoted_to_review": demoted,
-            "quota": quota,
-            "health_line": health_line,
-            "path_health": path_h,
-            "library_ok": lib_ok,
-            "output_ok": out_ok,
-            "db_health": db_info,
-            "db_ok": bool(db_info.get("ok")) and not bool(db_info.get("empty")),
-        }
-    finally:
-        session.close()
-
+# Library/review: engine.api.library_review_routes
 
 @app.get("/ops/disk")
 def ops_disk() -> dict[str, Any]:
     return disk_report()
+
+
+@app.get("/ops/resource-gate")
+def ops_resource_gate() -> dict[str, Any]:
+    """Who holds produce/render/tts/publish slots (overview / ops)."""
+    from engine.runtime.resource_gate import gate as resource_gate
+
+    return {"ok": True, **resource_gate.snapshot()}
+
+
+class ResourceGateForceReleaseRequest(BaseModel):
+    slot: str = "all"
+    older_than_sec: float | None = None
+
+
+@app.post("/ops/resource-gate/force-release")
+def ops_resource_gate_force_release(
+    body: ResourceGateForceReleaseRequest | None = None,
+) -> dict[str, Any]:
+    """Force-drop expired ResourceGate holders (ops escape hatch).
+
+    Only holders older than ``older_than_sec`` (or slot default lease) are released.
+    """
+    from engine.runtime.resource_gate import gate as resource_gate
+
+    payload = body or ResourceGateForceReleaseRequest()
+    slot = str(payload.slot or "all").strip() or "all"
+    older_f = float(payload.older_than_sec) if payload.older_than_sec is not None else None
+    released = resource_gate.force_release_expired(
+        None if slot == "all" else slot,
+        older_than_sec=older_f,
+    )
+    return {
+        "ok": True,
+        "slot": slot,
+        "older_than_sec": older_f,
+        "released": released,
+        "resource_gate": resource_gate.snapshot(),
+    }
+
+
+@app.get("/ops/runtime-health")
+def ops_runtime_health() -> dict[str, Any]:
+    """Control-plane health: pause, accept work, health QPS, resource slots."""
+    from engine.runtime.health_metrics import health_metrics
+    from engine.runtime.resource_gate import gate as resource_gate
+
+    pause = pause_coordinator.snapshot()
+    accepts = bool(pause_coordinator.is_active_for_new_work()) and bool(
+        pause_coordinator.should_claim_jobs()
+    )
+    from engine.catalog.ollama_runtime import embed_gateway_snapshot
+    from engine.ops.ollama_service import service_snapshot
+
+    return {
+        "ok": True,
+        "accepts_new_work": accepts,
+        "pause": pause,
+        "health": health_metrics.snapshot(),
+        "resource_gate": resource_gate.snapshot(),
+        "ollama_embed_gateway": embed_gateway_snapshot(),
+        "ollama_service": service_snapshot(),
+        "worker_running": worker.is_alive(),
+        "scheduler_running": scheduler.is_alive(),
+        "watcher_running": bool(watcher and watcher.is_alive()),
+    }
+
+
+@app.post("/ops/chrome-profiles/migrate-workspace")
+def ops_chrome_migrate_workspace(force: bool = False) -> dict[str, Any]:
+    """Explicit workspace→APFS chrome merge (never runs as sync lifespan I/O).
+
+    Without force=1, only reports what would be deferred / skipped.
+    """
+    from engine.reach.browser import migrate_legacy_chrome_profiles
+
+    if not force:
+        # Dry probe: run with skip env temporarily? Better: call with force=False
+        # which still defers cross-volume; return last report from a non-force pass.
+        report = migrate_legacy_chrome_profiles(force_workspace_migrate=False)
+        return {
+            "ok": True,
+            "forced": False,
+            "message": "未 force：异卷工作区 merge 仍延期。需要拷贝时 POST ?force=1",
+            "report": report,
+        }
+    report = migrate_legacy_chrome_profiles(force_workspace_migrate=True)
+    return {"ok": True, "forced": True, "report": report}
 
 
 @app.get("/ops/carrier")
@@ -3839,6 +1699,7 @@ def ops_app_update_install(body: AppUpdateInstallRequest) -> dict[str, Any]:
     """Click-to-install from carrier. apply=false only verifies sha256."""
     from engine.ops.app_update import install_update
 
+    assert_runtime_active("app_update")
     return install_update(apply=bool(body.apply))
 
 
@@ -3848,14 +1709,13 @@ class CarrierBackupRequest(BaseModel):
 
 @app.post("/ops/carrier/backup")
 def ops_carrier_backup(body: CarrierBackupRequest) -> dict[str, Any]:
-    from pathlib import Path
-
     from engine.ops.carrier import (
         ensure_carrier_layout,
         export_config_backup,
         resolve_carrier_root,
     )
 
+    assert_runtime_active("carrier_backup")
     settings = load_settings()
     session = get_session()
     try:
@@ -3893,6 +1753,7 @@ def ops_carrier_ensure(carrier_root: str | None = None) -> dict[str, Any]:
         seed_industry_into_carrier,
     )
 
+    assert_runtime_active("carrier_ensure")
     try:
         root = resolve_carrier_root(carrier_root)
     except ValueError as e:
@@ -3925,6 +1786,7 @@ def ops_carrier_seed_import(body: CarrierSeedImportRequest) -> dict[str, Any]:
     """Import one optional config-only seed into the active customer's folders."""
     from engine.ops.carrier import import_customer_seed
 
+    assert_runtime_active("carrier_seed_import")
     settings = load_settings()
     session = get_session()
     try:
@@ -3936,6 +1798,8 @@ def ops_carrier_seed_import(body: CarrierSeedImportRequest) -> dict[str, Any]:
                 seed_id=body.seed_id.strip(),
                 customer_root=customer_root,
                 overwrite=bool(body.overwrite),
+                session=session,
+                customer=customer,
             )
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
@@ -3948,9 +1812,6 @@ def ops_carrier_seed_import(body: CarrierSeedImportRequest) -> dict[str, Any]:
             else:
                 profile[key] = value
         customer.profile_json = profile
-        keyword_path = customer_root / "03-词池" / "keyword-pack.json"
-        if keyword_path.is_file():
-            customer.keyword_pack_path = str(keyword_path)
         session.commit()
         result["customer_id"] = customer.id
         result["customer_name"] = customer.name
@@ -3970,6 +1831,7 @@ def ops_carrier_restore(body: CarrierRestoreRequest) -> dict[str, Any]:
     """Restore config-level backup from T2S carrier (no media)."""
     from engine.ops.carrier import resolve_carrier_backup, restore_config_backup
 
+    assert_runtime_active("carrier_restore")
     try:
         return restore_config_backup(resolve_carrier_backup(body.backup_path))
     except ValueError as e:
@@ -3982,6 +1844,7 @@ def ops_carrier_install_update_agent() -> dict[str, Any]:
     import subprocess
     from pathlib import Path
 
+    assert_runtime_active("carrier_update_agent")
     script = Path(__file__).resolve().parents[2] / "scripts" / "install-carrier-update-agent.sh"
     if not script.is_file():
         raise HTTPException(404, f"缺少脚本: {script}")
@@ -4007,6 +1870,7 @@ def ops_ollama_narration_preview(
     hint: str = "真实现场记录，人物认真工作，展示服务细节",
 ) -> dict[str, Any]:
     """Dry-run Ollama narration rewrite (ops / smoke)."""
+    assert_runtime_active("narration_preview")
     from engine.config.settings import load_settings
     from engine.pack.ollama_narration import resolve_narration_model, rewrite_narration_with_ollama
 
@@ -4090,6 +1954,8 @@ def ops_service_control(name: str, action: str) -> dict[str, Any]:
     action = action.lower().strip()
     if action not in ("start", "stop"):
         raise HTTPException(400, "action 必须是 start 或 stop")
+    if action == "start":
+        assert_runtime_active(f"start_service:{name}")
     if name == "watcher":
         if not watcher:
             raise HTTPException(503, "Watcher 未初始化")

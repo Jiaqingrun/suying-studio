@@ -59,10 +59,13 @@ def chrome_url() -> str:
 
 
 def chrome_open_url(url: str) -> None:
+    """Navigate the front window's active tab; never open a new tab."""
+    escaped = url.replace("\\", "\\\\").replace('"', '\\"')
     _osa(
         'tell application "Google Chrome"',
         "activate",
-        f'open location "{url}"',
+        "if (count of windows) = 0 then make new window",
+        f'set URL of active tab of front window to "{escaped}"',
         "end tell",
     )
 
@@ -80,13 +83,15 @@ def probe_page() -> dict[str, Any]:
         "(function(){"
         "var u=location.href||'';"
         "var t=(document.body&&document.body.innerText)||'';"
-        "if(/passport|login|sso|sso\\.|accounts\\./i.test(u)||"
+        "if(/passport|\\/login|sso|sso\\.|accounts\\./i.test(u)||"
         "t.indexOf('扫码登录')>=0||t.indexOf('手机号登录')>=0||"
-        "t.indexOf('登录后免费使用')>=0||t.indexOf('验证码登录')>=0)"
+        "t.indexOf('短信登录')>=0||t.indexOf('登录后免费使用')>=0||"
+        "t.indexOf('验证码登录')>=0||t.indexOf('发送验证码')>=0)"
         "return 'need_login';"
-        "if(t.indexOf('验证码')>=0||t.indexOf('滑块')>=0||"
-        "t.indexOf('安全验证')>=0||t.indexOf('人机验证')>=0||"
-        "/captcha|verify/i.test(u)) return 'need_human';"
+        "if(t.indexOf('接收短信验证码')>=0||t.indexOf('请完成安全验证')>=0||"
+        "t.indexOf('请拖动滑块')>=0||t.indexOf('向右拖动滑块')>=0||"
+        "t.indexOf('人机验证')>=0||t.indexOf('为确保是本人操作')>=0||"
+        "/captcha/i.test(u)) return 'need_human';"
         "if(t.indexOf('作品描述')>=0||t.indexOf('填写作品标题')>=0||"
         "t.indexOf('发布设置')>=0) return 'form';"
         "if(u.indexOf('creator.douyin.com')>=0&&"

@@ -12,6 +12,67 @@ from sqlalchemy.orm import Session
 from engine.catalog.db import KeywordPack, KeywordUsage
 
 
+def _as_dict(data: Any) -> dict[str, Any]:
+    if isinstance(data, dict):
+        return data
+    if isinstance(data, str):
+        try:
+            parsed = json.loads(data)
+        except (TypeError, json.JSONDecodeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _theme_keyword_count(block: Any) -> int:
+    """Count usable keywords for a theme block (list or v4 {keywords:[...]})."""
+    if isinstance(block, list):
+        return len(block)
+    if isinstance(block, dict):
+        kws = block.get("keywords")
+        if isinstance(kws, list):
+            return len(kws)
+        # Non-list theme metadata still proves the theme exists.
+        return 1 if block else 0
+    if block is None:
+        return 0
+    return 1
+
+
+def _count_themes(data: dict[str, Any]) -> tuple[dict[str, int], int]:
+    """Return (theme->count, total) for legacy top-level and v4 keyword_pool shapes."""
+    themes: dict[str, int] = {}
+    total = 0
+
+    pool = data.get("keyword_pool") if isinstance(data.get("keyword_pool"), dict) else {}
+    candidates: list[Any] = [
+        data.get("themes"),
+        data.get("theme_keywords"),
+        pool.get("themes") if isinstance(pool, dict) else None,
+    ]
+    for raw_themes in candidates:
+        if not isinstance(raw_themes, dict) or not raw_themes:
+            continue
+        for key, block in raw_themes.items():
+            n = _theme_keyword_count(block)
+            themes[str(key)] = n
+            total += n
+        if total > 0 or themes:
+            break
+
+    if total == 0:
+        for key in ("keywords", "hooks", "flat_keywords", "core_phrases"):
+            bucket = data.get(key)
+            if bucket is None and isinstance(pool, dict):
+                bucket = pool.get(key)
+            if isinstance(bucket, list) and bucket:
+                total = len(bucket)
+                themes["default"] = total
+                break
+
+    return themes, total
+
+
 def keyword_stats(
     session: Session,
     *,
@@ -21,44 +82,24 @@ def keyword_stats(
     packs = list(
         session.scalars(select(KeywordPack).where(KeywordPack.customer_id == customer_id)).all()
     )
-    active = packs[-1] if packs else None
+    active = next((p for p in reversed(packs) if getattr(p, "status", None) == "active"), None)
+    if active is None and packs:
+        active = packs[-1]
+
     themes: dict[str, int] = {}
     total = 0
     version = None
     if active and active.data_json:
-        if isinstance(active.data_json, dict):
-            data = active.data_json
-        else:
-            try:
-                data = json.loads(active.data_json)
-            except (TypeError, json.JSONDecodeError):
-                data = {}
+        data = _as_dict(active.data_json)
         version = (data.get("meta") or {}).get("version") or active.version
-        # common shapes: themes map or flat keywords list
-        raw_themes = data.get("themes") or data.get("theme_keywords") or {}
-        if isinstance(raw_themes, dict):
-            for k, v in raw_themes.items():
-                n = len(v) if isinstance(v, list) else 1
-                themes[str(k)] = n
-                total += n
-        kws = data.get("keywords") or data.get("hooks") or []
-        if isinstance(kws, list) and total == 0:
-            total = len(kws)
-            themes["default"] = total
-    path = keyword_pack_path or (active.name if active else None)
-    path_exists = bool(path and Path(str(keyword_pack_path or "")).is_file()) if keyword_pack_path else False
+        themes, total = _count_themes(data)
+
+    path_exists = bool(keyword_pack_path and Path(str(keyword_pack_path)).is_file())
     if keyword_pack_path and Path(keyword_pack_path).is_file() and total == 0:
         try:
-            data = json.loads(Path(keyword_pack_path).read_text(encoding="utf-8"))
+            data = _as_dict(Path(keyword_pack_path).read_text(encoding="utf-8"))
             version = (data.get("meta") or {}).get("version") or version
-            raw_themes = data.get("themes") or {}
-            if isinstance(raw_themes, dict):
-                for k, v in raw_themes.items():
-                    n = len(v) if isinstance(v, list) else 1
-                    themes[str(k)] = n
-                    total += n
-            elif isinstance(data.get("keywords"), list):
-                total = len(data["keywords"])
+            themes, total = _count_themes(data)
             path_exists = True
         except Exception:
             pass

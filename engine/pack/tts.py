@@ -1,21 +1,54 @@
 """G4 TTS adapter — script → segment audio + real durations (length drives cut).
 
 Providers are pluggable; default prefers Edge 晓晓 (``edge``), then macOS ``say``,
-then ``mock`` (ffmpeg tone). No customer-name branches.
+then ``mock`` (ffmpeg tone). Optional local ``clone`` (F5-TTS voice pack).
+No customer-name branches.
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
+import os
 import re
 import shutil
 import subprocess
+import sys
+import tempfile
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-ProviderName = Literal["mock", "say", "edge"]
+ProviderName = Literal["mock", "say", "edge", "clone"]
+
+# Wall-clock + progress guards for Edge TTS (Microsoft WS can stall with 0B mp3).
+EDGE_TTS_ATTEMPT_SEC = 45.0
+EDGE_TTS_MAX_ATTEMPTS = 2
+EDGE_TTS_ZERO_BYTE_SEC = 8.0
+EDGE_TTS_MIN_AUDIO_BYTES = 64
+
+# Subprocess body: isolated so hung edge-tts sockets can be SIGKILL'd.
+_EDGE_WORKER_SNIPPET = r"""
+import asyncio, json, sys
+from pathlib import Path
+cfg = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+try:
+    import edge_tts
+    async def _run():
+        communicate = edge_tts.Communicate(
+            cfg["text"],
+            cfg["voice"],
+            rate=cfg.get("rate") or "-8%",
+            pitch=cfg.get("pitch") or "+35Hz",
+            volume=cfg.get("volume") or "+0%",
+        )
+        await communicate.save(cfg["mp3"])
+    asyncio.run(_run())
+    print(json.dumps({"ok": True}))
+except Exception as e:
+    print(json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"}))
+    raise SystemExit(1)
+"""
 
 # Rough spoken pace (chars / sec). Overridden via opts / settings.
 DEFAULT_CPS: dict[str, float] = {
@@ -178,6 +211,228 @@ def probe_audio_duration(path: Path) -> float:
     return round(dur, 3)
 
 
+def _atempo_filter_chain(speed: float) -> str:
+    """Build an ffmpeg atempo chain. Each atempo must stay in [0.5, 2.0]."""
+    s = float(speed)
+    if s <= 0:
+        raise ValueError(f"invalid atempo speed: {speed}")
+    parts: list[str] = []
+    # Speed up (s > 1): peel 2.0 factors until remainder in range.
+    while s > 2.0 + 1e-9:
+        parts.append("atempo=2.0")
+        s /= 2.0
+    # Slow down (s < 1): peel 0.5 factors if ever needed.
+    while s < 0.5 - 1e-9:
+        parts.append("atempo=0.5")
+        s /= 0.5
+    parts.append(f"atempo={s:.5f}")
+    return ",".join(parts)
+
+
+def fit_narration_to_picture_duration(
+    bed_path: Path,
+    *,
+    picture_duration_sec: float,
+    segments: list[NarrationSegment] | None = None,
+    total_duration_holder: list[float] | None = None,
+    max_speed: float = 1.35,
+    min_tail_sec: float = 0.15,
+    min_apply_speed: float = 1.02,
+) -> dict[str, Any]:
+    """Time-compress a VO bed so speech finishes before picture ends.
+
+    When narration is longer than the planned picture, prefer adaptive tempo
+    over freeze-padding the last frame (still keeps L15: final > narration).
+
+    Max speed default 1.35×; residual overage is left for a short freeze only
+    as fail-closed fallback (caller/ffmpeg still may pad if needed).
+    """
+    bed = Path(bed_path)
+    out: dict[str, Any] = {
+        "applied": False,
+        "path": str(bed.resolve()) if bed.is_file() else str(bed),
+        "picture_duration_sec": float(picture_duration_sec or 0),
+        "before_sec": 0.0,
+        "after_sec": 0.0,
+        "target_sec": 0.0,
+        "speed": 1.0,
+        "max_speed": float(max_speed),
+        "min_tail_sec": float(min_tail_sec),
+        "reason": "",
+    }
+    pic = float(picture_duration_sec or 0)
+    if pic < 0.5 or not bed.is_file():
+        out["reason"] = "skip_no_picture_or_bed"
+        return out
+    try:
+        before = float(probe_audio_duration(bed))
+    except Exception as e:  # noqa: BLE001
+        out["reason"] = f"probe_failed:{e}"
+        return out
+    out["before_sec"] = before
+    # Leave a short silence window after speech so L15 can pass without freeze pad.
+    target = max(0.5, pic - max(0.05, float(min_tail_sec)))
+    out["target_sec"] = round(target, 3)
+    if before <= target + 0.04:
+        out["after_sec"] = before
+        out["reason"] = "already_fits"
+        return out
+    speed = before / target
+    cap = max(1.0, float(max_speed))
+    if speed > cap:
+        speed = cap
+    if speed < float(min_apply_speed):
+        out["after_sec"] = before
+        out["reason"] = "speed_below_threshold"
+        return out
+    out["speed"] = round(speed, 4)
+    af = _atempo_filter_chain(speed)
+    tmp = bed.with_suffix(bed.suffix + ".fit_tmp.wav")
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(bed),
+        "-af",
+        af,
+        "-c:a",
+        "pcm_s16le",
+        str(tmp),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if proc.returncode != 0 or not tmp.is_file() or tmp.stat().st_size < 64:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        out["after_sec"] = before
+        out["reason"] = f"ffmpeg_failed:{(proc.stderr or '')[-400:]}"
+        return out
+    try:
+        after = float(probe_audio_duration(tmp))
+    except Exception as e:  # noqa: BLE001
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        out["after_sec"] = before
+        out["reason"] = f"probe_after_failed:{e}"
+        return out
+    # Atomically replace bed
+    try:
+        os.replace(tmp, bed)
+    except OSError:
+        shutil.move(str(tmp), str(bed))
+    out["after_sec"] = after
+    out["applied"] = True
+    out["path"] = str(bed.resolve())
+    out["reason"] = "tempo_fit"
+    # Scale absolute cue times so SRT still tracks compressed speech.
+    scale = after / before if before > 0.01 else (1.0 / speed)
+    if segments:
+        for seg in segments:
+            if seg.start_sec is not None:
+                seg.start_sec = round(float(seg.start_sec) * scale, 3)
+            if seg.end_sec is not None:
+                seg.end_sec = round(float(seg.end_sec) * scale, 3)
+            if seg.duration_sec:
+                seg.duration_sec = round(float(seg.duration_sec) * scale, 3)
+    if total_duration_holder is not None:
+        total_duration_holder.clear()
+        total_duration_holder.append(float(after))
+    return out
+
+
+def force_narration_within_picture(
+    bed_path: Path,
+    *,
+    picture_duration_sec: float,
+    segments: list[NarrationSegment] | None = None,
+    max_speed: float = 1.55,
+    min_tail_sec: float = 0.06,
+) -> dict[str, Any]:
+    """跟镜硬对齐：先 tempo-fit，仍超片源则 atrim，保证旁白不跨镜。"""
+    bed = Path(bed_path)
+    meta = fit_narration_to_picture_duration(
+        bed,
+        picture_duration_sec=picture_duration_sec,
+        segments=segments,
+        max_speed=max_speed,
+        min_tail_sec=min_tail_sec,
+        min_apply_speed=1.01,
+    )
+    pic = float(picture_duration_sec or 0)
+    target = max(0.45, pic - max(0.04, float(min_tail_sec)))
+    try:
+        after = float(probe_audio_duration(bed)) if bed.is_file() else 0.0
+    except Exception:  # noqa: BLE001
+        after = float(meta.get("after_sec") or 0)
+    meta["after_sec"] = after
+    if after <= target + 0.06 or not bed.is_file() or pic < 0.5:
+        meta["forced_trim"] = False
+        return meta
+    tmp = bed.with_suffix(bed.suffix + ".atrim_tmp.wav")
+    # atrim + 极短淡出，避免咔哒；时长硬锁在 target
+    af = f"atrim=0:{target:.3f},asetpts=PTS-STARTPTS,afade=t=out:st={max(0.05, target - 0.05):.3f}:d=0.05"
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(bed),
+        "-af",
+        af,
+        "-c:a",
+        "pcm_s16le",
+        str(tmp),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if proc.returncode != 0 or not tmp.is_file() or tmp.stat().st_size < 64:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        meta["forced_trim"] = False
+        meta["reason"] = f"{meta.get('reason')}|atrim_failed"
+        return meta
+    try:
+        os.replace(tmp, bed)
+    except OSError:
+        shutil.move(str(tmp), str(bed))
+    try:
+        trimmed = float(probe_audio_duration(bed))
+    except Exception:  # noqa: BLE001
+        trimmed = target
+    scale = trimmed / after if after > 0.01 else (trimmed / max(after, 0.01))
+    if segments and 0.2 <= scale <= 1.0:
+        for seg in segments:
+            if seg.start_sec is not None:
+                seg.start_sec = round(min(float(seg.start_sec) * scale, trimmed), 3)
+            if seg.end_sec is not None:
+                seg.end_sec = round(min(float(seg.end_sec) * scale, trimmed), 3)
+            if seg.duration_sec:
+                seg.duration_sec = round(max(0.05, float(seg.end_sec or 0) - float(seg.start_sec or 0)), 3)
+            # drop cues that start past trim
+    if segments:
+        keep: list[NarrationSegment] = []
+        for seg in list(segments):
+            if float(seg.start_sec or 0) >= trimmed - 0.04:
+                continue
+            if seg.end_sec is not None and float(seg.end_sec) > trimmed:
+                seg.end_sec = round(trimmed, 3)
+                seg.duration_sec = round(max(0.05, trimmed - float(seg.start_sec or 0)), 3)
+            keep.append(seg)
+        segments[:] = keep
+    meta["after_sec"] = trimmed
+    meta["applied"] = True
+    meta["forced_trim"] = True
+    meta["reason"] = f"{meta.get('reason')}|atrim_lock"
+    return meta
+    if total_duration_holder is not None:
+        total_duration_holder.clear()
+        total_duration_holder.append(after)
+    return out
+
+
 def _ffmpeg_tone(path: Path, duration_sec: float, *, freq: float = 220.0) -> None:
     """Generate a soft placeholder WAV of exact length (mock TTS)."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -232,6 +487,88 @@ def _say_to_wav(text: str, path: Path, *, voice: str | None = None) -> None:
         raise RuntimeError(f"say→wav ffmpeg failed: {cproc.stderr[-400:]}")
 
 
+def _kill_edge_proc(proc: subprocess.Popen[str]) -> None:
+    try:
+        proc.kill()
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        proc.wait(timeout=2)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _edge_save_mp3_killable(
+    text: str,
+    mp3: Path,
+    *,
+    voice_id: str,
+    rate: str,
+    pitch: str,
+    volume: str,
+    timeout_sec: float = EDGE_TTS_ATTEMPT_SEC,
+) -> None:
+    """Run edge-tts in a child process so hung WebSockets can be killed on wall-clock timeout."""
+    mp3.parent.mkdir(parents=True, exist_ok=True)
+    mp3.unlink(missing_ok=True)
+    cfg = {
+        "text": text,
+        "voice": voice_id,
+        "rate": rate or DEFAULT_EDGE_RATE,
+        "pitch": pitch or DEFAULT_EDGE_PITCH,
+        "volume": volume or "+0%",
+        "mp3": str(mp3),
+    }
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as handle:
+        json.dump(cfg, handle, ensure_ascii=False)
+        payload_path = handle.name
+    proc: subprocess.Popen[str] | None = None
+    started = time.monotonic()
+    deadline = started + max(1.0, float(timeout_sec))
+    zero_deadline = started + max(1.0, float(EDGE_TTS_ZERO_BYTE_SEC))
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, "-c", _EDGE_WORKER_SNIPPET, payload_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        while True:
+            rc = proc.poll()
+            if rc is not None:
+                break
+            now = time.monotonic()
+            if now >= deadline:
+                _kill_edge_proc(proc)
+                mp3.unlink(missing_ok=True)
+                raise TimeoutError(f"edge_tts_timeout ({timeout_sec:.0f}s)")
+            # Stalled Microsoft WS: 0-byte file for several seconds → bail early.
+            if now >= zero_deadline:
+                size = mp3.stat().st_size if mp3.is_file() else 0
+                if size < EDGE_TTS_MIN_AUDIO_BYTES:
+                    _kill_edge_proc(proc)
+                    mp3.unlink(missing_ok=True)
+                    raise TimeoutError(
+                        f"edge_tts_timeout (0B for {EDGE_TTS_ZERO_BYTE_SEC:.0f}s)"
+                    )
+            time.sleep(0.1)
+        stdout, stderr = proc.communicate(timeout=2)
+        if proc.returncode != 0:
+            detail = (stderr or stdout or "").strip()[:300] or f"exit_{proc.returncode}"
+            mp3.unlink(missing_ok=True)
+            raise RuntimeError(f"edge_tts_failed: {detail}")
+        if not mp3.is_file() or mp3.stat().st_size < EDGE_TTS_MIN_AUDIO_BYTES:
+            mp3.unlink(missing_ok=True)
+            raise RuntimeError("edge_tts_empty")
+    finally:
+        try:
+            os.unlink(payload_path)
+        except OSError:
+            pass
+        if proc is not None and proc.poll() is None:
+            _kill_edge_proc(proc)
+
+
 def _edge_to_wav(
     text: str,
     path: Path,
@@ -241,11 +578,11 @@ def _edge_to_wav(
     rate: str = DEFAULT_EDGE_RATE,
     pitch: str = DEFAULT_EDGE_PITCH,
     volume: str = "+0%",
-    retries: int = 3,
+    retries: int = EDGE_TTS_MAX_ATTEMPTS,
 ) -> None:
-    """Edge TTS (晓晓 default) → MP3 → WAV. Retries on transient network errors."""
+    """Edge TTS (晓晓 default) → MP3 → WAV. Killable wall-clock + 0B stall guard."""
     try:
-        import edge_tts
+        import edge_tts  # noqa: F401
     except ImportError as e:
         raise RuntimeError("edge-tts not installed") from e
 
@@ -267,41 +604,27 @@ def _edge_to_wav(
 
     mp3 = path.with_suffix(".mp3")
     last_err: Exception | None = None
-    attempts = max(1, int(retries))
+    # Cap retries so stacked timeouts cannot drag a single item for minutes.
+    attempts = max(1, min(int(retries), EDGE_TTS_MAX_ATTEMPTS))
     vol = volume or "+0%"
 
     for attempt in range(attempts):
-        async def _run() -> None:
-            communicate = edge_tts.Communicate(
+        try:
+            _edge_save_mp3_killable(
                 text,
-                voice_id,
+                mp3,
+                voice_id=voice_id,
                 rate=rate or DEFAULT_EDGE_RATE,
                 pitch=pitch or DEFAULT_EDGE_PITCH,
                 volume=vol,
+                timeout_sec=EDGE_TTS_ATTEMPT_SEC,
             )
-            await communicate.save(str(mp3))
-
-        try:
-            try:
-                asyncio.run(_run())
-            except RuntimeError:
-                # Nested event loop (rare): use a fresh loop
-                loop = asyncio.new_event_loop()
-                try:
-                    loop.run_until_complete(_run())
-                finally:
-                    loop.close()
-
-            if not mp3.is_file() or mp3.stat().st_size < 64:
-                raise RuntimeError("edge-tts produced empty audio")
             last_err = None
             break
         except Exception as e:  # noqa: BLE001 — retry transient network
             last_err = e
             mp3.unlink(missing_ok=True)
             if attempt + 1 < attempts:
-                import time
-
                 time.sleep(1.2 * (attempt + 1))
             continue
 
@@ -321,7 +644,7 @@ def _edge_to_wav(
         "pcm_s16le",
         str(path),
     ]
-    cproc = subprocess.run(conv, capture_output=True, text=True, check=False)
+    cproc = subprocess.run(conv, capture_output=True, text=True, check=False, timeout=60)
     mp3.unlink(missing_ok=True)
     if cproc.returncode != 0 or not path.is_file():
         raise RuntimeError(f"edge→wav ffmpeg failed: {cproc.stderr[-400:]}")
@@ -342,6 +665,11 @@ def synthesize_script(
     strip_punctuation: bool = False,
     allow_fallback: bool = True,
     inter_sentence_gap_sec: float = 0.15,
+    clone_pack: Any | None = None,
+    clone_pack_id: str | None = None,
+    clone_ref_wav: str | Path | None = None,
+    clone_ref_text: str | None = None,
+    clone_speed: float | None = None,
 ) -> NarrationResult:
     """Turn a full script into segment WAVs + real durations.
 
@@ -396,7 +724,7 @@ def synthesize_script(
                 rate=effective_rate,
                 pitch=effective_pitch,
                 volume=effective_volume,
-                retries=6 if not allow_fallback else 3,
+                retries=EDGE_TTS_MAX_ATTEMPTS,
             )
             total_real = probe_audio_duration(oneshot)
             # Slice by silence, then merge spans → one group per sentence.
@@ -479,10 +807,42 @@ def synthesize_script(
         except Exception as e:
             oneshot_err = str(e)
 
-    # --- Path B: per-sentence Edge (resume-friendly) ---
+    # --- Path B: per-sentence (Edge / clone / say / mock) ---
     segments = []
     used_provider = provider
     edge_errors: list[str] = []
+    clone_meta: dict[str, Any] = {}
+    resolved_clone = None
+    from engine.pack.voice_clone import is_clone_provider, resolve_voice_pack
+
+    if is_clone_provider(provider):
+        provider = "clone"  # type: ignore[assignment]
+        used_provider = "clone"
+        if clone_pack is not None and hasattr(clone_pack, "ref_wav"):
+            resolved_clone = clone_pack
+        else:
+            resolved_clone = resolve_voice_pack(
+                pack_id=clone_pack_id or voice,
+                ref_wav=clone_ref_wav,
+                ref_text=clone_ref_text,
+            )
+        if clone_speed is not None:
+            from engine.pack.voice_clone import VoicePack as _VP
+
+            resolved_clone = _VP(
+                id=resolved_clone.id,
+                label=resolved_clone.label,
+                ref_wav=resolved_clone.ref_wav,
+                ref_text=resolved_clone.ref_text,
+                speed=float(clone_speed),
+                chars_per_sec_zh=resolved_clone.chars_per_sec_zh,
+                engine=resolved_clone.engine,
+                root=resolved_clone.root,
+            )
+        clone_meta = resolved_clone.to_dict()
+        if cps is None:
+            cps = float(resolved_clone.chars_per_sec_zh or 3.3)
+
     if oneshot_err:
         edge_errors.append(f"oneshot_failed: {oneshot_err}")
     for i, text in enumerate(chunks):
@@ -490,7 +850,7 @@ def synthesize_script(
         wav = out_dir / f"seg_{i:03d}_{lang}.wav"
         # Resume: keep already-good segment WAVs across retries / network flaps
         if (
-            provider == "edge"
+            provider in ("edge", "clone")
             and wav.is_file()
             and wav.stat().st_size > 1000
             and probe_audio_duration(wav) > 0.2
@@ -538,6 +898,23 @@ def synthesize_script(
                 except Exception:
                     used_provider = "mock"
                     _ffmpeg_tone(wav, est, freq=200 + (i % 5) * 20)
+        elif provider == "clone":
+            from engine.pack.voice_clone import clone_utterance_to_wav
+
+            assert resolved_clone is not None
+            try:
+                speak = text if not str(lang).startswith("zh") else (
+                    text if text[-1:] in "。！？!?" else text + "。"
+                )
+                clone_utterance_to_wav(speak, wav, resolved_clone, seed=1000 + i)
+            except Exception as e:
+                edge_errors.append(f"clone:{e}")
+                if not allow_fallback:
+                    raise RuntimeError(
+                        f"Clone TTS required (no fallback). segment={i} err={e}"
+                    ) from e
+                used_provider = "mock"
+                _ffmpeg_tone(wav, est, freq=200 + (i % 5) * 20)
         elif provider == "say":
             try:
                 _say_to_wav(text, wav, voice=voice)
@@ -574,6 +951,7 @@ def synthesize_script(
             "mode": "per_sentence",
             "inter_sentence_gap_sec": gap,
             "edge_errors": edge_errors[:5],
+            **({"clone_pack": clone_meta} if clone_meta else {}),
         },
     )
     if write_manifest:
@@ -865,6 +1243,202 @@ def concat_narration_audio(
     return out_path
 
 
+def synthesize_script_clip_slots(
+    slots: list[dict[str, Any]],
+    out_dir: Path,
+    *,
+    lang: str = "zh",
+    provider: ProviderName = "mock",
+    voice: str | None = None,
+    cps: float | None = None,
+    rate: str | None = None,
+    pitch: str | None = None,
+    volume: str | None = None,
+    strip_punctuation: bool = False,
+    allow_fallback: bool = True,
+    inter_sentence_gap_sec: float = 0.12,
+    clone_pack: Any | None = None,
+    clone_pack_id: str | None = None,
+    clone_ref_wav: str | Path | None = None,
+    clone_ref_text: str | None = None,
+    clone_speed: float | None = None,
+    pad_to_duration: bool = True,
+) -> NarrationResult:
+    """Synthesize one VO block per picture slot; pad silence so each block ends near the cut.
+
+    ``slots`` items: {duration_sec, text}. Speech for slot i only describes slot i's goods.
+    When ``pad_to_duration`` is False (跟镜精品), do not pad — caller sets mirror length
+    to the measured speech so 镜切=句切.
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    bed_parts: list[Path] = []
+    all_segments: list[NarrationSegment] = []
+    cursor = 0.0
+    script_parts: list[str] = []
+    slot_speech_sec: list[float] = []
+    gap = max(0.0, float(inter_sentence_gap_sec))
+    provider_used = str(provider)
+    for i, slot in enumerate(slots or []):
+        if not isinstance(slot, dict):
+            continue
+        target = max(0.6, float(slot.get("duration_sec") or 0) or 4.0)
+        text = str(slot.get("text") or "").strip()
+        script_parts.append(text)
+        slot_dir = out_dir / f"slot_{i:02d}"
+        slot_dir.mkdir(parents=True, exist_ok=True)
+        if not text:
+            sil_dur = target if pad_to_duration else 0.05
+            sil = _make_silence_wav(slot_dir / "empty.wav", duration_sec=sil_dur)
+            bed_parts.append(sil)
+            slot_speech_sec.append(0.0)
+            cursor += sil_dur
+            continue
+        narr = synthesize_script(
+            text,
+            slot_dir / "narr",
+            lang=lang,
+            provider=provider,
+            voice=voice,
+            cps=cps,
+            rate=rate,
+            pitch=pitch,
+            volume=volume,
+            strip_punctuation=strip_punctuation,
+            allow_fallback=allow_fallback,
+            inter_sentence_gap_sec=gap,
+            clone_pack=clone_pack,
+            clone_pack_id=clone_pack_id,
+            clone_ref_wav=clone_ref_wav,
+            clone_ref_text=clone_ref_text,
+            clone_speed=clone_speed,
+        )
+        provider_used = narr.provider or provider_used
+        speech_bed = slot_dir / "speech.wav"
+        narration_bed_from_result(narr, speech_bed, gap_sec=gap)
+        speech_dur = float(narr.total_duration_sec or probe_audio_duration(speech_bed) or 0.0)
+        # 跟镜：单镜旁白不得超过片源；先压速，仍超则硬裁，禁止跨镜
+        max_d = float(slot.get("max_duration_sec") or 0) or 0.0
+        if max_d > 0.8 and speech_dur > max_d - 0.05:
+            try:
+                # 过长：缩短文案再合成一次（优先保住雅述完整读完）
+                if speech_dur > max_d * 1.25:
+                    try:
+                        from engine.pack.scene_tour_diction import (
+                            max_chars_for_available,
+                            shorten_ornate_line,
+                        )
+
+                        short = shorten_ornate_line(text, max_chars_for_available(max_d))
+                        if short and short != text:
+                            narr2 = synthesize_script(
+                                short,
+                                slot_dir / "narr_short",
+                                lang=lang,
+                                provider=provider,
+                                voice=voice,
+                                cps=cps,
+                                rate=rate,
+                                pitch=pitch,
+                                volume=volume,
+                                strip_punctuation=strip_punctuation,
+                                allow_fallback=allow_fallback,
+                                inter_sentence_gap_sec=gap,
+                                clone_pack=clone_pack,
+                                clone_pack_id=clone_pack_id,
+                                clone_ref_wav=clone_ref_wav,
+                                clone_ref_text=clone_ref_text,
+                                clone_speed=clone_speed,
+                            )
+                            narration_bed_from_result(narr2, speech_bed, gap_sec=gap)
+                            narr = narr2
+                            text = short
+                            script_parts[-1] = short
+                            speech_dur = float(
+                                narr.total_duration_sec or probe_audio_duration(speech_bed) or 0.0
+                            )
+                    except Exception:
+                        pass
+                if speech_dur > max_d - 0.05:
+                    segs = list(narr.segments or [])
+                    force_narration_within_picture(
+                        speech_bed,
+                        picture_duration_sec=max(0.6, max_d),
+                        segments=segs,
+                        max_speed=1.55,
+                        min_tail_sec=0.06,
+                    )
+                    narr.segments = segs
+                    speech_dur = float(probe_audio_duration(speech_bed) or speech_dur)
+                    # 同步 segment 绝对本地时间到裁后时长
+                    if narr.segments and speech_dur > 0.2:
+                        last_end = max(float(s.end_sec or 0) for s in narr.segments) or speech_dur
+                        if last_end > speech_dur + 0.05:
+                            scale = speech_dur / last_end
+                            for seg in narr.segments:
+                                if seg.start_sec is not None:
+                                    seg.start_sec = round(float(seg.start_sec) * scale, 3)
+                                if seg.end_sec is not None:
+                                    seg.end_sec = round(min(speech_dur, float(seg.end_sec) * scale), 3)
+                                if seg.duration_sec is not None:
+                                    seg.duration_sec = round(
+                                        max(0.05, float(seg.end_sec or 0) - float(seg.start_sec or 0)),
+                                        3,
+                                    )
+            except Exception:
+                pass
+        slot_speech_sec.append(round(speech_dur, 3))
+        # Place relative segment times onto absolute timeline
+        local_cursor = 0.0
+        for seg in narr.segments:
+            st = float(seg.start_sec) if seg.start_sec is not None else local_cursor
+            en = float(seg.end_sec) if seg.end_sec is not None else st + float(seg.duration_sec or 0)
+            all_segments.append(
+                NarrationSegment(
+                    index=len(all_segments),
+                    text=seg.text,
+                    lang=seg.lang,
+                    audio_path=seg.audio_path,
+                    duration_sec=float(seg.duration_sec or max(0.05, en - st)),
+                    estimated_sec=float(seg.estimated_sec or 0),
+                    start_sec=round(cursor + st, 3),
+                    end_sec=round(cursor + en, 3),
+                )
+            )
+            local_cursor = max(local_cursor, en)
+        pad = max(0.0, target - speech_dur) if pad_to_duration else 0.0
+        if pad > 0.05:
+            sil = _make_silence_wav(slot_dir / "pad.wav", duration_sec=pad)
+            filled = slot_dir / "filled.wav"
+            concat_narration_audio([speech_bed, sil], filled, gap_sec=0.0)
+            bed_parts.append(filled)
+            cursor += speech_dur + pad
+        else:
+            bed_parts.append(speech_bed)
+            cursor += speech_dur
+    if not bed_parts:
+        raise ValueError("no product slot audio")
+    final = out_dir / "clip_aligned.wav"
+    concat_narration_audio(bed_parts, final, gap_sec=0.0)
+    total = probe_audio_duration(final) or cursor
+    return NarrationResult(
+        segments=all_segments,
+        total_duration_sec=float(total),
+        provider=provider_used,
+        lang=lang,
+        out_dir=str(out_dir),
+        script_text="".join(script_parts),
+        extras={
+            "mode": "clip_aligned_slots",
+            "oneshot_path": str(final),
+            "inter_sentence_gap_sec": 0.0,  # silences already baked into bed
+            "slot_count": len(bed_parts),
+            "slot_speech_sec": slot_speech_sec,
+            "pad_to_duration": bool(pad_to_duration),
+        },
+    )
+
+
 def narration_bed_from_result(
     result: NarrationResult,
     out_path: Path,
@@ -874,7 +1448,12 @@ def narration_bed_from_result(
     """Build a single WAV bed from synthesize_script output."""
     oneshot = (result.extras or {}).get("oneshot_path")
     mode = (result.extras or {}).get("mode")
-    if oneshot and Path(oneshot).is_file() and mode in ("oneshot_punctuated", "oneshot_edge"):
+    # oneshot bed is already the final timeline (including clip-aligned pads)
+    if oneshot and Path(oneshot).is_file() and mode in (
+        "oneshot_punctuated",
+        "oneshot_edge",
+        "clip_aligned_slots",
+    ):
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         if Path(oneshot).resolve() != out_path.resolve():

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import math
+import threading
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 from sqlalchemy import select
@@ -12,8 +13,11 @@ from sqlalchemy.orm import Session
 from engine.catalog.db import Asset, Cliplet
 
 
-OLLAMA_URL = "http://127.0.0.1:11434"
 EMBED_MODEL = "nomic-embed-text"
+
+
+class EmbeddingCancelled(RuntimeError):
+    pass
 
 
 def _active_embed_model() -> str:
@@ -41,21 +45,78 @@ def _hash_embed(text: str, dim: int = 256) -> list[float]:
     return [v / norm for v in vec]
 
 
-def embed_text(text: str, model: str | None = None) -> tuple[list[float], str]:
+def embed_text(
+    text: str,
+    model: str | None = None,
+    *,
+    strict: bool = False,
+    cancel_event: threading.Event | None = None,
+    client_callback: Callable[[httpx.Client | None], None] | None = None,
+    timeout_sec: float | None = None,
+) -> tuple[list[float], str]:
+    """Embed via the unified Ollama gateway (shared ollama_heavy slot, cancelable subprocess).
+
+    ``client_callback`` is retained for backward compatibility with callers that
+    still register/unregister an httpx.Client for cooperative cancellation; the
+    actual network call now runs out-of-process, so the callback is invoked with
+    ``None`` (no live client to hand back) purely to preserve register/clear pairing.
+    """
+    from engine.catalog.ollama_runtime import (
+        embed_circuit_allows_request,
+        embeddings,
+        record_embed_failure,
+        record_embed_success,
+    )
+
     model = model or _active_embed_model()
+    error = "ollama_embedding_unavailable"
+    if cancel_event is not None and cancel_event.is_set():
+        raise EmbeddingCancelled("cancelled_before_request")
+    if not embed_circuit_allows_request():
+        error = "ollama_embed_circuit_open"
+        if strict:
+            raise RuntimeError(error)
+        return _hash_embed(text), "hash_fallback"
+    # Planning tolerates hash fallback; keep timeouts short so a wedged Ollama
+    # cannot pin the render slot for minutes. Strict paths keep a longer budget.
+    if timeout_sec is None:
+        timeout_sec = 60.0 if strict else 8.0
+    if client_callback:
+        client_callback(None)
     try:
-        with httpx.Client(timeout=60.0, trust_env=False) as client:
-            resp = client.post(
-                f"{OLLAMA_URL}/api/embeddings",
-                json={"model": model, "prompt": text},
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                emb = data.get("embedding") or []
-                if emb:
-                    return emb, "ollama"
-    except Exception:
-        pass
+        result = embeddings(
+            model=model,
+            prompt=text,
+            timeout_sec=float(timeout_sec),
+            cancel_event=cancel_event,
+        )
+        if result.get("ok"):
+            body = result.get("body") or {}
+            emb = (body.get("embedding") or []) if isinstance(body, dict) else []
+            if emb:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise EmbeddingCancelled("cancelled_after_response")
+                record_embed_success()
+                return emb, "ollama"
+            error = "ollama_embedding_empty_vector"
+            record_embed_failure(error)
+        else:
+            error = str(result.get("error") or "ollama_embedding_failed")
+            if str(result.get("error_kind") or "") == "cancelled":
+                raise EmbeddingCancelled("cancelled_during_request")
+            record_embed_failure(error)
+    except EmbeddingCancelled:
+        raise
+    except Exception as exc:
+        if cancel_event is not None and cancel_event.is_set():
+            raise EmbeddingCancelled("cancelled_during_request") from exc
+        error = f"ollama_embedding_{type(exc).__name__}"
+        record_embed_failure(error)
+    finally:
+        if client_callback:
+            client_callback(None)
+    if strict:
+        raise RuntimeError(error)
     return _hash_embed(text), "hash_fallback"
 
 
@@ -69,11 +130,23 @@ def cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
-def index_cliplet(session: Session, cliplet: Cliplet) -> Cliplet:
+def index_cliplet(
+    session: Session,
+    cliplet: Cliplet,
+    *,
+    cancel_event: threading.Event | None = None,
+    client_callback: Callable[[httpx.Client | None], None] | None = None,
+    require_model: bool = False,
+) -> Cliplet:
     from sqlalchemy import text
 
     from engine.catalog.semantic_tags import compose_embed_text
-    from engine.ingest.semantic_gate import semantic_gate_passed
+    from engine.ingest.semantic_gate import (
+        STRICT_EMBEDDING_MODEL,
+        STRICT_EMBEDDING_SCHEMA_VERSION,
+        semantic_analysis_passed,
+        semantic_index_admissible,
+    )
     from engine.ingest.quality import CLIPLET_STATUS_REJECTED_BLUR, is_usable_quality
 
     # HARD: never vectorize blur / rejected slices
@@ -83,21 +156,26 @@ def index_cliplet(session: Session, cliplet: Cliplet) -> Cliplet:
         cliplet.status = CLIPLET_STATUS_REJECTED_BLUR
         session.flush()
         session.execute(
-            text("UPDATE cliplets SET embedding_json=NULL, indexed_at=NULL, status=:st WHERE id=:id"),
+            text(
+                "UPDATE cliplets SET embedding_json=NULL, embedding_backend=NULL, "
+                "embedding_model=NULL, embedding_schema_version=NULL, indexed_at=NULL, "
+                "status=:st WHERE id=:id"
+            ),
             {"st": CLIPLET_STATUS_REJECTED_BLUR, "id": int(cliplet.id)},
         )
         session.commit()
         session.refresh(cliplet)
         return cliplet
 
-    # Existing legacy vectors remain readable, but every new/regenerated vector
-    # requires an auditable passing semantic v1 analysis.
-    if not semantic_gate_passed(cliplet):
+    # General production accepts an audited coarse record; strict production
+    # still checks semantic v1 independently and never consumes coarse rows.
+    if not semantic_index_admissible(cliplet):
         cliplet.status = "rejected_semantic"
         session.flush()
         session.execute(
             text(
-                "UPDATE cliplets SET embedding_json=NULL, indexed_at=NULL, "
+                "UPDATE cliplets SET embedding_json=NULL, embedding_backend=NULL, "
+                "embedding_model=NULL, embedding_schema_version=NULL, indexed_at=NULL, "
                 "status='rejected_semantic' WHERE id=:id"
             ),
             {"id": int(cliplet.id)},
@@ -112,7 +190,8 @@ def index_cliplet(session: Session, cliplet: Cliplet) -> Cliplet:
         session.flush()
         session.execute(
             text(
-                "UPDATE cliplets SET embedding_json=NULL, indexed_at=NULL, "
+                "UPDATE cliplets SET embedding_json=NULL, embedding_backend=NULL, "
+                "embedding_model=NULL, embedding_schema_version=NULL, indexed_at=NULL, "
                 "status='rejected_semantic' WHERE id=:id"
             ),
             {"id": int(cliplet.id)},
@@ -120,22 +199,80 @@ def index_cliplet(session: Session, cliplet: Cliplet) -> Cliplet:
         session.commit()
         session.refresh(cliplet)
         return cliplet
-    emb, _backend = embed_text(embed_input)
+    strict_semantic = semantic_analysis_passed(cliplet)
+    model = STRICT_EMBEDDING_MODEL if strict_semantic else _active_embed_model()
+    emb, backend = embed_text(
+        embed_input,
+        model=model,
+        strict=strict_semantic or require_model,
+        cancel_event=cancel_event,
+        client_callback=client_callback,
+    )
+    if cancel_event is not None and cancel_event.is_set():
+        raise EmbeddingCancelled("cancelled_before_commit")
+    if strict_semantic and backend != "ollama":
+        raise RuntimeError("strict_embedding_backend_invalid")
     cliplet.embedding_json = emb
+    cliplet.embedding_backend = backend
+    cliplet.embedding_model = model
+    cliplet.embedding_schema_version = STRICT_EMBEDDING_SCHEMA_VERSION
     cliplet.indexed_at = datetime.now(timezone.utc)
     session.commit()
     session.refresh(cliplet)
     return cliplet
 
 
-def index_pending(session: Session, limit: int = 200, customer_id: int | None = None) -> dict[str, Any]:
-    from engine.ingest.quality import MIN_QUALITY_SCORE
+def index_asset_cliplets(
+    session: Session,
+    asset: Asset,
+    *,
+    cancel_event: threading.Event | None = None,
+    client_callback: Callable[[httpx.Client | None], None] | None = None,
+) -> dict[str, int]:
+    """Idempotently slice one asset and commit each missing cliplet separately."""
+    from engine.ingest.cliplet import create_cliplets_for_asset
 
+    rows = create_cliplets_for_asset(session, asset, force=False, use_vision=False)
+    completed = 0
+    kept = 0
+    for row in sorted(rows, key=lambda value: int(value.id)):
+        if cancel_event is not None and cancel_event.is_set():
+            raise EmbeddingCancelled("cancelled_between_cliplets")
+        if row.embedding_json is not None:
+            kept += 1
+            continue
+        index_cliplet(
+            session,
+            row,
+            cancel_event=cancel_event,
+            client_callback=client_callback,
+            require_model=True,
+        )
+        if row.embedding_json is not None:
+            completed += 1
+    return {
+        "asset_id": int(asset.id),
+        "completed_cliplets": completed,
+        "kept_cliplets": kept,
+        "total_cliplets": len(rows),
+    }
+
+
+def index_pending(session: Session, limit: int = 200, customer_id: int | None = None) -> dict[str, Any]:
+    from engine.ingest.quality import effective_min_quality_score
+
+    floor = float(effective_min_quality_score())
+    try:
+        from engine.config.settings import load_settings
+
+        batch = int(getattr(load_settings(), "vector_batch_size", 0) or 0)
+    except Exception:  # noqa: BLE001
+        batch = 0
     stmt = (
         select(Cliplet)
         .where(Cliplet.embedding_json.is_(None))
         .where(Cliplet.status == "usable")
-        .where(Cliplet.score >= MIN_QUALITY_SCORE)
+        .where(Cliplet.score >= floor)
         .where(Cliplet.score != 1.0)  # skip legacy unscored until rescored
     )
     if customer_id is not None:
@@ -144,7 +281,11 @@ def index_pending(session: Session, limit: int = 200, customer_id: int | None = 
             .where(Asset.customer_id == customer_id)
             .where(Asset.status == "ready")
         )
-    rows = list(session.scalars(stmt.limit(limit)).all())
+    requested = int(limit)
+    if batch > 0 and requested >= 200:
+        requested = batch
+    safe_limit = max(0, min(requested, 200))
+    rows = list(session.scalars(stmt.order_by(Cliplet.asset_id.asc(), Cliplet.id.asc()).limit(safe_limit)).all())
     indexed = 0
     skipped = 0
     for row in rows:
@@ -168,23 +309,32 @@ def search_cliplets(
     top_k: int = 20,
     min_duration: float = 2.0,
     customer_id: int | None = None,
+    orientation: str | None = None,
     strict_semantic_v1: bool = False,
 ) -> list[tuple[Cliplet, float]]:
-    from engine.ingest.quality import MIN_QUALITY_SCORE
+    from engine.ingest.quality import effective_min_quality_score
 
-    q_emb, _ = embed_text(query)
+    floor = float(effective_min_quality_score())
+    if strict_semantic_v1:
+        from engine.ingest.semantic_gate import STRICT_EMBEDDING_MODEL
+
+        q_emb, q_backend = embed_text(query, model=STRICT_EMBEDDING_MODEL, strict=True)
+    else:
+        q_emb, q_backend = embed_text(query)
     stmt = select(Cliplet).where(
         Cliplet.embedding_json.is_not(None),
         Cliplet.duration_sec >= min_duration,
         Cliplet.status == "usable",
-        Cliplet.score >= MIN_QUALITY_SCORE,
+        Cliplet.score >= floor,
     )
-    if customer_id is not None:
-        stmt = (
-            stmt.join(Asset, Cliplet.asset_id == Asset.id)
-            .where(Asset.customer_id == customer_id)
-            .where(Asset.status == "ready")
+    if customer_id is not None or orientation in {"portrait", "landscape"}:
+        stmt = stmt.join(Asset, Cliplet.asset_id == Asset.id).where(
+            Asset.status == "ready"
         )
+    if customer_id is not None:
+        stmt = stmt.where(Asset.customer_id == customer_id)
+    if orientation in {"portrait", "landscape"}:
+        stmt = stmt.where(Asset.orientation == orientation)
     if category and category != "default":
         stmt = stmt.where(Cliplet.category == category)
     if theme and theme != "default":
@@ -202,7 +352,14 @@ def search_cliplets(
     q_tokens = [t for t in (query or "").replace("，", " ").replace(",", " ").split() if t.strip()]
     scored: list[tuple[Cliplet, float]] = []
     for row in rows:
-        base = cosine(q_emb, row.embedding_json or [])
+        row_backend = (row.embedding_backend or "ollama").strip()
+        # Hash and Ollama vectors live in different spaces — never mix cosine.
+        if q_backend == "hash_fallback" and row_backend == "ollama":
+            base = 0.0
+        elif q_backend == "ollama" and row_backend == "hash_fallback":
+            base = 0.0
+        else:
+            base = cosine(q_emb, row.embedding_json or [])
         # Soft keyword boost so tag-bearing clips surface for queries like「装车 货车」
         blob = " ".join(
             [

@@ -39,6 +39,11 @@ def find_tab_ws(
     exclude_substr: str = "service-worker",
 ) -> tuple[str, str]:
     for t in list_tabs(cdp_http):
+        # CDP exposes cross-origin iframe targets in /json/list too. Their URL
+        # may contain the creator domain only inside a `from=` query parameter,
+        # so selecting them causes uploads to search the chat iframe DOM.
+        if t.get("type") != "page":
+            continue
         url = t.get("url") or ""
         if exclude_substr and exclude_substr in url:
             continue
@@ -296,6 +301,8 @@ class CdpSession:
                         "need_human",
                         "need_login",
                         "uploading",
+                        "inbox",
+                        "scrolled",
                     ):
                         return val
                     if val.get("bodyOk") or val.get("titleOk"):

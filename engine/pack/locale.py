@@ -197,7 +197,7 @@ def build_platform_copy_for_lang(
     glossary: dict[str, str] | None = None,
     description: str = "",
 ) -> dict[str, Any]:
-    from engine.pack.publish import PLATFORMS, _split_title_lines
+    from engine.pack.publish import PLATFORMS, _split_title_lines, limit_platform_hashtags
 
     code = normalize_lang_code(lang)
     if code in ("zh", "zh-TW"):
@@ -221,26 +221,45 @@ def build_platform_copy_for_lang(
         gloss = glossary or DEFAULT_GLOSSARY
         tags = [f"#{translate_phrase(t.lstrip('#'), gloss).replace(' ', '')}" for t in hashtags[:4]] + tags[:2]
     tag_line = " ".join(dict.fromkeys(tags))
+    kuaishou_body, kuaishou_tags = limit_platform_hashtags(
+        "kuaishou",
+        f"{hook}\n{body}\n{tag_line}",
+        tags,
+    )
+
+    from engine.pack.publish import ensure_ai_generated_disclosure
 
     platforms = {
         "douyin": {
             "platform": "douyin",
             "title": hook[:40],
-            "body": f"{hook}\n{body}\n{tag_line}\n🎵 {music_credit}",
+            "body": ensure_ai_generated_disclosure(
+                f"{hook}\n{body}\n{tag_line}\n🎵 {music_credit}"
+            ),
             "hashtags": tags[:6],
         },
         "channels": {
             "platform": "channels",
             "title": f"{hook} · {brand}"[:64],
-            "body": f"{body}\n{tag_line}",
+            "body": ensure_ai_generated_disclosure(f"{body}\n{tag_line}"),
             "hashtags": tags[:6],
         },
         "xhs": {
             "platform": "xhs",
             "title": f"{hook}"[:40],
-            "body": f"{hook} | {body}\n{tag_line}\n🎵 {music_credit}",
+            "body": ensure_ai_generated_disclosure(
+                f"{hook} | {body}\n{tag_line}\n🎵 {music_credit}"
+            ),
             "hashtags": tags[:6],
         },
+        "kuaishou": {
+            "platform": "kuaishou",
+            "title": hook[:30],
+            "body": ensure_ai_generated_disclosure(kuaishou_body),
+            "hashtags": kuaishou_tags,
+        },
+    }
+    optional_articles = {
         "wechat_mp": {
             "platform": "wechat_mp",
             "title": f"{brand} | {hook}",
@@ -264,6 +283,7 @@ def build_platform_copy_for_lang(
         "title_localized": f"{hook} — {body}" if body else hook,
         "title_en": f"{hook} — {body}" if code == "en" else None,
         "platforms": platforms,
+        "optional_articles": optional_articles,
     }
 
 

@@ -11,6 +11,10 @@ import re
 from typing import Any
 
 SEMANTIC_SCHEMA_VERSION = "suying.cliplet.semantic.v1"
+COARSE_SEMANTIC_SCHEMA_VERSION = "suying.cliplet.coarse.v1"
+STRICT_EMBEDDING_SCHEMA_VERSION = "suying.cliplet.embedding.v1"
+STRICT_EMBEDDING_BACKEND = "ollama"
+STRICT_EMBEDDING_MODEL = "nomic-embed-text"
 MAX_SEMANTIC_ATTEMPTS = 3
 MIN_OVERALL_CONFIDENCE = 0.72
 MIN_LABEL_CONFIDENCE = 0.65
@@ -381,8 +385,8 @@ def evaluate_semantic_gate(data: Any) -> dict[str, Any]:
     return {"passed": not reasons, "reasons": list(dict.fromkeys(reasons))}
 
 
-def semantic_gate_passed(cliplet: Any) -> bool:
-    """True only for a persisted v1 analysis with a recorded passing audit."""
+def semantic_analysis_passed(cliplet: Any) -> bool:
+    """True only for a persisted v1 visual analysis with a passing audit."""
     audit = getattr(cliplet, "semantic_gate_json", None)
     data = getattr(cliplet, "semantic_json", None)
     return (
@@ -391,4 +395,42 @@ def semantic_gate_passed(cliplet: Any) -> bool:
         and audit.get("passed") is True
         and isinstance(data, dict)
         and evaluate_semantic_gate(data)["passed"] is True
+    )
+
+
+def strict_embedding_provenance_valid(cliplet: Any) -> bool:
+    """Require a real, fully identified Ollama embedding for strict use."""
+    embedding = getattr(cliplet, "embedding_json", None)
+    return (
+        isinstance(embedding, list)
+        and bool(embedding)
+        and getattr(cliplet, "embedding_backend", None) == STRICT_EMBEDDING_BACKEND
+        and getattr(cliplet, "embedding_model", None) == STRICT_EMBEDDING_MODEL
+        and getattr(cliplet, "embedding_schema_version", None)
+        == STRICT_EMBEDDING_SCHEMA_VERSION
+    )
+
+
+def semantic_gate_passed(cliplet: Any) -> bool:
+    """True only when strict visual analysis and embedding provenance both pass."""
+    return semantic_analysis_passed(cliplet) and strict_embedding_provenance_valid(cliplet)
+
+
+def semantic_index_admissible(cliplet: Any) -> bool:
+    """Allow strict v1 or an explicitly audited coarse record into the general index.
+
+    Coarse records never satisfy ``semantic_gate_passed`` and therefore remain
+    excluded from strict-semantic production. They only keep normal production
+    available on low-memory Macs without running a VLM over the whole library.
+    """
+    if semantic_analysis_passed(cliplet):
+        return True
+    audit = getattr(cliplet, "semantic_gate_json", None)
+    description = str(getattr(cliplet, "description", None) or "").strip()
+    return (
+        getattr(cliplet, "semantic_schema_version", None) == COARSE_SEMANTIC_SCHEMA_VERSION
+        and isinstance(audit, dict)
+        and audit.get("mode") == "coarse"
+        and audit.get("passed") is True
+        and bool(description)
     )

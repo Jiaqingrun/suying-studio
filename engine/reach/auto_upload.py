@@ -74,10 +74,15 @@ def cancel_job() -> dict[str, Any]:
     with _lock:
         if not _job:
             return {"ok": True, "cancelled": False, "reason": "no_job"}
+        run_id = _job.get("run_id")
         _job["_cancel"] = True
         _job["phase"] = "cancelled"
         _job["message"] = "用户取消"
         _job["updated_at"] = _now()
+        if run_id:
+            from engine.reach.publish_runner import cancel_run
+
+            cancel_run(str(run_id))
         return {"ok": True, "cancelled": True, "job_id": _job.get("job_id")}
 
 
@@ -108,57 +113,125 @@ def start_job(
     timeout_sec: float = 300,
     dry_run: bool = False,
 ) -> dict[str, Any]:
+    global _job
     if not accept_risk:
         raise ValueError("须 accept_risk=true（G5.V 风控自负）")
     plat = (platform or "douyin").strip().lower()
-    entry = entry_for_platform(plat)
+    if dry_run:
+        with _lock:
+            _job = {
+                "job_id": "dry_run",
+                "phase": "done",
+                "message": "dry_run：未创建批次",
+                "dry_run": True,
+            }
+        return get_status()
     with _lock:
-        global _job
         if _job and _job.get("phase") in ("waiting_login", "uploading", "starting"):
             raise ValueError(f"已有自动上传任务进行中（phase={_job.get('phase')}）")
-        job_id = uuid.uuid4().hex[:12]
-        _job = {
-            "job_id": job_id,
-            "phase": "starting",
-            "chrome_profile": chrome_profile,
-            "queue_id": queue_id,
-            "customer_id": customer_id,
-            "platform": plat,
-            "title": title,
-            "message": f"正在打开 {entry['label']}…",
-            "probe": None,
-            "result": None,
-            "error": None,
-            "need_human": False,
-            "dry_run": dry_run,
-            "timeout_sec": timeout_sec,
-            "created_at": _now(),
-            "updated_at": _now(),
-            "_cancel": False,
-            "disclaimer": (
-                "等待登录就绪后处理当前队列一项；验证码/登录须人过；"
-                "文案+封面槽位齐套才允许点发；不做矩阵连发。"
-            ),
-        }
+        from engine.catalog.db import get_session
+        from engine.reach.publish_runner import create_run, start_run
+
+        session = get_session()
+        try:
+            run = create_run(
+                session,
+                customer_id=customer_id,
+                items=[
+                    {
+                        "queue_id": queue_id,
+                        "platform": plat,
+                        "chrome_profile": chrome_profile,
+                        "title": title,
+                        "video_path": video_path,
+                        "pack_dir": pack_dir,
+                        "body": body,
+                    }
+                ],
+                source="auto_upload_compat",
+                accept_risk=True,
+            )
+            start_run(run.run_id)
+            job_id = run.run_id
+            _job = {
+                "job_id": job_id,
+                "run_id": run.run_id,
+                "phase": "starting",
+                "chrome_profile": chrome_profile,
+                "queue_id": queue_id,
+                "customer_id": customer_id,
+                "platform": plat,
+                "title": title,
+                "message": f"串行批次已启动（run_id={run.run_id}）",
+                "probe": None,
+                "result": None,
+                "error": None,
+                "need_human": False,
+                "dry_run": dry_run,
+                "timeout_sec": timeout_sec,
+                "created_at": _now(),
+                "updated_at": _now(),
+                "_cancel": False,
+                "disclaimer": (
+                    "等待登录就绪后处理当前队列一项；验证码/登录须人过；"
+                    "文案+封面槽位齐套才允许点发；不做矩阵连发。"
+                ),
+            }
+        finally:
+            session.close()
 
     t = threading.Thread(
-        target=_run_job,
-        kwargs={
-            "chrome_profile": chrome_profile,
-            "queue_id": queue_id,
-            "platform": plat,
-            "title": title,
-            "body": body,
-            "video_path": video_path,
-            "pack_dir": pack_dir,
-            "timeout_sec": timeout_sec,
-            "dry_run": dry_run,
-        },
+        target=_poll_batch_job,
+        kwargs={"run_id": job_id, "timeout_sec": timeout_sec},
         daemon=True,
         name=f"reach-auto-upload-{job_id}",
     )
     t.start()
     return get_status()
+
+
+def _poll_batch_job(*, run_id: str, timeout_sec: float) -> None:
+    """Mirror publish batch status into legacy auto-upload job dict."""
+    import time
+
+    deadline = time.time() + max(60.0, timeout_sec)
+    while time.time() < deadline:
+        if _cancelled():
+            return
+        from engine.reach.publish_runner import get_status as batch_get
+
+        st = batch_get(run_id)
+        phase_map = {
+            "switching_profile": "starting",
+            "waiting_login": "waiting_login",
+            "uploading": "uploading",
+            "filling_copy": "uploading",
+            "setting_cover": "uploading",
+            "submitting": "uploading",
+            "verifying": "uploading",
+            "paused_human": "need_human",
+            "outcome_unknown": "awaiting_confirm",
+            "published": "done",
+            "skipped": "awaiting_confirm",
+            "failed": "failed",
+            "cancelled": "cancelled",
+            "completed": "done",
+            "running": "uploading",
+            "queued": "starting",
+        }
+        raw_phase = st.get("phase") or st.get("status") or "idle"
+        mapped = phase_map.get(raw_phase, raw_phase)
+        current = st.get("current_item") or {}
+        _set(
+            phase=mapped,
+            message=st.get("error") or current.get("error") or st.get("status") or "",
+            need_human=mapped in ("need_human", "awaiting_confirm"),
+            result=current.get("evidence"),
+            run_status=st,
+        )
+        if mapped in ("done", "failed", "cancelled", "need_human", "awaiting_confirm", "idle"):
+            break
+        time.sleep(2.0)
 
 
 def _wait_generic_login(*, host_hint: str, timeout_sec: float) -> dict[str, Any]:
@@ -249,14 +322,62 @@ def _finish_queue(queue_id: int, pub: dict[str, Any], note: str) -> None:
         if item.status == "queued":
             set_status(session, item, "awaiting_human", note=note)
             item = get_item(session, queue_id) or item
-        if pub.get("ok") or pub.get("pub_clicked"):
+        verify = pub.get("verify") or pub.get("publish", {}).get("verify") or {}
+        verified = bool(pub.get("ok")) and bool(verify.get("ok"))
+        pub_clicked = bool(pub.get("pub_clicked"))
+        from engine.reach.publication_lifecycle import (
+            bind_queue_item,
+            claim_target_for_submission,
+            record_target_outcome,
+        )
+
+        target = bind_queue_item(
+            session,
+            item,
+            account_key=str((_job or {}).get("chrome_profile") or ""),
+            source="auto_upload",
+        )
+        if target.status == "pending":
+            claim_target_for_submission(
+                session,
+                group_id=int(item.publication_group_id or 0),
+                target_id=target.id,
+            )
+        if verified:
             if item.status != "published":
                 set_status(session, item, "published", note=note)
+            record_target_outcome(
+                session,
+                group_id=int(item.publication_group_id or 0),
+                target_id=target.id,
+                outcome="published",
+                evidence=pub,
+                note=note,
+            )
             _set(
                 phase="done",
                 result=pub,
-                message="已自动点击发布（请在 Chrome 确认是否成功）",
+                message="发布成功已核验",
                 marked_published=True,
+                verified=True,
+            )
+        elif pub_clicked:
+            record_target_outcome(
+                session,
+                group_id=int(item.publication_group_id or 0),
+                target_id=target.id,
+                outcome="outcome_unknown",
+                evidence=pub,
+                note=note,
+            )
+            _set(
+                phase="awaiting_confirm",
+                result=pub,
+                message=pub.get("error")
+                or "已点击发布但未核验成功，请人工确认或点「验证完成，继续」",
+                marked_published=False,
+                need_human=True,
+                verified=False,
             )
         else:
             _set(
@@ -359,6 +480,7 @@ def _run_job(
     *,
     chrome_profile: str,
     queue_id: int,
+    customer_id: int,
     platform: str,
     title: str,
     body: str,
@@ -392,6 +514,8 @@ def _run_job(
             url=open_url,
             dry_run=dry_run,
             cdp_port=None if dry_run else 9222,
+            customer_id=customer_id,
+            business_scope="video",
         )
         _set(
             phase="waiting_login",

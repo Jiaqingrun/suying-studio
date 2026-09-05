@@ -10,17 +10,19 @@ from typing import Any
 import httpx
 
 from engine.catalog.db import Asset
+from engine.catalog.ollama_runtime import OLLAMA_KEEP_ALIVE, heavy_request
 from engine.ingest.proxy import analysis_video_path
 from engine.ingest.semantic_gate import (
     SEMANTIC_SCHEMA_VERSION,
     semantic_response_json_schema,
 )
 
-OLLAMA_URL = "http://127.0.0.1:11434"
 VISION_MODEL = "qwen3.5:9b"
 # Legacy module default; runtime uses host_profile.resolve_vision_policy timeouts.
 VISION_SEMANTIC_TIMEOUT = 300.0
 VISION_CAPTION_TIMEOUT = 90.0
+# Cap context: bare ollama defaults can advertise 262k and thrash VRAM/latency.
+VISION_NUM_CTX = 8192
 
 # Gate/transport reasons that warrant escalating to the larger model (still within
 # MAX_SEMANTIC_ATTEMPTS — cascade consumes the same attempt budget, never exceeds it).
@@ -33,6 +35,67 @@ _ESCALATE_ERRORS = frozenset(
         "semantic_analysis_exception",
     }
 )
+
+# Cross-industry persist filters. Industry wording (ground, 靓仔/美女) stays in pack notes.
+_VISION_OPENER = re.compile(
+    r"^(画面展示了一个|画面展示了|画面展示一处|画面展示一辆|画面展示一个|画面展示|"
+    r"画面显示了一个|画面显示了|画面显示一处|画面显示一辆|画面显示一个|画面显示|"
+    r"视频展示了一个|视频展示了|视频记录了一个|视频记录了|"
+    r"The video (?:shows|captures|displays|features)\s+)",
+    re.I,
+)
+_VISION_FRAME_NOISE = re.compile(
+    r"（f[0-4](?:,\s*f[0-4])*可见）|"
+    r"在\s*f[0-4]\s*帧中|"
+    r"f[0-4]\s*帧中?|"
+    r"在\s*f[0-4]\s*和\s*f[0-4]\s*(?:中|，)|"
+    r"\bf[0-4]\b|"
+    r"第[一二三四1234]帧(?:中)?|"
+    r"后续帧中|在后续帧中|后续镜头"
+)
+_VISION_EMPTY_PERSON = re.compile(
+    r"[。；，]?(画面中未出现人物|画面中无人物出现|画面无人物出现|未出现人物|无人物出现)[。；]?"
+)
+_VISION_PUNCT = re.compile(r"[，,]{2,}")
+
+
+def sanitize_vision_prose(text: str) -> str:
+    """Strip global boilerplate from model prose; do not invent replacement facts."""
+    s = str(text or "").strip()
+    if not s:
+        return ""
+    s = _VISION_OPENER.sub("", s, count=1).lstrip("，,。；、 ")
+    s = _VISION_EMPTY_PERSON.sub("", s)
+    s = _VISION_FRAME_NOISE.sub("", s)
+    s = s.replace("无人可见", "")
+    s = _VISION_PUNCT.sub("，", s)
+    s = re.sub(r"[ \t]{2,}", " ", s)
+    s = re.sub(r"^[，。；、\s]+", "", s)
+    s = re.sub(r"[，、]+\s*$", "。", s)
+    s = s.replace("。。", "。").replace("，。", "。").strip()
+    return s
+
+
+def apply_global_vision_prose_filters(value: dict[str, Any]) -> dict[str, Any]:
+    desc = sanitize_vision_prose(str(value.get("description") or ""))
+    if desc:
+        value["description"] = desc
+    for frame in value.get("frames") or []:
+        if not isinstance(frame, dict):
+            continue
+        facts = frame.get("visible_facts")
+        if isinstance(facts, list):
+            cleaned = [sanitize_vision_prose(str(x)) for x in facts]
+            frame["visible_facts"] = [x for x in cleaned if x]
+    people = value.get("people")
+    if isinstance(people, dict):
+        for key in ("appearance", "clothing"):
+            raw = people.get(key)
+            if isinstance(raw, str) and raw.strip() in {"无人可见", "无"}:
+                people[key] = ""
+            elif isinstance(raw, str):
+                people[key] = sanitize_vision_prose(raw)
+    return value
 
 
 def should_escalate_vision(
@@ -49,9 +112,12 @@ def should_escalate_vision(
     return False
 
 
-def _ollama_client(*, timeout: float) -> httpx.Client:
-    """Local Ollama must not inherit HTTP(S)_PROXY / system Clash:7890."""
-    return httpx.Client(timeout=timeout, trust_env=False)
+class VisionTimeoutError(RuntimeError):
+    """Vision request hit its wall-clock/read timeout via the shared gateway."""
+
+
+class VisionHTTPError(RuntimeError):
+    """Vision request failed for a non-timeout transport/HTTP reason."""
 
 
 def _active_vision_model() -> str:
@@ -142,18 +208,23 @@ def vision_caption(
             "②可见主要物品；③若有动作也写上。"
             "不要开场白，不要引号，不要推测价格或品牌口号。"
         )
-        with _ollama_client(timeout=timeout) as client:
-            resp = client.post(
-                f"{OLLAMA_URL}/api/chat",
-                json={
-                    "model": model,
-                    "stream": False,
-                    "messages": [{"role": "user", "content": prompt, "images": [b64]}],
-                },
-            )
-        if resp.status_code != 200:
+        result = heavy_request(
+            kind="vision",
+            path="/api/chat",
+            payload={
+                "model": model,
+                "stream": False,
+                "think": False,
+                "keep_alive": OLLAMA_KEEP_ALIVE,
+                "messages": [{"role": "user", "content": prompt, "images": [b64]}],
+            },
+            timeout_sec=timeout,
+            model=model,
+        )
+        if not result.get("ok"):
             return None
-        content = (resp.json().get("message") or {}).get("content") or ""
+        body = result.get("body") or {}
+        content = (body.get("message") or {}).get("content") or "" if isinstance(body, dict) else ""
         # strip possible thinking leakage — keep last non-empty line-ish
         text = content.strip().split("\n")[0].strip()
         if len(text) < 4:
@@ -227,23 +298,21 @@ def _parse_json_response(content: str) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
-def vision_semantic_analysis(
-    frame_paths: list[tuple[str, float, Path]],
+def build_vision_semantic_prompt(
+    frame_manifest: list[dict[str, Any]],
+    allowed_frame_ids: list[str],
     *,
-    model: str | None = None,
-    timeout: float = VISION_SEMANTIC_TIMEOUT,
-) -> dict[str, Any] | None:
-    """Analyze ordered frames as one clip; return JSON only, never guessed fallback."""
-    model = model or _active_vision_model()
-    if len(frame_paths) < 2:
-        return None
-    frame_manifest = [
-        {"frame_id": fid, "timestamp_sec": ts} for fid, ts, _ in frame_paths
-    ]
-    allowed_frame_ids = [fid for fid, _, _ in frame_paths]
-    prompt = f"""
+    extra_notes: list[str] | None = None,
+) -> str:
+    """Cross-industry vision prompt plus optional industry-pack notes."""
+    extra = ""
+    notes = [str(n).strip() for n in (extra_notes or []) if str(n).strip()]
+    if notes:
+        bullets = "\n".join(f"- {n}" for n in notes)
+        extra = f"\n行业附加（只约束 description / visible_facts / people 用词，不改 JSON 字段名与 label 枚举）：\n{bullets}\n"
+    return f"""
 你是跨行业视频素材的事实标注器。分析同一切片的多张按时间排序抽帧，只写肉眼可见事实。
-禁止依据文件名、行业、品牌、常识推断；禁止推测人物身份、情绪、精神状态或产品用途。
+禁止依据文件名、行业、品牌、常识推断；禁止推测人物职业身份、情绪、精神状态或产品用途。
 看不清的内容只能写入对应帧的 unknowns，禁止出现在 visible_facts 或 description；
 禁止用“可能/应该/似乎/看起来像/用于/体现/彰显”等推测措辞补全。
 严格返回单个 JSON 对象，不要 Markdown。schema_version 必须为 {SEMANTIC_SCHEMA_VERSION}。
@@ -265,7 +334,7 @@ JSON 必须具有：
  "scenes":[{{"label":"warehouse","confidence":0.0,"evidence_frame_ids":["f1"]}}],
  "products":[{{"name":"画面可见名称或外观称呼","category":"可见粗类","use":"仅在用途被画面直接展示时填写，否则写未知","key_attributes":["颜色/形状/包装等"],"confidence":0.0,"evidence_frame_ids":["f1"]}}],
  "interactions":[{{"label":"none_visible","confidence":0.0,"evidence_frame_ids":["f1"]}}],
- "people":{{"present":false,"count":0,"appearance":"无人可见","clothing":"无人可见","promotion_labels":[{{"label":"none_visible","confidence":1.0,"evidence_frame_ids":["f1"]}}]}},
+ "people":{{"present":false,"count":0,"appearance":"","clothing":"","promotion_labels":[{{"label":"none_visible","confidence":1.0,"evidence_frame_ids":["f1"]}}]}},
  "consistency":{{"consistent":true,"issues":[]}},
  "overall_confidence":0.0
 }}
@@ -273,35 +342,65 @@ JSON 必须具有：
 1. 每帧 visible_facts 至少两条，只含肯定可见的物体、颜色、数量、位置、姿态或动作；
    无法辨认的文字、品牌、身份、用途、情绪放入 unknowns，二者不得混写。
 2. people.present=true 时 count>=1，promotion_labels 禁止 none_visible；无法确认职业身份时，
-   必须使用 person_visible_unclassified，只描述“人物”及可见衣着/姿态，不猜员工或客户。
-3. people.present=false 时 count=0，promotion_labels 必须且只能为 none_visible。
+   必须使用 person_visible_unclassified，只描述可见衣着/姿态，不猜员工或客户。
+3. people.present=false 时 count=0，promotion_labels 必须且只能为 none_visible；
+   appearance 与 clothing 用空字符串，不要写“无人可见”。
 4. 产品 key_attributes 只能写可见颜色、形状、材质表观、包装和文字；没有任何可见外观属性时写
    ["unknown"]，use 未被动作直接展示时写 "unknown"，不得猜用途。
 5. 每个 evidence_frame_ids 至少含一个上述合法 frame_id；不要引用未提供的 ID。
+中文 description 写法（全行业中性，禁止空话）：
+6. 禁止用“画面展示了/画面显示/视频展示了/视频记录了”开头，直接写看见的主体与动作。
+7. description 与 visible_facts 禁止出现抽帧编号（f1/f2/f3、“第N帧”、“后续帧”）。
+8. 禁止空人套话“画面中未出现人物”“无人物出现”；画面没人就不要写人。
 没有可辨产品时 products=[]。同一标签只写一次。置信度必须与清晰度匹配，不得为过门禁虚报。
-"""
+{extra}"""
+
+
+def vision_semantic_analysis(
+    frame_paths: list[tuple[str, float, Path]],
+    *,
+    model: str | None = None,
+    timeout: float = VISION_SEMANTIC_TIMEOUT,
+    extra_notes: list[str] | None = None,
+) -> dict[str, Any] | None:
+    """Analyze ordered frames as one clip; return JSON only, never guessed fallback."""
+    model = model or _active_vision_model()
+    if len(frame_paths) < 2:
+        return None
+    frame_manifest = [
+        {"frame_id": fid, "timestamp_sec": ts} for fid, ts, _ in frame_paths
+    ]
+    allowed_frame_ids = [fid for fid, _, _ in frame_paths]
+    prompt = build_vision_semantic_prompt(
+        frame_manifest, allowed_frame_ids, extra_notes=extra_notes
+    )
     images = [base64.b64encode(path.read_bytes()).decode("ascii") for _, _, path in frame_paths]
     # Pass the full gate-aligned JSON Schema (not bare "json") and pin
     # temperature=0 so structured outputs stay deterministic across retries.
     payload = {
         "model": model,
         "stream": False,
+        "think": False,
+        "keep_alive": OLLAMA_KEEP_ALIVE,
         "format": semantic_response_json_schema(),
-        "options": {"temperature": 0},
+        "options": {"temperature": 0, "num_ctx": VISION_NUM_CTX},
         "messages": [{"role": "user", "content": prompt, "images": images}],
     }
-    try:
-        with _ollama_client(timeout=timeout) as client:
-            resp = client.post(f"{OLLAMA_URL}/api/chat", json=payload)
-    except httpx.TimeoutException:
-        # Re-raise so analyze_cliplet_semantics can audit vision_timeout
-        # instead of collapsing into schema_not_object.
-        raise
-    except httpx.HTTPError:
-        raise
-    if resp.status_code != 200:
-        return None
-    message = resp.json().get("message") or {}
+    result = heavy_request(
+        kind="vision",
+        path="/api/chat",
+        payload=payload,
+        timeout_sec=timeout,
+        model=model,
+    )
+    if not result.get("ok"):
+        # Preserve the timeout-vs-other distinction so analyze_cliplet_semantics
+        # can audit vision_timeout instead of collapsing into schema_not_object.
+        if str(result.get("error_kind") or "") == "timeout":
+            raise VisionTimeoutError(str(result.get("error") or "vision_timeout"))
+        raise VisionHTTPError(str(result.get("error") or "vision_http_error"))
+    body = result.get("body") or {}
+    message = (body.get("message") or {}) if isinstance(body, dict) else {}
     content = message.get("content") or ""
     parsed = _parse_json_response(content)
     return _normalize_semantic_response(parsed, frame_paths)
@@ -358,7 +457,7 @@ def _normalize_semantic_response(
         for row in people.get("promotion_labels") or []:
             if isinstance(row, dict):
                 normalize_evidence(row)
-    return value
+    return apply_global_vision_prose_filters(value)
 
 
 def analyze_cliplet_semantics(
@@ -372,6 +471,7 @@ def analyze_cliplet_semantics(
     model: str | None = None,
     timeout: float | None = None,
     cascade_stage: str = "primary",
+    pack_id: str | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     """Precisely sample three traceable frames; retries use different offsets."""
     from engine.catalog.host_profile import resolve_vision_policy
@@ -433,13 +533,19 @@ def analyze_cliplet_semantics(
         audit["error"] = "frame_extraction_insufficient"
         return None, audit
     try:
+        from engine.catalog.industry_pack import semantic_vision_notes_for_pack
+
+        extra_notes = semantic_vision_notes_for_pack(pack_id)
         result = vision_semantic_analysis(
-            frame_paths, model=use_model, timeout=use_timeout
+            frame_paths,
+            model=use_model,
+            timeout=use_timeout,
+            extra_notes=extra_notes,
         )
-    except httpx.TimeoutException:
+    except VisionTimeoutError:
         audit["error"] = "vision_timeout"
         return None, audit
-    except httpx.HTTPError as exc:
+    except (VisionHTTPError, httpx.HTTPError) as exc:
         audit["error"] = "vision_http_error"
         audit["error_type"] = type(exc).__name__
         return None, audit

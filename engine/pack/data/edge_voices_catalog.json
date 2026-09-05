@@ -1,0 +1,2254 @@
+{
+  "version": 1,
+  "source": "edge_tts.list_voices",
+  "count": 321,
+  "voices": [
+    {
+      "id": "af-ZA-AdriNeural",
+      "locale": "af-ZA",
+      "gender": "Female",
+      "label": "Adri",
+      "friendly": ""
+    },
+    {
+      "id": "af-ZA-WillemNeural",
+      "locale": "af-ZA",
+      "gender": "Male",
+      "label": "Willem",
+      "friendly": ""
+    },
+    {
+      "id": "am-ET-MekdesNeural",
+      "locale": "am-ET",
+      "gender": "Female",
+      "label": "መቅደስ",
+      "friendly": ""
+    },
+    {
+      "id": "am-ET-AmehaNeural",
+      "locale": "am-ET",
+      "gender": "Male",
+      "label": "አምሀ",
+      "friendly": ""
+    },
+    {
+      "id": "ar-AE-FatimaNeural",
+      "locale": "ar-AE",
+      "gender": "Female",
+      "label": "فاطمة",
+      "friendly": ""
+    },
+    {
+      "id": "ar-AE-HamdanNeural",
+      "locale": "ar-AE",
+      "gender": "Male",
+      "label": "حمدان",
+      "friendly": ""
+    },
+    {
+      "id": "ar-BH-LailaNeural",
+      "locale": "ar-BH",
+      "gender": "Female",
+      "label": "ليلى",
+      "friendly": ""
+    },
+    {
+      "id": "ar-BH-AliNeural",
+      "locale": "ar-BH",
+      "gender": "Male",
+      "label": "علي",
+      "friendly": ""
+    },
+    {
+      "id": "ar-DZ-AminaNeural",
+      "locale": "ar-DZ",
+      "gender": "Female",
+      "label": "أمينة",
+      "friendly": ""
+    },
+    {
+      "id": "ar-DZ-IsmaelNeural",
+      "locale": "ar-DZ",
+      "gender": "Male",
+      "label": "إسماعيل",
+      "friendly": ""
+    },
+    {
+      "id": "ar-EG-SalmaNeural",
+      "locale": "ar-EG",
+      "gender": "Female",
+      "label": "سلمى",
+      "friendly": ""
+    },
+    {
+      "id": "ar-EG-ShakirNeural",
+      "locale": "ar-EG",
+      "gender": "Male",
+      "label": "شاكر",
+      "friendly": ""
+    },
+    {
+      "id": "ar-IQ-RanaNeural",
+      "locale": "ar-IQ",
+      "gender": "Female",
+      "label": "رنا",
+      "friendly": ""
+    },
+    {
+      "id": "ar-IQ-BasselNeural",
+      "locale": "ar-IQ",
+      "gender": "Male",
+      "label": "باسل",
+      "friendly": ""
+    },
+    {
+      "id": "ar-JO-SanaNeural",
+      "locale": "ar-JO",
+      "gender": "Female",
+      "label": "سناء",
+      "friendly": ""
+    },
+    {
+      "id": "ar-JO-TaimNeural",
+      "locale": "ar-JO",
+      "gender": "Male",
+      "label": "تيم",
+      "friendly": ""
+    },
+    {
+      "id": "ar-KW-NouraNeural",
+      "locale": "ar-KW",
+      "gender": "Female",
+      "label": "نورا",
+      "friendly": ""
+    },
+    {
+      "id": "ar-KW-FahedNeural",
+      "locale": "ar-KW",
+      "gender": "Male",
+      "label": "فهد",
+      "friendly": ""
+    },
+    {
+      "id": "ar-LB-LaylaNeural",
+      "locale": "ar-LB",
+      "gender": "Female",
+      "label": "ليلى",
+      "friendly": ""
+    },
+    {
+      "id": "ar-LB-RamiNeural",
+      "locale": "ar-LB",
+      "gender": "Male",
+      "label": "رامي",
+      "friendly": ""
+    },
+    {
+      "id": "ar-LY-ImanNeural",
+      "locale": "ar-LY",
+      "gender": "Female",
+      "label": "إيمان",
+      "friendly": ""
+    },
+    {
+      "id": "ar-LY-OmarNeural",
+      "locale": "ar-LY",
+      "gender": "Male",
+      "label": "أحمد",
+      "friendly": ""
+    },
+    {
+      "id": "ar-MA-MounaNeural",
+      "locale": "ar-MA",
+      "gender": "Female",
+      "label": "منى",
+      "friendly": ""
+    },
+    {
+      "id": "ar-MA-JamalNeural",
+      "locale": "ar-MA",
+      "gender": "Male",
+      "label": "جمال",
+      "friendly": ""
+    },
+    {
+      "id": "ar-OM-AyshaNeural",
+      "locale": "ar-OM",
+      "gender": "Female",
+      "label": "عائشة",
+      "friendly": ""
+    },
+    {
+      "id": "ar-OM-AbdullahNeural",
+      "locale": "ar-OM",
+      "gender": "Male",
+      "label": "عبدالله",
+      "friendly": ""
+    },
+    {
+      "id": "ar-QA-AmalNeural",
+      "locale": "ar-QA",
+      "gender": "Female",
+      "label": "أمل",
+      "friendly": ""
+    },
+    {
+      "id": "ar-QA-MoazNeural",
+      "locale": "ar-QA",
+      "gender": "Male",
+      "label": "معاذ",
+      "friendly": ""
+    },
+    {
+      "id": "ar-SA-ZariyahNeural",
+      "locale": "ar-SA",
+      "gender": "Female",
+      "label": "زارية",
+      "friendly": ""
+    },
+    {
+      "id": "ar-SA-HamedNeural",
+      "locale": "ar-SA",
+      "gender": "Male",
+      "label": "حامد",
+      "friendly": ""
+    },
+    {
+      "id": "ar-SY-AmanyNeural",
+      "locale": "ar-SY",
+      "gender": "Female",
+      "label": "أماني",
+      "friendly": ""
+    },
+    {
+      "id": "ar-SY-LaithNeural",
+      "locale": "ar-SY",
+      "gender": "Male",
+      "label": "ليث",
+      "friendly": ""
+    },
+    {
+      "id": "ar-TN-ReemNeural",
+      "locale": "ar-TN",
+      "gender": "Female",
+      "label": "ريم",
+      "friendly": ""
+    },
+    {
+      "id": "ar-TN-HediNeural",
+      "locale": "ar-TN",
+      "gender": "Male",
+      "label": "هادي",
+      "friendly": ""
+    },
+    {
+      "id": "ar-YE-MaryamNeural",
+      "locale": "ar-YE",
+      "gender": "Female",
+      "label": "مريم",
+      "friendly": ""
+    },
+    {
+      "id": "ar-YE-SalehNeural",
+      "locale": "ar-YE",
+      "gender": "Male",
+      "label": "صالح",
+      "friendly": ""
+    },
+    {
+      "id": "az-AZ-BanuNeural",
+      "locale": "az-AZ",
+      "gender": "Female",
+      "label": "Banu",
+      "friendly": ""
+    },
+    {
+      "id": "az-AZ-BabekNeural",
+      "locale": "az-AZ",
+      "gender": "Male",
+      "label": "Babək",
+      "friendly": ""
+    },
+    {
+      "id": "bg-BG-KalinaNeural",
+      "locale": "bg-BG",
+      "gender": "Female",
+      "label": "Калина",
+      "friendly": ""
+    },
+    {
+      "id": "bg-BG-BorislavNeural",
+      "locale": "bg-BG",
+      "gender": "Male",
+      "label": "Борислав",
+      "friendly": ""
+    },
+    {
+      "id": "bn-BD-NabanitaNeural",
+      "locale": "bn-BD",
+      "gender": "Female",
+      "label": "নবনীতা",
+      "friendly": ""
+    },
+    {
+      "id": "bn-BD-PradeepNeural",
+      "locale": "bn-BD",
+      "gender": "Male",
+      "label": "প্রদ্বীপ",
+      "friendly": ""
+    },
+    {
+      "id": "bn-IN-TanishaaNeural",
+      "locale": "bn-IN",
+      "gender": "Female",
+      "label": "তানিশা",
+      "friendly": ""
+    },
+    {
+      "id": "bn-IN-BashkarNeural",
+      "locale": "bn-IN",
+      "gender": "Male",
+      "label": "ভাস্কর",
+      "friendly": ""
+    },
+    {
+      "id": "bs-BA-VesnaNeural",
+      "locale": "bs-BA",
+      "gender": "Female",
+      "label": "Vesna",
+      "friendly": ""
+    },
+    {
+      "id": "bs-BA-GoranNeural",
+      "locale": "bs-BA",
+      "gender": "Male",
+      "label": "Goran",
+      "friendly": ""
+    },
+    {
+      "id": "ca-ES-JoanaNeural",
+      "locale": "ca-ES",
+      "gender": "Female",
+      "label": "Joana",
+      "friendly": ""
+    },
+    {
+      "id": "ca-ES-EnricNeural",
+      "locale": "ca-ES",
+      "gender": "Male",
+      "label": "Enric",
+      "friendly": ""
+    },
+    {
+      "id": "cs-CZ-VlastaNeural",
+      "locale": "cs-CZ",
+      "gender": "Female",
+      "label": "Vlasta",
+      "friendly": ""
+    },
+    {
+      "id": "cs-CZ-AntoninNeural",
+      "locale": "cs-CZ",
+      "gender": "Male",
+      "label": "Antonín",
+      "friendly": ""
+    },
+    {
+      "id": "cy-GB-NiaNeural",
+      "locale": "cy-GB",
+      "gender": "Female",
+      "label": "Nia",
+      "friendly": ""
+    },
+    {
+      "id": "cy-GB-AledNeural",
+      "locale": "cy-GB",
+      "gender": "Male",
+      "label": "Aled",
+      "friendly": ""
+    },
+    {
+      "id": "da-DK-ChristelNeural",
+      "locale": "da-DK",
+      "gender": "Female",
+      "label": "Christel",
+      "friendly": ""
+    },
+    {
+      "id": "da-DK-JeppeNeural",
+      "locale": "da-DK",
+      "gender": "Male",
+      "label": "Jeppe",
+      "friendly": ""
+    },
+    {
+      "id": "de-AT-IngridNeural",
+      "locale": "de-AT",
+      "gender": "Female",
+      "label": "Ingrid",
+      "friendly": ""
+    },
+    {
+      "id": "de-AT-JonasNeural",
+      "locale": "de-AT",
+      "gender": "Male",
+      "label": "Jonas",
+      "friendly": ""
+    },
+    {
+      "id": "de-CH-LeniNeural",
+      "locale": "de-CH",
+      "gender": "Female",
+      "label": "Leni",
+      "friendly": ""
+    },
+    {
+      "id": "de-CH-JanNeural",
+      "locale": "de-CH",
+      "gender": "Male",
+      "label": "Jan",
+      "friendly": ""
+    },
+    {
+      "id": "de-DE-AmalaNeural",
+      "locale": "de-DE",
+      "gender": "Female",
+      "label": "Amala",
+      "friendly": ""
+    },
+    {
+      "id": "de-DE-KatjaNeural",
+      "locale": "de-DE",
+      "gender": "Female",
+      "label": "Katja",
+      "friendly": ""
+    },
+    {
+      "id": "de-DE-SeraphinaMultilingualNeural",
+      "locale": "de-DE",
+      "gender": "Female",
+      "label": "Seraphina Mehrsprachig",
+      "friendly": ""
+    },
+    {
+      "id": "de-DE-ConradNeural",
+      "locale": "de-DE",
+      "gender": "Male",
+      "label": "Conrad",
+      "friendly": ""
+    },
+    {
+      "id": "de-DE-FlorianMultilingualNeural",
+      "locale": "de-DE",
+      "gender": "Male",
+      "label": "Florian Mehrsprachig",
+      "friendly": ""
+    },
+    {
+      "id": "de-DE-KillianNeural",
+      "locale": "de-DE",
+      "gender": "Male",
+      "label": "Killian",
+      "friendly": ""
+    },
+    {
+      "id": "el-GR-AthinaNeural",
+      "locale": "el-GR",
+      "gender": "Female",
+      "label": "Αθηνά",
+      "friendly": ""
+    },
+    {
+      "id": "el-GR-NestorasNeural",
+      "locale": "el-GR",
+      "gender": "Male",
+      "label": "Νέστορας",
+      "friendly": ""
+    },
+    {
+      "id": "en-AU-NatashaNeural",
+      "locale": "en-AU",
+      "gender": "Female",
+      "label": "Natasha",
+      "friendly": ""
+    },
+    {
+      "id": "en-AU-WilliamMultilingualNeural",
+      "locale": "en-AU",
+      "gender": "Male",
+      "label": "William Multilingual",
+      "friendly": ""
+    },
+    {
+      "id": "en-CA-ClaraNeural",
+      "locale": "en-CA",
+      "gender": "Female",
+      "label": "Clara",
+      "friendly": ""
+    },
+    {
+      "id": "en-CA-LiamNeural",
+      "locale": "en-CA",
+      "gender": "Male",
+      "label": "Liam",
+      "friendly": ""
+    },
+    {
+      "id": "en-GB-LibbyNeural",
+      "locale": "en-GB",
+      "gender": "Female",
+      "label": "Libby",
+      "friendly": ""
+    },
+    {
+      "id": "en-GB-MaisieNeural",
+      "locale": "en-GB",
+      "gender": "Female",
+      "label": "Maisie",
+      "friendly": ""
+    },
+    {
+      "id": "en-GB-SoniaNeural",
+      "locale": "en-GB",
+      "gender": "Female",
+      "label": "Sonia",
+      "friendly": ""
+    },
+    {
+      "id": "en-GB-RyanNeural",
+      "locale": "en-GB",
+      "gender": "Male",
+      "label": "Ryan",
+      "friendly": ""
+    },
+    {
+      "id": "en-GB-ThomasNeural",
+      "locale": "en-GB",
+      "gender": "Male",
+      "label": "Thomas",
+      "friendly": ""
+    },
+    {
+      "id": "en-HK-YanNeural",
+      "locale": "en-HK",
+      "gender": "Female",
+      "label": "Yan",
+      "friendly": ""
+    },
+    {
+      "id": "en-HK-SamNeural",
+      "locale": "en-HK",
+      "gender": "Male",
+      "label": "Sam",
+      "friendly": ""
+    },
+    {
+      "id": "en-IE-EmilyNeural",
+      "locale": "en-IE",
+      "gender": "Female",
+      "label": "Emily",
+      "friendly": ""
+    },
+    {
+      "id": "en-IE-ConnorNeural",
+      "locale": "en-IE",
+      "gender": "Male",
+      "label": "Connor",
+      "friendly": ""
+    },
+    {
+      "id": "en-IN-NeerjaNeural",
+      "locale": "en-IN",
+      "gender": "Female",
+      "label": "Neerja",
+      "friendly": ""
+    },
+    {
+      "id": "en-IN-PrabhatNeural",
+      "locale": "en-IN",
+      "gender": "Male",
+      "label": "Prabhat",
+      "friendly": ""
+    },
+    {
+      "id": "en-KE-AsiliaNeural",
+      "locale": "en-KE",
+      "gender": "Female",
+      "label": "Asilia",
+      "friendly": ""
+    },
+    {
+      "id": "en-KE-ChilembaNeural",
+      "locale": "en-KE",
+      "gender": "Male",
+      "label": "Chilemba",
+      "friendly": ""
+    },
+    {
+      "id": "en-NG-EzinneNeural",
+      "locale": "en-NG",
+      "gender": "Female",
+      "label": "Ezinne",
+      "friendly": ""
+    },
+    {
+      "id": "en-NG-AbeoNeural",
+      "locale": "en-NG",
+      "gender": "Male",
+      "label": "Abeo",
+      "friendly": ""
+    },
+    {
+      "id": "en-NZ-MollyNeural",
+      "locale": "en-NZ",
+      "gender": "Female",
+      "label": "Molly",
+      "friendly": ""
+    },
+    {
+      "id": "en-NZ-MitchellNeural",
+      "locale": "en-NZ",
+      "gender": "Male",
+      "label": "Mitchell",
+      "friendly": ""
+    },
+    {
+      "id": "en-PH-RosaNeural",
+      "locale": "en-PH",
+      "gender": "Female",
+      "label": "Rosa",
+      "friendly": ""
+    },
+    {
+      "id": "en-PH-JamesNeural",
+      "locale": "en-PH",
+      "gender": "Male",
+      "label": "James",
+      "friendly": ""
+    },
+    {
+      "id": "en-SG-LunaNeural",
+      "locale": "en-SG",
+      "gender": "Female",
+      "label": "Luna",
+      "friendly": ""
+    },
+    {
+      "id": "en-SG-WayneNeural",
+      "locale": "en-SG",
+      "gender": "Male",
+      "label": "Wayne",
+      "friendly": ""
+    },
+    {
+      "id": "en-TZ-ImaniNeural",
+      "locale": "en-TZ",
+      "gender": "Female",
+      "label": "Imani",
+      "friendly": ""
+    },
+    {
+      "id": "en-TZ-ElimuNeural",
+      "locale": "en-TZ",
+      "gender": "Male",
+      "label": "Elimu",
+      "friendly": ""
+    },
+    {
+      "id": "en-US-AnaNeural",
+      "locale": "en-US",
+      "gender": "Female",
+      "label": "Ana",
+      "friendly": ""
+    },
+    {
+      "id": "en-US-AriaNeural",
+      "locale": "en-US",
+      "gender": "Female",
+      "label": "Aria",
+      "friendly": ""
+    },
+    {
+      "id": "en-US-AvaMultilingualNeural",
+      "locale": "en-US",
+      "gender": "Female",
+      "label": "Ava Multilingual",
+      "friendly": ""
+    },
+    {
+      "id": "en-US-AvaNeural",
+      "locale": "en-US",
+      "gender": "Female",
+      "label": "Ava",
+      "friendly": ""
+    },
+    {
+      "id": "en-US-EmmaMultilingualNeural",
+      "locale": "en-US",
+      "gender": "Female",
+      "label": "Emma Multilingual",
+      "friendly": ""
+    },
+    {
+      "id": "en-US-EmmaNeural",
+      "locale": "en-US",
+      "gender": "Female",
+      "label": "Emma",
+      "friendly": ""
+    },
+    {
+      "id": "en-US-JennyNeural",
+      "locale": "en-US",
+      "gender": "Female",
+      "label": "Jenny",
+      "friendly": ""
+    },
+    {
+      "id": "en-US-MichelleNeural",
+      "locale": "en-US",
+      "gender": "Female",
+      "label": "Michelle",
+      "friendly": ""
+    },
+    {
+      "id": "en-US-AndrewMultilingualNeural",
+      "locale": "en-US",
+      "gender": "Male",
+      "label": "Andrew Multilingual",
+      "friendly": ""
+    },
+    {
+      "id": "en-US-AndrewNeural",
+      "locale": "en-US",
+      "gender": "Male",
+      "label": "Andrew",
+      "friendly": ""
+    },
+    {
+      "id": "en-US-BrianMultilingualNeural",
+      "locale": "en-US",
+      "gender": "Male",
+      "label": "Brian Multilingual",
+      "friendly": ""
+    },
+    {
+      "id": "en-US-BrianNeural",
+      "locale": "en-US",
+      "gender": "Male",
+      "label": "Brian",
+      "friendly": ""
+    },
+    {
+      "id": "en-US-ChristopherNeural",
+      "locale": "en-US",
+      "gender": "Male",
+      "label": "Christopher",
+      "friendly": ""
+    },
+    {
+      "id": "en-US-EricNeural",
+      "locale": "en-US",
+      "gender": "Male",
+      "label": "Eric",
+      "friendly": ""
+    },
+    {
+      "id": "en-US-GuyNeural",
+      "locale": "en-US",
+      "gender": "Male",
+      "label": "Guy",
+      "friendly": ""
+    },
+    {
+      "id": "en-US-RogerNeural",
+      "locale": "en-US",
+      "gender": "Male",
+      "label": "Roger",
+      "friendly": ""
+    },
+    {
+      "id": "en-US-SteffanNeural",
+      "locale": "en-US",
+      "gender": "Male",
+      "label": "Steffan",
+      "friendly": ""
+    },
+    {
+      "id": "en-ZA-LeahNeural",
+      "locale": "en-ZA",
+      "gender": "Female",
+      "label": "Leah",
+      "friendly": ""
+    },
+    {
+      "id": "en-ZA-LukeNeural",
+      "locale": "en-ZA",
+      "gender": "Male",
+      "label": "Luke",
+      "friendly": ""
+    },
+    {
+      "id": "es-AR-ElenaNeural",
+      "locale": "es-AR",
+      "gender": "Female",
+      "label": "Elena",
+      "friendly": ""
+    },
+    {
+      "id": "es-AR-TomasNeural",
+      "locale": "es-AR",
+      "gender": "Male",
+      "label": "Tomas",
+      "friendly": ""
+    },
+    {
+      "id": "es-BO-SofiaNeural",
+      "locale": "es-BO",
+      "gender": "Female",
+      "label": "Sofia",
+      "friendly": ""
+    },
+    {
+      "id": "es-BO-MarceloNeural",
+      "locale": "es-BO",
+      "gender": "Male",
+      "label": "Marcelo",
+      "friendly": ""
+    },
+    {
+      "id": "es-CL-CatalinaNeural",
+      "locale": "es-CL",
+      "gender": "Female",
+      "label": "Catalina",
+      "friendly": ""
+    },
+    {
+      "id": "es-CL-LorenzoNeural",
+      "locale": "es-CL",
+      "gender": "Male",
+      "label": "Lorenzo",
+      "friendly": ""
+    },
+    {
+      "id": "es-CO-SalomeNeural",
+      "locale": "es-CO",
+      "gender": "Female",
+      "label": "Salome",
+      "friendly": ""
+    },
+    {
+      "id": "es-CO-GonzaloNeural",
+      "locale": "es-CO",
+      "gender": "Male",
+      "label": "Gonzalo",
+      "friendly": ""
+    },
+    {
+      "id": "es-CR-MariaNeural",
+      "locale": "es-CR",
+      "gender": "Female",
+      "label": "María",
+      "friendly": ""
+    },
+    {
+      "id": "es-CR-JuanNeural",
+      "locale": "es-CR",
+      "gender": "Male",
+      "label": "Juan",
+      "friendly": ""
+    },
+    {
+      "id": "es-CU-BelkysNeural",
+      "locale": "es-CU",
+      "gender": "Female",
+      "label": "Belkys",
+      "friendly": ""
+    },
+    {
+      "id": "es-CU-ManuelNeural",
+      "locale": "es-CU",
+      "gender": "Male",
+      "label": "Manuel",
+      "friendly": ""
+    },
+    {
+      "id": "es-DO-RamonaNeural",
+      "locale": "es-DO",
+      "gender": "Female",
+      "label": "Ramona",
+      "friendly": ""
+    },
+    {
+      "id": "es-DO-EmilioNeural",
+      "locale": "es-DO",
+      "gender": "Male",
+      "label": "Emilio",
+      "friendly": ""
+    },
+    {
+      "id": "es-EC-AndreaNeural",
+      "locale": "es-EC",
+      "gender": "Female",
+      "label": "Andrea",
+      "friendly": ""
+    },
+    {
+      "id": "es-EC-LuisNeural",
+      "locale": "es-EC",
+      "gender": "Male",
+      "label": "Luis",
+      "friendly": ""
+    },
+    {
+      "id": "es-ES-ElviraNeural",
+      "locale": "es-ES",
+      "gender": "Female",
+      "label": "Elvira",
+      "friendly": ""
+    },
+    {
+      "id": "es-ES-XimenaNeural",
+      "locale": "es-ES",
+      "gender": "Female",
+      "label": "Ximena",
+      "friendly": ""
+    },
+    {
+      "id": "es-ES-AlvaroNeural",
+      "locale": "es-ES",
+      "gender": "Male",
+      "label": "Álvaro",
+      "friendly": ""
+    },
+    {
+      "id": "es-GQ-TeresaNeural",
+      "locale": "es-GQ",
+      "gender": "Female",
+      "label": "Teresa",
+      "friendly": ""
+    },
+    {
+      "id": "es-GQ-JavierNeural",
+      "locale": "es-GQ",
+      "gender": "Male",
+      "label": "Javier",
+      "friendly": ""
+    },
+    {
+      "id": "es-GT-MartaNeural",
+      "locale": "es-GT",
+      "gender": "Female",
+      "label": "Marta",
+      "friendly": ""
+    },
+    {
+      "id": "es-GT-AndresNeural",
+      "locale": "es-GT",
+      "gender": "Male",
+      "label": "Andrés",
+      "friendly": ""
+    },
+    {
+      "id": "es-HN-KarlaNeural",
+      "locale": "es-HN",
+      "gender": "Female",
+      "label": "Karla",
+      "friendly": ""
+    },
+    {
+      "id": "es-HN-CarlosNeural",
+      "locale": "es-HN",
+      "gender": "Male",
+      "label": "Carlos",
+      "friendly": ""
+    },
+    {
+      "id": "es-MX-DaliaNeural",
+      "locale": "es-MX",
+      "gender": "Female",
+      "label": "Dalia",
+      "friendly": ""
+    },
+    {
+      "id": "es-MX-JorgeNeural",
+      "locale": "es-MX",
+      "gender": "Male",
+      "label": "Jorge",
+      "friendly": ""
+    },
+    {
+      "id": "es-NI-YolandaNeural",
+      "locale": "es-NI",
+      "gender": "Female",
+      "label": "Yolanda",
+      "friendly": ""
+    },
+    {
+      "id": "es-NI-FedericoNeural",
+      "locale": "es-NI",
+      "gender": "Male",
+      "label": "Federico",
+      "friendly": ""
+    },
+    {
+      "id": "es-PA-MargaritaNeural",
+      "locale": "es-PA",
+      "gender": "Female",
+      "label": "Margarita",
+      "friendly": ""
+    },
+    {
+      "id": "es-PA-RobertoNeural",
+      "locale": "es-PA",
+      "gender": "Male",
+      "label": "Roberto",
+      "friendly": ""
+    },
+    {
+      "id": "es-PE-CamilaNeural",
+      "locale": "es-PE",
+      "gender": "Female",
+      "label": "Camila",
+      "friendly": ""
+    },
+    {
+      "id": "es-PE-AlexNeural",
+      "locale": "es-PE",
+      "gender": "Male",
+      "label": "Alex",
+      "friendly": ""
+    },
+    {
+      "id": "es-PR-KarinaNeural",
+      "locale": "es-PR",
+      "gender": "Female",
+      "label": "Karina",
+      "friendly": ""
+    },
+    {
+      "id": "es-PR-VictorNeural",
+      "locale": "es-PR",
+      "gender": "Male",
+      "label": "Víctor",
+      "friendly": ""
+    },
+    {
+      "id": "es-PY-TaniaNeural",
+      "locale": "es-PY",
+      "gender": "Female",
+      "label": "Tania",
+      "friendly": ""
+    },
+    {
+      "id": "es-PY-MarioNeural",
+      "locale": "es-PY",
+      "gender": "Male",
+      "label": "Mario",
+      "friendly": ""
+    },
+    {
+      "id": "es-SV-LorenaNeural",
+      "locale": "es-SV",
+      "gender": "Female",
+      "label": "Lorena",
+      "friendly": ""
+    },
+    {
+      "id": "es-SV-RodrigoNeural",
+      "locale": "es-SV",
+      "gender": "Male",
+      "label": "Rodrigo",
+      "friendly": ""
+    },
+    {
+      "id": "es-US-PalomaNeural",
+      "locale": "es-US",
+      "gender": "Female",
+      "label": "Paloma",
+      "friendly": ""
+    },
+    {
+      "id": "es-US-AlonsoNeural",
+      "locale": "es-US",
+      "gender": "Male",
+      "label": "Alonso",
+      "friendly": ""
+    },
+    {
+      "id": "es-UY-ValentinaNeural",
+      "locale": "es-UY",
+      "gender": "Female",
+      "label": "Valentina",
+      "friendly": ""
+    },
+    {
+      "id": "es-UY-MateoNeural",
+      "locale": "es-UY",
+      "gender": "Male",
+      "label": "Mateo",
+      "friendly": ""
+    },
+    {
+      "id": "es-VE-PaolaNeural",
+      "locale": "es-VE",
+      "gender": "Female",
+      "label": "Paola",
+      "friendly": ""
+    },
+    {
+      "id": "es-VE-SebastianNeural",
+      "locale": "es-VE",
+      "gender": "Male",
+      "label": "Sebastián",
+      "friendly": ""
+    },
+    {
+      "id": "et-EE-AnuNeural",
+      "locale": "et-EE",
+      "gender": "Female",
+      "label": "Anu",
+      "friendly": ""
+    },
+    {
+      "id": "et-EE-KertNeural",
+      "locale": "et-EE",
+      "gender": "Male",
+      "label": "Kert",
+      "friendly": ""
+    },
+    {
+      "id": "fa-IR-DilaraNeural",
+      "locale": "fa-IR",
+      "gender": "Female",
+      "label": "دلارا",
+      "friendly": ""
+    },
+    {
+      "id": "fa-IR-FaridNeural",
+      "locale": "fa-IR",
+      "gender": "Male",
+      "label": "فرید",
+      "friendly": ""
+    },
+    {
+      "id": "fi-FI-NooraNeural",
+      "locale": "fi-FI",
+      "gender": "Female",
+      "label": "Noora",
+      "friendly": ""
+    },
+    {
+      "id": "fi-FI-HarriNeural",
+      "locale": "fi-FI",
+      "gender": "Male",
+      "label": "Harri",
+      "friendly": ""
+    },
+    {
+      "id": "fil-PH-BlessicaNeural",
+      "locale": "fil-PH",
+      "gender": "Female",
+      "label": "Blessica",
+      "friendly": ""
+    },
+    {
+      "id": "fil-PH-AngeloNeural",
+      "locale": "fil-PH",
+      "gender": "Male",
+      "label": "Angelo",
+      "friendly": ""
+    },
+    {
+      "id": "fr-BE-CharlineNeural",
+      "locale": "fr-BE",
+      "gender": "Female",
+      "label": "Charline",
+      "friendly": ""
+    },
+    {
+      "id": "fr-BE-GerardNeural",
+      "locale": "fr-BE",
+      "gender": "Male",
+      "label": "Gerard",
+      "friendly": ""
+    },
+    {
+      "id": "fr-CA-SylvieNeural",
+      "locale": "fr-CA",
+      "gender": "Female",
+      "label": "Sylvie",
+      "friendly": ""
+    },
+    {
+      "id": "fr-CA-AntoineNeural",
+      "locale": "fr-CA",
+      "gender": "Male",
+      "label": "Antoine",
+      "friendly": ""
+    },
+    {
+      "id": "fr-CA-JeanNeural",
+      "locale": "fr-CA",
+      "gender": "Male",
+      "label": "Jean",
+      "friendly": ""
+    },
+    {
+      "id": "fr-CA-ThierryNeural",
+      "locale": "fr-CA",
+      "gender": "Male",
+      "label": "Thierry",
+      "friendly": ""
+    },
+    {
+      "id": "fr-CH-ArianeNeural",
+      "locale": "fr-CH",
+      "gender": "Female",
+      "label": "Ariane",
+      "friendly": ""
+    },
+    {
+      "id": "fr-CH-FabriceNeural",
+      "locale": "fr-CH",
+      "gender": "Male",
+      "label": "Fabrice",
+      "friendly": ""
+    },
+    {
+      "id": "fr-FR-DeniseNeural",
+      "locale": "fr-FR",
+      "gender": "Female",
+      "label": "Denise",
+      "friendly": ""
+    },
+    {
+      "id": "fr-FR-EloiseNeural",
+      "locale": "fr-FR",
+      "gender": "Female",
+      "label": "Eloise",
+      "friendly": ""
+    },
+    {
+      "id": "fr-FR-VivienneMultilingualNeural",
+      "locale": "fr-FR",
+      "gender": "Female",
+      "label": "Vivienne Multilingue",
+      "friendly": ""
+    },
+    {
+      "id": "fr-FR-HenriNeural",
+      "locale": "fr-FR",
+      "gender": "Male",
+      "label": "Henri",
+      "friendly": ""
+    },
+    {
+      "id": "fr-FR-RemyMultilingualNeural",
+      "locale": "fr-FR",
+      "gender": "Male",
+      "label": "Rémy Multilingue",
+      "friendly": ""
+    },
+    {
+      "id": "ga-IE-OrlaNeural",
+      "locale": "ga-IE",
+      "gender": "Female",
+      "label": "Orla",
+      "friendly": ""
+    },
+    {
+      "id": "ga-IE-ColmNeural",
+      "locale": "ga-IE",
+      "gender": "Male",
+      "label": "Colm",
+      "friendly": ""
+    },
+    {
+      "id": "gl-ES-SabelaNeural",
+      "locale": "gl-ES",
+      "gender": "Female",
+      "label": "Sabela",
+      "friendly": ""
+    },
+    {
+      "id": "gl-ES-RoiNeural",
+      "locale": "gl-ES",
+      "gender": "Male",
+      "label": "Roi",
+      "friendly": ""
+    },
+    {
+      "id": "gu-IN-DhwaniNeural",
+      "locale": "gu-IN",
+      "gender": "Female",
+      "label": "ધ્વની",
+      "friendly": ""
+    },
+    {
+      "id": "gu-IN-NiranjanNeural",
+      "locale": "gu-IN",
+      "gender": "Male",
+      "label": "નિરંજન",
+      "friendly": ""
+    },
+    {
+      "id": "he-IL-HilaNeural",
+      "locale": "he-IL",
+      "gender": "Female",
+      "label": "הילה",
+      "friendly": ""
+    },
+    {
+      "id": "he-IL-AvriNeural",
+      "locale": "he-IL",
+      "gender": "Male",
+      "label": "אברי",
+      "friendly": ""
+    },
+    {
+      "id": "hi-IN-SwaraNeural",
+      "locale": "hi-IN",
+      "gender": "Female",
+      "label": "स्वरा",
+      "friendly": ""
+    },
+    {
+      "id": "hi-IN-MadhurNeural",
+      "locale": "hi-IN",
+      "gender": "Male",
+      "label": "मधुर",
+      "friendly": ""
+    },
+    {
+      "id": "hr-HR-GabrijelaNeural",
+      "locale": "hr-HR",
+      "gender": "Female",
+      "label": "Gabrijela",
+      "friendly": ""
+    },
+    {
+      "id": "hr-HR-SreckoNeural",
+      "locale": "hr-HR",
+      "gender": "Male",
+      "label": "Srećko",
+      "friendly": ""
+    },
+    {
+      "id": "hu-HU-NoemiNeural",
+      "locale": "hu-HU",
+      "gender": "Female",
+      "label": "Noémi",
+      "friendly": ""
+    },
+    {
+      "id": "hu-HU-TamasNeural",
+      "locale": "hu-HU",
+      "gender": "Male",
+      "label": "Tamás",
+      "friendly": ""
+    },
+    {
+      "id": "id-ID-GadisNeural",
+      "locale": "id-ID",
+      "gender": "Female",
+      "label": "Gadis",
+      "friendly": ""
+    },
+    {
+      "id": "id-ID-ArdiNeural",
+      "locale": "id-ID",
+      "gender": "Male",
+      "label": "Ardi",
+      "friendly": ""
+    },
+    {
+      "id": "is-IS-GudrunNeural",
+      "locale": "is-IS",
+      "gender": "Female",
+      "label": "Guðrún",
+      "friendly": ""
+    },
+    {
+      "id": "is-IS-GunnarNeural",
+      "locale": "is-IS",
+      "gender": "Male",
+      "label": "Gunnar",
+      "friendly": ""
+    },
+    {
+      "id": "it-IT-ElsaNeural",
+      "locale": "it-IT",
+      "gender": "Female",
+      "label": "Elsa",
+      "friendly": ""
+    },
+    {
+      "id": "it-IT-IsabellaNeural",
+      "locale": "it-IT",
+      "gender": "Female",
+      "label": "Isabella",
+      "friendly": ""
+    },
+    {
+      "id": "it-IT-DiegoNeural",
+      "locale": "it-IT",
+      "gender": "Male",
+      "label": "Diego",
+      "friendly": ""
+    },
+    {
+      "id": "it-IT-GiuseppeMultilingualNeural",
+      "locale": "it-IT",
+      "gender": "Male",
+      "label": "Giuseppe Multilingual",
+      "friendly": ""
+    },
+    {
+      "id": "iu-Cans-CA-SiqiniqNeural",
+      "locale": "iu-Cans-CA",
+      "gender": "Female",
+      "label": "ᓯᕿᓂᖅ",
+      "friendly": ""
+    },
+    {
+      "id": "iu-Cans-CA-TaqqiqNeural",
+      "locale": "iu-Cans-CA",
+      "gender": "Male",
+      "label": "ᑕᖅᑭᖅ",
+      "friendly": ""
+    },
+    {
+      "id": "iu-Latn-CA-SiqiniqNeural",
+      "locale": "iu-Latn-CA",
+      "gender": "Female",
+      "label": "ᓯᕿᓂᖅ",
+      "friendly": ""
+    },
+    {
+      "id": "iu-Latn-CA-TaqqiqNeural",
+      "locale": "iu-Latn-CA",
+      "gender": "Male",
+      "label": "ᑕᖅᑭᖅ",
+      "friendly": ""
+    },
+    {
+      "id": "ja-JP-NanamiNeural",
+      "locale": "ja-JP",
+      "gender": "Female",
+      "label": "七海",
+      "friendly": ""
+    },
+    {
+      "id": "ja-JP-KeitaNeural",
+      "locale": "ja-JP",
+      "gender": "Male",
+      "label": "圭太",
+      "friendly": ""
+    },
+    {
+      "id": "jv-ID-SitiNeural",
+      "locale": "jv-ID",
+      "gender": "Female",
+      "label": "Siti",
+      "friendly": ""
+    },
+    {
+      "id": "jv-ID-DimasNeural",
+      "locale": "jv-ID",
+      "gender": "Male",
+      "label": "Dimas",
+      "friendly": ""
+    },
+    {
+      "id": "ka-GE-EkaNeural",
+      "locale": "ka-GE",
+      "gender": "Female",
+      "label": "ეკა",
+      "friendly": ""
+    },
+    {
+      "id": "ka-GE-GiorgiNeural",
+      "locale": "ka-GE",
+      "gender": "Male",
+      "label": "გიორგი",
+      "friendly": ""
+    },
+    {
+      "id": "kk-KZ-AigulNeural",
+      "locale": "kk-KZ",
+      "gender": "Female",
+      "label": "Айгүл",
+      "friendly": ""
+    },
+    {
+      "id": "kk-KZ-DauletNeural",
+      "locale": "kk-KZ",
+      "gender": "Male",
+      "label": "Дәулет",
+      "friendly": ""
+    },
+    {
+      "id": "km-KH-SreymomNeural",
+      "locale": "km-KH",
+      "gender": "Female",
+      "label": "ស្រីមុំ",
+      "friendly": ""
+    },
+    {
+      "id": "km-KH-PisethNeural",
+      "locale": "km-KH",
+      "gender": "Male",
+      "label": "ពិសិដ្ឋ",
+      "friendly": ""
+    },
+    {
+      "id": "kn-IN-SapnaNeural",
+      "locale": "kn-IN",
+      "gender": "Female",
+      "label": "ಸಪ್ನಾ",
+      "friendly": ""
+    },
+    {
+      "id": "kn-IN-GaganNeural",
+      "locale": "kn-IN",
+      "gender": "Male",
+      "label": "ಗಗನ್",
+      "friendly": ""
+    },
+    {
+      "id": "ko-KR-SunHiNeural",
+      "locale": "ko-KR",
+      "gender": "Female",
+      "label": "선히",
+      "friendly": ""
+    },
+    {
+      "id": "ko-KR-HyunsuMultilingualNeural",
+      "locale": "ko-KR",
+      "gender": "Male",
+      "label": "Hyunsu Multilingual",
+      "friendly": ""
+    },
+    {
+      "id": "ko-KR-InJoonNeural",
+      "locale": "ko-KR",
+      "gender": "Male",
+      "label": "인준",
+      "friendly": ""
+    },
+    {
+      "id": "lo-LA-KeomanyNeural",
+      "locale": "lo-LA",
+      "gender": "Female",
+      "label": "ແກ້ວມະນີ",
+      "friendly": ""
+    },
+    {
+      "id": "lo-LA-ChanthavongNeural",
+      "locale": "lo-LA",
+      "gender": "Male",
+      "label": "ຈັນທະວົງ",
+      "friendly": ""
+    },
+    {
+      "id": "lt-LT-OnaNeural",
+      "locale": "lt-LT",
+      "gender": "Female",
+      "label": "Ona",
+      "friendly": ""
+    },
+    {
+      "id": "lt-LT-LeonasNeural",
+      "locale": "lt-LT",
+      "gender": "Male",
+      "label": "Leonas",
+      "friendly": ""
+    },
+    {
+      "id": "lv-LV-EveritaNeural",
+      "locale": "lv-LV",
+      "gender": "Female",
+      "label": "Everita",
+      "friendly": ""
+    },
+    {
+      "id": "lv-LV-NilsNeural",
+      "locale": "lv-LV",
+      "gender": "Male",
+      "label": "Nils",
+      "friendly": ""
+    },
+    {
+      "id": "mk-MK-MarijaNeural",
+      "locale": "mk-MK",
+      "gender": "Female",
+      "label": "Марија",
+      "friendly": ""
+    },
+    {
+      "id": "mk-MK-AleksandarNeural",
+      "locale": "mk-MK",
+      "gender": "Male",
+      "label": "Александар",
+      "friendly": ""
+    },
+    {
+      "id": "ml-IN-SobhanaNeural",
+      "locale": "ml-IN",
+      "gender": "Female",
+      "label": "ശോഭന",
+      "friendly": ""
+    },
+    {
+      "id": "ml-IN-MidhunNeural",
+      "locale": "ml-IN",
+      "gender": "Male",
+      "label": "മിഥുൻ",
+      "friendly": ""
+    },
+    {
+      "id": "mn-MN-YesuiNeural",
+      "locale": "mn-MN",
+      "gender": "Female",
+      "label": "Есүй",
+      "friendly": ""
+    },
+    {
+      "id": "mn-MN-BataaNeural",
+      "locale": "mn-MN",
+      "gender": "Male",
+      "label": "Батаа",
+      "friendly": ""
+    },
+    {
+      "id": "mr-IN-AarohiNeural",
+      "locale": "mr-IN",
+      "gender": "Female",
+      "label": "आरोही",
+      "friendly": ""
+    },
+    {
+      "id": "mr-IN-ManoharNeural",
+      "locale": "mr-IN",
+      "gender": "Male",
+      "label": "मनोहर",
+      "friendly": ""
+    },
+    {
+      "id": "ms-MY-YasminNeural",
+      "locale": "ms-MY",
+      "gender": "Female",
+      "label": "Yasmin",
+      "friendly": ""
+    },
+    {
+      "id": "ms-MY-OsmanNeural",
+      "locale": "ms-MY",
+      "gender": "Male",
+      "label": "Osman",
+      "friendly": ""
+    },
+    {
+      "id": "mt-MT-GraceNeural",
+      "locale": "mt-MT",
+      "gender": "Female",
+      "label": "Grace",
+      "friendly": ""
+    },
+    {
+      "id": "mt-MT-JosephNeural",
+      "locale": "mt-MT",
+      "gender": "Male",
+      "label": "Joseph",
+      "friendly": ""
+    },
+    {
+      "id": "my-MM-NilarNeural",
+      "locale": "my-MM",
+      "gender": "Female",
+      "label": "နီလာ",
+      "friendly": ""
+    },
+    {
+      "id": "my-MM-ThihaNeural",
+      "locale": "my-MM",
+      "gender": "Male",
+      "label": "သီဟ",
+      "friendly": ""
+    },
+    {
+      "id": "nb-NO-PernilleNeural",
+      "locale": "nb-NO",
+      "gender": "Female",
+      "label": "Pernille",
+      "friendly": ""
+    },
+    {
+      "id": "nb-NO-FinnNeural",
+      "locale": "nb-NO",
+      "gender": "Male",
+      "label": "Finn",
+      "friendly": ""
+    },
+    {
+      "id": "ne-NP-HemkalaNeural",
+      "locale": "ne-NP",
+      "gender": "Female",
+      "label": "हेमकला",
+      "friendly": ""
+    },
+    {
+      "id": "ne-NP-SagarNeural",
+      "locale": "ne-NP",
+      "gender": "Male",
+      "label": "सागर",
+      "friendly": ""
+    },
+    {
+      "id": "nl-BE-DenaNeural",
+      "locale": "nl-BE",
+      "gender": "Female",
+      "label": "Dena",
+      "friendly": ""
+    },
+    {
+      "id": "nl-BE-ArnaudNeural",
+      "locale": "nl-BE",
+      "gender": "Male",
+      "label": "Arnaud",
+      "friendly": ""
+    },
+    {
+      "id": "nl-NL-ColetteNeural",
+      "locale": "nl-NL",
+      "gender": "Female",
+      "label": "Colette",
+      "friendly": ""
+    },
+    {
+      "id": "nl-NL-FennaNeural",
+      "locale": "nl-NL",
+      "gender": "Female",
+      "label": "Fenna",
+      "friendly": ""
+    },
+    {
+      "id": "nl-NL-MaartenNeural",
+      "locale": "nl-NL",
+      "gender": "Male",
+      "label": "Maarten",
+      "friendly": ""
+    },
+    {
+      "id": "pl-PL-ZofiaNeural",
+      "locale": "pl-PL",
+      "gender": "Female",
+      "label": "Zofia",
+      "friendly": ""
+    },
+    {
+      "id": "pl-PL-MarekNeural",
+      "locale": "pl-PL",
+      "gender": "Male",
+      "label": "Marek",
+      "friendly": ""
+    },
+    {
+      "id": "ps-AF-LatifaNeural",
+      "locale": "ps-AF",
+      "gender": "Female",
+      "label": "لطيفه",
+      "friendly": ""
+    },
+    {
+      "id": "ps-AF-GulNawazNeural",
+      "locale": "ps-AF",
+      "gender": "Male",
+      "label": " ګل نواز",
+      "friendly": ""
+    },
+    {
+      "id": "pt-BR-FranciscaNeural",
+      "locale": "pt-BR",
+      "gender": "Female",
+      "label": "Francisca",
+      "friendly": ""
+    },
+    {
+      "id": "pt-BR-ThalitaMultilingualNeural",
+      "locale": "pt-BR",
+      "gender": "Female",
+      "label": "Thalita multilíngue",
+      "friendly": ""
+    },
+    {
+      "id": "pt-BR-AntonioNeural",
+      "locale": "pt-BR",
+      "gender": "Male",
+      "label": "Antônio",
+      "friendly": ""
+    },
+    {
+      "id": "pt-PT-RaquelNeural",
+      "locale": "pt-PT",
+      "gender": "Female",
+      "label": "Raquel",
+      "friendly": ""
+    },
+    {
+      "id": "pt-PT-DuarteNeural",
+      "locale": "pt-PT",
+      "gender": "Male",
+      "label": "Duarte",
+      "friendly": ""
+    },
+    {
+      "id": "ro-RO-AlinaNeural",
+      "locale": "ro-RO",
+      "gender": "Female",
+      "label": "Alina",
+      "friendly": ""
+    },
+    {
+      "id": "ro-RO-EmilNeural",
+      "locale": "ro-RO",
+      "gender": "Male",
+      "label": "Emil",
+      "friendly": ""
+    },
+    {
+      "id": "ru-RU-SvetlanaNeural",
+      "locale": "ru-RU",
+      "gender": "Female",
+      "label": "Светлана",
+      "friendly": ""
+    },
+    {
+      "id": "ru-RU-DmitryNeural",
+      "locale": "ru-RU",
+      "gender": "Male",
+      "label": "Дмитрий",
+      "friendly": ""
+    },
+    {
+      "id": "si-LK-ThiliniNeural",
+      "locale": "si-LK",
+      "gender": "Female",
+      "label": "තිළිණි",
+      "friendly": ""
+    },
+    {
+      "id": "si-LK-SameeraNeural",
+      "locale": "si-LK",
+      "gender": "Male",
+      "label": "සමීර",
+      "friendly": ""
+    },
+    {
+      "id": "sk-SK-ViktoriaNeural",
+      "locale": "sk-SK",
+      "gender": "Female",
+      "label": "Viktória",
+      "friendly": ""
+    },
+    {
+      "id": "sk-SK-LukasNeural",
+      "locale": "sk-SK",
+      "gender": "Male",
+      "label": "Lukáš",
+      "friendly": ""
+    },
+    {
+      "id": "sl-SI-PetraNeural",
+      "locale": "sl-SI",
+      "gender": "Female",
+      "label": "Petra",
+      "friendly": ""
+    },
+    {
+      "id": "sl-SI-RokNeural",
+      "locale": "sl-SI",
+      "gender": "Male",
+      "label": "Rok",
+      "friendly": ""
+    },
+    {
+      "id": "so-SO-UbaxNeural",
+      "locale": "so-SO",
+      "gender": "Female",
+      "label": "Ubax",
+      "friendly": ""
+    },
+    {
+      "id": "so-SO-MuuseNeural",
+      "locale": "so-SO",
+      "gender": "Male",
+      "label": "Muuse",
+      "friendly": ""
+    },
+    {
+      "id": "sq-AL-AnilaNeural",
+      "locale": "sq-AL",
+      "gender": "Female",
+      "label": "Anila",
+      "friendly": ""
+    },
+    {
+      "id": "sq-AL-IlirNeural",
+      "locale": "sq-AL",
+      "gender": "Male",
+      "label": "Ilir",
+      "friendly": ""
+    },
+    {
+      "id": "sr-RS-SophieNeural",
+      "locale": "sr-RS",
+      "gender": "Female",
+      "label": "Софија",
+      "friendly": ""
+    },
+    {
+      "id": "sr-RS-NicholasNeural",
+      "locale": "sr-RS",
+      "gender": "Male",
+      "label": "Никола",
+      "friendly": ""
+    },
+    {
+      "id": "su-ID-TutiNeural",
+      "locale": "su-ID",
+      "gender": "Female",
+      "label": "Tuti",
+      "friendly": ""
+    },
+    {
+      "id": "su-ID-JajangNeural",
+      "locale": "su-ID",
+      "gender": "Male",
+      "label": "Jajang",
+      "friendly": ""
+    },
+    {
+      "id": "sv-SE-SofieNeural",
+      "locale": "sv-SE",
+      "gender": "Female",
+      "label": "Sofie",
+      "friendly": ""
+    },
+    {
+      "id": "sv-SE-MattiasNeural",
+      "locale": "sv-SE",
+      "gender": "Male",
+      "label": "Mattias",
+      "friendly": ""
+    },
+    {
+      "id": "sw-KE-ZuriNeural",
+      "locale": "sw-KE",
+      "gender": "Female",
+      "label": "Zuri",
+      "friendly": ""
+    },
+    {
+      "id": "sw-KE-RafikiNeural",
+      "locale": "sw-KE",
+      "gender": "Male",
+      "label": "Rafiki",
+      "friendly": ""
+    },
+    {
+      "id": "sw-TZ-RehemaNeural",
+      "locale": "sw-TZ",
+      "gender": "Female",
+      "label": "Rehema",
+      "friendly": ""
+    },
+    {
+      "id": "sw-TZ-DaudiNeural",
+      "locale": "sw-TZ",
+      "gender": "Male",
+      "label": "Daudi",
+      "friendly": ""
+    },
+    {
+      "id": "ta-IN-PallaviNeural",
+      "locale": "ta-IN",
+      "gender": "Female",
+      "label": "பல்லவி",
+      "friendly": ""
+    },
+    {
+      "id": "ta-IN-ValluvarNeural",
+      "locale": "ta-IN",
+      "gender": "Male",
+      "label": "வள்ளுவர்",
+      "friendly": ""
+    },
+    {
+      "id": "ta-LK-SaranyaNeural",
+      "locale": "ta-LK",
+      "gender": "Female",
+      "label": "சரண்யா",
+      "friendly": ""
+    },
+    {
+      "id": "ta-LK-KumarNeural",
+      "locale": "ta-LK",
+      "gender": "Male",
+      "label": "குமார்",
+      "friendly": ""
+    },
+    {
+      "id": "ta-MY-KaniNeural",
+      "locale": "ta-MY",
+      "gender": "Female",
+      "label": "கனி",
+      "friendly": ""
+    },
+    {
+      "id": "ta-MY-SuryaNeural",
+      "locale": "ta-MY",
+      "gender": "Male",
+      "label": "சூர்யா",
+      "friendly": ""
+    },
+    {
+      "id": "ta-SG-VenbaNeural",
+      "locale": "ta-SG",
+      "gender": "Female",
+      "label": "வெண்பா",
+      "friendly": ""
+    },
+    {
+      "id": "ta-SG-AnbuNeural",
+      "locale": "ta-SG",
+      "gender": "Male",
+      "label": "அன்பு",
+      "friendly": ""
+    },
+    {
+      "id": "te-IN-ShrutiNeural",
+      "locale": "te-IN",
+      "gender": "Female",
+      "label": "శ్రుతి",
+      "friendly": ""
+    },
+    {
+      "id": "te-IN-MohanNeural",
+      "locale": "te-IN",
+      "gender": "Male",
+      "label": "మోహన్",
+      "friendly": ""
+    },
+    {
+      "id": "th-TH-PremwadeeNeural",
+      "locale": "th-TH",
+      "gender": "Female",
+      "label": "เปรมวดี",
+      "friendly": ""
+    },
+    {
+      "id": "th-TH-NiwatNeural",
+      "locale": "th-TH",
+      "gender": "Male",
+      "label": "นิวัฒน์",
+      "friendly": ""
+    },
+    {
+      "id": "tr-TR-EmelNeural",
+      "locale": "tr-TR",
+      "gender": "Female",
+      "label": "Emel",
+      "friendly": ""
+    },
+    {
+      "id": "tr-TR-AhmetNeural",
+      "locale": "tr-TR",
+      "gender": "Male",
+      "label": "Ahmet",
+      "friendly": ""
+    },
+    {
+      "id": "uk-UA-PolinaNeural",
+      "locale": "uk-UA",
+      "gender": "Female",
+      "label": "Поліна",
+      "friendly": ""
+    },
+    {
+      "id": "uk-UA-OstapNeural",
+      "locale": "uk-UA",
+      "gender": "Male",
+      "label": "Остап",
+      "friendly": ""
+    },
+    {
+      "id": "ur-IN-GulNeural",
+      "locale": "ur-IN",
+      "gender": "Female",
+      "label": "گل",
+      "friendly": ""
+    },
+    {
+      "id": "ur-IN-SalmanNeural",
+      "locale": "ur-IN",
+      "gender": "Male",
+      "label": "سلمان",
+      "friendly": ""
+    },
+    {
+      "id": "ur-PK-UzmaNeural",
+      "locale": "ur-PK",
+      "gender": "Female",
+      "label": "عظمیٰ",
+      "friendly": ""
+    },
+    {
+      "id": "ur-PK-AsadNeural",
+      "locale": "ur-PK",
+      "gender": "Male",
+      "label": "اسد",
+      "friendly": ""
+    },
+    {
+      "id": "uz-UZ-MadinaNeural",
+      "locale": "uz-UZ",
+      "gender": "Female",
+      "label": "Madina",
+      "friendly": ""
+    },
+    {
+      "id": "uz-UZ-SardorNeural",
+      "locale": "uz-UZ",
+      "gender": "Male",
+      "label": "Sardor",
+      "friendly": ""
+    },
+    {
+      "id": "vi-VN-HoaiMyNeural",
+      "locale": "vi-VN",
+      "gender": "Female",
+      "label": "Hoài My",
+      "friendly": ""
+    },
+    {
+      "id": "vi-VN-NamMinhNeural",
+      "locale": "vi-VN",
+      "gender": "Male",
+      "label": "Nam Minh",
+      "friendly": ""
+    },
+    {
+      "id": "zh-CN-XiaoxiaoNeural",
+      "locale": "zh-CN",
+      "gender": "Female",
+      "label": "晓晓",
+      "friendly": ""
+    },
+    {
+      "id": "zh-CN-XiaoyiNeural",
+      "locale": "zh-CN",
+      "gender": "Female",
+      "label": "晓伊",
+      "friendly": ""
+    },
+    {
+      "id": "zh-CN-YunjianNeural",
+      "locale": "zh-CN",
+      "gender": "Male",
+      "label": "云健",
+      "friendly": ""
+    },
+    {
+      "id": "zh-CN-YunxiNeural",
+      "locale": "zh-CN",
+      "gender": "Male",
+      "label": "云希",
+      "friendly": ""
+    },
+    {
+      "id": "zh-CN-YunxiaNeural",
+      "locale": "zh-CN",
+      "gender": "Male",
+      "label": "云夏",
+      "friendly": ""
+    },
+    {
+      "id": "zh-CN-YunyangNeural",
+      "locale": "zh-CN",
+      "gender": "Male",
+      "label": "云扬",
+      "friendly": ""
+    },
+    {
+      "id": "zh-CN-liaoning-XiaobeiNeural",
+      "locale": "zh-CN-liaoning",
+      "gender": "Female",
+      "label": "晓北",
+      "friendly": ""
+    },
+    {
+      "id": "zh-CN-shaanxi-XiaoniNeural",
+      "locale": "zh-CN-shaanxi",
+      "gender": "Female",
+      "label": "晓妮",
+      "friendly": ""
+    },
+    {
+      "id": "zh-HK-HiuGaaiNeural",
+      "locale": "zh-HK",
+      "gender": "Female",
+      "label": "曉佳",
+      "friendly": ""
+    },
+    {
+      "id": "zh-HK-HiuMaanNeural",
+      "locale": "zh-HK",
+      "gender": "Female",
+      "label": "曉曼",
+      "friendly": ""
+    },
+    {
+      "id": "zh-HK-WanLungNeural",
+      "locale": "zh-HK",
+      "gender": "Male",
+      "label": "雲龍",
+      "friendly": ""
+    },
+    {
+      "id": "zh-TW-HsiaoChenNeural",
+      "locale": "zh-TW",
+      "gender": "Female",
+      "label": "曉臻",
+      "friendly": ""
+    },
+    {
+      "id": "zh-TW-HsiaoYuNeural",
+      "locale": "zh-TW",
+      "gender": "Female",
+      "label": "曉雨",
+      "friendly": ""
+    },
+    {
+      "id": "zh-TW-YunJheNeural",
+      "locale": "zh-TW",
+      "gender": "Male",
+      "label": "雲哲",
+      "friendly": ""
+    },
+    {
+      "id": "zu-ZA-ThandoNeural",
+      "locale": "zu-ZA",
+      "gender": "Female",
+      "label": "Thando",
+      "friendly": ""
+    },
+    {
+      "id": "zu-ZA-ThembaNeural",
+      "locale": "zu-ZA",
+      "gender": "Male",
+      "label": "Themba",
+      "friendly": ""
+    }
+  ]
+}

@@ -9,6 +9,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+from engine.security.update_manifest import sha256_file, verify_latest, verify_release
+
 CARRIER_DIRNAME = "速影载体"
 DEFAULT_MIRROR = Path.home() / "Suying" / "carrier"
 
@@ -109,20 +113,48 @@ def ensure_carrier_layout(root: Path) -> Path:
     return root
 
 
-def read_latest_manifest(carrier_root: Path | None = None) -> dict[str, Any] | None:
+def read_latest_manifest(
+    carrier_root: Path | None = None,
+    *,
+    trusted_keys: dict[str, Ed25519PublicKey] | None = None,
+) -> dict[str, Any] | None:
     roots = [carrier_root] if carrier_root else discover_carrier_roots()
     for root in roots:
         if not root:
             continue
-        man = Path(root) / "app" / "latest.json"
-        if not man.is_file():
+        app_root = (Path(root) / "app").resolve()
+        latest_path = app_root / "latest.json"
+        latest_sig = app_root / "latest.json.sig"
+        if not latest_path.is_file() or not latest_sig.is_file():
             continue
         try:
-            data = json.loads(man.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                data["_carrier_root"] = str(root)
-                data["_manifest_path"] = str(man)
-                return data
+            pointer, _ = verify_latest(
+                latest_path,
+                latest_sig,
+                trusted_keys=trusted_keys,
+            )
+            release_path = (app_root / pointer.release_path).resolve()
+            if not release_path.is_relative_to(app_root):
+                continue
+            if sha256_file(release_path) != pointer.release_sha256:
+                continue
+            manifest, release_digest = verify_release(
+                release_path,
+                release_path.with_name(f"{release_path.name}.sig"),
+                trusted_keys=trusted_keys,
+                state_path=None,
+            )
+            if manifest.release_seq != pointer.release_seq:
+                continue
+            data = manifest.model_dump(mode="json")
+            data.update(
+                {
+                    "_carrier_root": str(root),
+                    "_manifest_path": str(release_path),
+                    "_release_digest": release_digest,
+                }
+            )
+            return data
         except Exception:
             continue
     return None
@@ -142,7 +174,8 @@ def carrier_status(*, bound_nas_ok: bool | None = None) -> dict[str, Any]:
         "primary_root": str(primary) if primary else None,
         "latest": {
             "version": (man or {}).get("version"),
-            "force": bool((man or {}).get("force")),
+            "release_seq": (man or {}).get("release_seq"),
+            "key_id": (man or {}).get("key_id"),
             "notes": (man or {}).get("notes") or "",
         }
         if man
@@ -303,6 +336,8 @@ def import_customer_seed(
     customer_root: Path,
     overwrite: bool = False,
     carrier_root: Path | None = None,
+    session: Any | None = None,
+    customer: Any | None = None,
 ) -> dict[str, Any]:
     """Copy an allowlisted seed into one customer's local config directories."""
     selected = next((s for s in list_customer_seeds(carrier_root) if s["id"] == seed_id), None)
@@ -312,6 +347,7 @@ def import_customer_seed(
     target_root = Path(customer_root).expanduser().resolve()
     copied: list[str] = []
     skipped: list[str] = []
+    keyword_result: dict[str, Any] | None = None
     for item in selected["files"]:
         source_rel = Path(item["source"])
         target_rel = Path(item["target"])
@@ -331,6 +367,19 @@ def import_customer_seed(
         dest = (target_root / target_rel).resolve()
         if not src.is_relative_to(seed_dir) or not dest.is_relative_to(target_root) or not src.is_file():
             raise ValueError(f"客户种子文件无效: {source_text}")
+        if target_text == "03-词池/keyword-pack.json" and session is not None and customer is not None:
+            from engine.catalog.keyword_pack import install_keyword_pack
+
+            if not customer.keyword_pack_path:
+                customer.keyword_pack_path = str(dest)
+            keyword_result = install_keyword_pack(
+                session,
+                customer,
+                src,
+                source_kind=f"carrier-seed:{seed_id}",
+            )
+            copied.append(target_text)
+            continue
         if dest.exists() and not overwrite:
             skipped.append(target_text)
             continue
@@ -345,4 +394,14 @@ def import_customer_seed(
         "copied": copied,
         "skipped": skipped,
         "overwrite": overwrite,
+        "keyword_pack": (
+            {
+                "id": keyword_result["pack"].id,
+                "revision": keyword_result["pack"].revision,
+                "sha256": keyword_result["pack"].content_sha256,
+                "path": keyword_result["path"],
+            }
+            if keyword_result
+            else None
+        ),
     }

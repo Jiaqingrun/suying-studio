@@ -3,13 +3,34 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from pathlib import Path
 from typing import Any
 
+# Full integrity_check scans every page and blocks writers for a long time on
+# large montage.db. Ops polls call this frequently — cache + quick_check.
+_CACHE_TTL_SEC = 300.0
+_cache: dict[str, Any] = {"path": "", "at": 0.0, "info": None}
 
-def inspect_montage_db(db_path: Path | str) -> dict[str, Any]:
-    """Return integrity + row counts. Never raises."""
+
+def inspect_montage_db(db_path: Path | str, *, force: bool = False) -> dict[str, Any]:
+    """Return integrity + row counts. Never raises.
+
+    Uses PRAGMA quick_check by default (and caches for ``_CACHE_TTL_SEC``) so
+    frequent /reports/ops polls do not lock the live writer. Pass ``force=True``
+    for an explicit full integrity_check (e.g. backup / doctor).
+    """
     p = Path(db_path)
+    now = time.monotonic()
+    cached = _cache.get("info")
+    if (
+        not force
+        and cached is not None
+        and _cache.get("path") == str(p)
+        and now - float(_cache.get("at") or 0) < _CACHE_TTL_SEC
+    ):
+        return dict(cached)
+
     out: dict[str, Any] = {
         "path": str(p),
         "exists": p.is_file(),
@@ -20,6 +41,7 @@ def inspect_montage_db(db_path: Path | str) -> dict[str, Any]:
         "counts": {},
         "warnings": [],
         "errors": [],
+        "check_mode": "full" if force else "quick",
     }
     if not p.is_file():
         out["errors"].append("montage.db 不存在")
@@ -33,10 +55,11 @@ def inspect_montage_db(db_path: Path | str) -> dict[str, Any]:
     try:
         con = sqlite3.connect(f"file:{p}?mode=ro", uri=True)
         try:
-            integrity = str(con.execute("PRAGMA integrity_check").fetchone()[0])
+            pragma = "PRAGMA integrity_check" if force else "PRAGMA quick_check"
+            integrity = str(con.execute(pragma).fetchone()[0])
             out["integrity"] = integrity
             if integrity != "ok":
-                out["errors"].append(f"integrity_check={integrity[:80]}")
+                out["errors"].append(f"{pragma.split()[-1]}={integrity[:80]}")
             tables = {
                 r[0]
                 for r in con.execute(
@@ -67,6 +90,10 @@ def inspect_montage_db(db_path: Path | str) -> dict[str, Any]:
     except Exception as e:  # noqa: BLE001
         out["errors"].append(str(e))
         out["ok"] = False
+    if out.get("ok"):
+        _cache["path"] = str(p)
+        _cache["at"] = now
+        _cache["info"] = dict(out)
     return out
 
 

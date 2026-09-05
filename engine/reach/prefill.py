@@ -8,6 +8,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from engine.pack.publish import ensure_ai_generated_disclosure, limit_platform_hashtags
+from engine.reach.business_scope import VIDEO_PLATFORMS
 from engine.reach.queue import PLATFORMS, ReachQueueItem, enqueue, mark_awaiting_human
 
 
@@ -33,6 +35,22 @@ def load_pack_prefill(pack_dir: Path, *, locale: str = "zh") -> dict[str, Any]:
         copy_name = "copy.zh.json"
     copy_doc = _load_json(pack_dir / copy_name)
     platforms = (copy_doc.get("platforms") or {}) if copy_doc else {}
+    if isinstance(platforms, dict):
+        normalized: dict[str, Any] = {}
+        for plat, raw in platforms.items():
+            if not isinstance(raw, dict):
+                continue
+            entry = dict(raw)
+            body = str(entry.get("body") or entry.get("caption") or "")
+            tags = list(entry.get("hashtags") or [])
+            if str(plat).strip().lower() == "kuaishou":
+                body, tags = limit_platform_hashtags("kuaishou", body, tags)
+            if str(plat).strip().lower() in VIDEO_PLATFORMS:
+                body = ensure_ai_generated_disclosure(body)
+            entry["body"] = body
+            entry["hashtags"] = tags
+            normalized[plat] = entry
+        platforms = normalized
 
     video = pack_dir / "video.mp4"
     if not video.is_file():
@@ -70,6 +88,18 @@ def enqueue_from_pack(
     prefill = load_pack_prefill(Path(pack_dir), locale=locale)
     plat_map: dict[str, Any] = prefill["platforms"]
     wanted = [p.lower() for p in (platforms or list(PLATFORMS))]
+    if output_id is None:
+        raise ValueError("从物料包入队必须提供 output_id，禁止旧包脱离成片事实发布")
+    frozen_platforms = [plat for plat in wanted if plat in PLATFORMS]
+    from engine.reach.publication_lifecycle import freeze_publication_group, resolve_target
+
+    group, _ = freeze_publication_group(
+        session,
+        customer_id=customer_id,
+        output_id=output_id,
+        targets=[{"platform": plat, "account_key": ""} for plat in frozen_platforms],
+        source="publish_pack",
+    )
     items: list[ReachQueueItem] = []
     for plat in wanted:
         if plat not in PLATFORMS:
@@ -77,6 +107,12 @@ def enqueue_from_pack(
         entry = plat_map.get(plat) or {}
         title = str(entry.get("title") or prefill.get("brand") or "速影成片")
         body = str(entry.get("body") or "")
+        body, hashtags = limit_platform_hashtags(
+            plat,
+            body,
+            list(entry.get("hashtags") or []),
+        )
+        body = ensure_ai_generated_disclosure(body)
         item = enqueue(
             session,
             customer_id=customer_id,
@@ -88,11 +124,15 @@ def enqueue_from_pack(
             output_id=output_id,
             copy_json={
                 "locale": prefill["locale"],
-                "platform": entry,
-                "hashtags": entry.get("hashtags") or [],
+                "platform": {**entry, "body": body, "hashtags": hashtags},
+                "hashtags": hashtags,
             },
             note="prefilled_from_publish_pack",
             status="queued",
+            publication_group_id=group.id,
+            publication_target_id=resolve_target(
+                session, group_id=group.id, platform=plat
+            ).id,
         )
         if mark_ready:
             item = mark_awaiting_human(session, item)

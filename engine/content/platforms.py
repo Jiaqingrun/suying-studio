@@ -1,0 +1,261 @@
+"""Platform registry for SEO/GEO article publishing (not video cover catalog)."""
+
+from __future__ import annotations
+
+from typing import Any
+
+# tier: stable | beta | experimental | human_only
+# transport: browser | api | search_submit | human
+PLATFORM_REGISTRY: dict[str, dict[str, Any]] = {
+    "website": {
+        "id": "website",
+        "label": "官网 CMS",
+        "short": "官网",
+        "tier": "stable",
+        "transport": "browser",
+        "content_type": "long_article",
+        "hosts": [],  # filled per managed_site
+        "publish_path_hint": "/admin",
+        "title_max": 80,
+        "body_max": 50000,
+        "allow_external_links": True,
+        "ai_label_required": True,
+        "message_url": "",
+        "adapter": "website",
+        "adapter_version": "1",
+        "daily_soft_quota": 10,
+    },
+    "baidu_ziyuan": {
+        "id": "baidu_ziyuan",
+        "label": "百度搜索资源平台",
+        "short": "百度收录",
+        "tier": "stable",
+        "transport": "search_submit",
+        "content_type": "url_submit",
+        "hosts": ["ziyuan.baidu.com", "data.zz.baidu.com"],
+        "note": "收录提交≠内容发布；提交不保证收录",
+        "adapter": "baidu_ziyuan",
+        "adapter_version": "1",
+        "daily_soft_quota": 100,
+    },
+    "so_360": {
+        "id": "so_360",
+        "label": "360站长平台",
+        "short": "360收录",
+        "tier": "stable",
+        "transport": "search_submit",
+        "content_type": "url_submit",
+        "hosts": ["zhanzhang.so.com"],
+        "adapter": "so_360",
+        "adapter_version": "1",
+        "daily_soft_quota": 50,
+    },
+    "wechat_mp": {
+        "id": "wechat_mp",
+        "label": "微信公众号",
+        "short": "公众号",
+        "tier": "beta",
+        "transport": "browser",
+        "content_type": "long_article",
+        "hosts": ["mp.weixin.qq.com"],
+        "publish_url": "https://mp.weixin.qq.com/",
+        "title_max": 64,
+        "body_max": 20000,
+        "allow_external_links": True,
+        "ai_label_required": True,
+        "message_url": "https://mp.weixin.qq.com/",
+        "adapter": "wechat_mp",
+        "adapter_version": "1",
+        "daily_soft_quota": 1,
+    },
+    "baijiahao": {
+        "id": "baijiahao",
+        "label": "百家号",
+        "short": "百家号",
+        "tier": "beta",
+        "transport": "browser",
+        "content_type": "long_article",
+        "hosts": ["baijiahao.baidu.com"],
+        "publish_url": "https://baijiahao.baidu.com/",
+        "title_max": 40,
+        "title_min": 8,
+        "body_max": 20000,
+        "allow_external_links": False,
+        "ai_label_required": True,
+        "message_url": "https://baijiahao.baidu.com/builder/rc/commentmanage/comment/all",
+        "adapter": "baijiahao",
+        "adapter_version": "1",
+        "daily_soft_quota": 5,
+    },
+    "toutiao": {
+        "id": "toutiao",
+        "label": "头条号",
+        "short": "头条",
+        "tier": "beta",
+        "transport": "browser",
+        "content_type": "long_article",
+        "hosts": ["mp.toutiao.com"],
+        "publish_url": "https://mp.toutiao.com/",
+        "title_max": 30,
+        "body_max": 20000,
+        "allow_external_links": False,
+        "ai_label_required": True,
+        "message_url": "https://mp.toutiao.com/profile_v4/personal/message",
+        "adapter": "toutiao",
+        "adapter_version": "1",
+        "daily_soft_quota": 5,
+    },
+    "sohu": {
+        "id": "sohu",
+        "label": "搜狐号",
+        "short": "搜狐",
+        "tier": "experimental",
+        "transport": "browser",
+        "content_type": "long_article",
+        "hosts": ["mp.sohu.com"],
+        "publish_url": "https://mp.sohu.com/",
+        "adapter": "generic_browser",
+        "adapter_version": "0",
+        "daily_soft_quota": 3,
+    },
+    "netease": {
+        "id": "netease",
+        "label": "网易号",
+        "short": "网易",
+        "tier": "experimental",
+        "transport": "browser",
+        "content_type": "long_article",
+        "hosts": ["mp.163.com"],
+        "publish_url": "https://mp.163.com/",
+        "adapter": "generic_browser",
+        "adapter_version": "0",
+        "daily_soft_quota": 3,
+    },
+    "penguin": {
+        "id": "penguin",
+        "label": "企鹅号",
+        "short": "企鹅号",
+        "tier": "experimental",
+        "transport": "browser",
+        "content_type": "long_article",
+        "hosts": ["om.qq.com"],
+        "publish_url": "https://om.qq.com/",
+        "adapter": "generic_browser",
+        "adapter_version": "0",
+        "daily_soft_quota": 3,
+    },
+    "zhihu": {
+        "id": "zhihu",
+        "label": "知乎文章",
+        "short": "知乎",
+        "tier": "beta",
+        "transport": "browser",
+        "content_type": "long_article",
+        "hosts": ["www.zhihu.com", "zhuanlan.zhihu.com"],
+        "publish_url": "https://www.zhihu.com/creator",
+        "title_max": 100,
+        "body_max": 50000,
+        "allow_external_links": True,
+        "ai_label_required": True,
+        "message_url": "https://www.zhihu.com/messages",
+        "adapter": "zhihu",
+        "adapter_version": "1",
+        "daily_soft_quota": 3,
+    },
+    "csdn": {
+        "id": "csdn",
+        "label": "CSDN",
+        "short": "CSDN",
+        "tier": "experimental",
+        "transport": "browser",
+        "content_type": "tech_article",
+        "hosts": ["blog.csdn.net", "mp.csdn.net"],
+        "publish_url": "https://mp.csdn.net/mp_blog/creation/editor",
+        "industry_gate": "tech",
+        "adapter": "generic_browser",
+        "adapter_version": "0",
+        "daily_soft_quota": 2,
+    },
+    "juejin": {
+        "id": "juejin",
+        "label": "掘金",
+        "short": "掘金",
+        "tier": "experimental",
+        "transport": "browser",
+        "content_type": "tech_article",
+        "hosts": ["juejin.cn"],
+        "publish_url": "https://juejin.cn/editor/drafts/new",
+        "industry_gate": "tech",
+        "adapter": "generic_browser",
+        "adapter_version": "0",
+        "daily_soft_quota": 2,
+    },
+    "cnblogs": {
+        "id": "cnblogs",
+        "label": "博客园企业博客",
+        "short": "博客园",
+        "tier": "human_only",
+        "transport": "human",
+        "content_type": "tech_article",
+        "hosts": ["www.cnblogs.com"],
+        "note": "个人博客禁止商业推广；仅企业博客+技术知识",
+        "adapter": "human_open",
+        "adapter_version": "0",
+        "daily_soft_quota": 1,
+    },
+    "xhs": {
+        "id": "xhs",
+        "label": "小红书图文",
+        "short": "小红书",
+        "tier": "experimental",
+        "transport": "browser",
+        "content_type": "short_note",
+        "hosts": ["creator.xiaohongshu.com"],
+        "publish_url": "https://creator.xiaohongshu.com/publish/publish",
+        "allow_external_links": False,
+        "adapter": "generic_browser",
+        "adapter_version": "0",
+        "daily_soft_quota": 3,
+    },
+    "baike": {
+        "id": "baike",
+        "label": "百度百科",
+        "short": "百科",
+        "tier": "human_only",
+        "transport": "human",
+        "content_type": "evidence_pack",
+        "hosts": ["baike.baidu.com"],
+        "note": "禁止广告性质内容；系统只生成证据包",
+        "adapter": "human_open",
+        "adapter_version": "0",
+        "daily_soft_quota": 0,
+    },
+}
+
+PUBLISHABLE_FIRST = ("website", "baijiahao", "toutiao", "wechat_mp", "zhihu")
+
+
+def list_platforms(*, include_experimental: bool = True) -> list[dict[str, Any]]:
+    rows = []
+    for item in PLATFORM_REGISTRY.values():
+        tier = str(item.get("tier") or "")
+        if not include_experimental and tier in ("experimental", "human_only"):
+            continue
+        rows.append(dict(item))
+    return rows
+
+
+def get_platform(platform_id: str) -> dict[str, Any]:
+    key = (platform_id or "").strip().lower()
+    if key not in PLATFORM_REGISTRY:
+        raise ValueError(f"未知内容平台: {platform_id}")
+    return dict(PLATFORM_REGISTRY[key])
+
+
+def is_auto_publish_allowed(platform_id: str) -> bool:
+    spec = get_platform(platform_id)
+    return spec.get("tier") in ("stable", "beta") and spec.get("transport") in (
+        "browser",
+        "search_submit",
+        "api",
+    )

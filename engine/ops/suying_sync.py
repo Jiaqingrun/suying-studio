@@ -21,8 +21,10 @@ LAUNCH_AGENTS = Path.home() / "Library" / "LaunchAgents"
 PLIST_LABEL = "com.qr.zspace-team-sync"
 PLIST_PATH = LAUNCH_AGENTS / f"{PLIST_LABEL}.plist"
 
-DEFAULT_LOCAL = Path.home() / "Suying" / "sync"
-DEFAULT_WORK = Path.home() / "Suying"
+# 媒体工作区（片库/成片/cache/render）默认本机 APFS；权威 DB 仍在 ~/Suying/data。
+DEFAULT_MEDIA_WORKSPACE = Path.home() / "Movies" / "速影工作区"
+DEFAULT_LOCAL = DEFAULT_MEDIA_WORKSPACE
+DEFAULT_WORK = DEFAULT_MEDIA_WORKSPACE
 VOLUME_UUID = ""
 
 
@@ -244,6 +246,13 @@ def upsert_media_source(customer_name: str, remote_person: str, remote_base_rel:
             raise ValueError(f"远端媒体来源已被占用：{remote_root_rel}")
         if ex_remote_norm.startswith(remote_root_rel + "/") or remote_root_rel.startswith(ex_remote_norm + "/"):
             raise ValueError(f"远端媒体来源重叠：{remote_root_rel} 与现有 {ex_remote_norm}")
+        ex_local = str(s.get("local_target") or s.get("local") or "").strip().strip("/")
+        if ex_local and (
+            ex_local == local_target_rel
+            or ex_local.startswith(local_target_rel + "/")
+            or local_target_rel.startswith(ex_local + "/")
+        ):
+            raise ValueError(f"本地媒体目的地重叠：{local_target_rel} 与现有 {ex_local}")
 
     # Drop all old sources for this customer, then add the new one.
     new_sources: list[dict[str, Any]] = [s for s in sources if str(s.get("customer_key") or "").strip() != customer_name]
@@ -628,11 +637,14 @@ def default_config() -> dict[str, Any]:
         "local_root": str(DEFAULT_LOCAL),
         "work_root": str(DEFAULT_WORK),
         "volume_uuid": VOLUME_UUID,
-        "volume_relpath": "极空间团队文件同步",
+        # 本机 Movies 工作区不再依赖外置盘 volume_relpath
+        "volume_relpath": "",
         # carrier_only: T2S 仅同步安装/备份/更新载体；片库默认同步关闭
         "sync_mode": "carrier_only",
         "media_sync_enabled": False,
         "carrier_relpath": "速影载体",
+        # Publisher-owned signed repository. Set by the install profile for personal-space delivery.
+        "carrier_remote_root": "",
         "carrier_mirror": str(Path.home() / "Suying" / "carrier"),
         # media_sources: [{customer_key, display_name, remote_root, local_target, pull_only?}]
         # When present, zspace-team-sync.py uses it to compute pull scope and PATH_ALIASES.
@@ -647,6 +659,89 @@ def default_config() -> dict[str, Any]:
     return base
 
 
+def _is_legacy_media_workspace(path: Path) -> bool:
+    """True for pre-Movies defaults (Suying/sync、整棵 Suying、外置盘同步根)."""
+    try:
+        resolved = path.expanduser().resolve()
+    except OSError:
+        resolved = path.expanduser()
+    home = Path.home()
+    legacy = {
+        (home / "Suying" / "sync").resolve(),
+        (home / "Suying").resolve(),
+    }
+    try:
+        if resolved in legacy:
+            return True
+    except OSError:
+        pass
+    text = str(resolved)
+    markers = (
+        "/Suying/sync",
+        "极空间团队文件同步",
+        "/Volumes/QR",
+        "/QR-Volume/",
+        "QR-Volume/极空间",
+    )
+    return any(m in text for m in markers)
+
+
+def reconcile_media_workspace_paths(cfg: dict[str, Any], *, persist: bool = True) -> dict[str, Any]:
+    """If Movies 工作区已就位，把仍指向旧默认根的 local/work 切过去。
+
+    不碰 carrier_mirror；不覆盖已指向 Movies 的绝对路径。
+    """
+    movies = DEFAULT_MEDIA_WORKSPACE
+    customers_dir = movies / "速影客户"
+    if not movies.is_dir() or not customers_dir.is_dir():
+        return cfg
+
+    dirty = False
+    local_raw = str(cfg.get("local_root") or "").strip()
+    work_raw = str(cfg.get("work_root") or "").strip()
+    local = Path(local_raw).expanduser() if local_raw else Path()
+    work = Path(work_raw).expanduser() if work_raw else Path()
+
+    if not local_raw or _is_legacy_media_workspace(local):
+        cfg["local_root"] = str(movies)
+        dirty = True
+    if not work_raw or _is_legacy_media_workspace(work):
+        cfg["work_root"] = str(movies)
+        dirty = True
+
+    # 旧外置盘相对路径字段清空，避免运维页再显示「未挂载外置盘」
+    if str(cfg.get("volume_relpath") or "").strip() in {"极空间团队文件同步", ""}:
+        if cfg.get("volume_uuid"):
+            # 保留显式绑定；空 volume 时清 relpath
+            pass
+        if not str(cfg.get("volume_uuid") or "").strip() and cfg.get("volume_relpath"):
+            cfg["volume_relpath"] = ""
+            dirty = True
+
+    for ms in cfg.get("media_sources") or []:
+        if not isinstance(ms, dict):
+            continue
+        lt = str(ms.get("local_target") or "").strip()
+        if not lt:
+            continue
+        if not lt.startswith("/"):
+            ms["local_target"] = str(movies / lt)
+            dirty = True
+        elif _is_legacy_media_workspace(Path(lt)):
+            # 尝试保留 速影客户/… 后缀
+            marker = "/速影客户/"
+            if marker in lt:
+                ms["local_target"] = str(movies / "速影客户" / lt.split(marker, 1)[1])
+                dirty = True
+
+    if dirty and persist:
+        try:
+            save_config(cfg)
+        except OSError:
+            pass
+    return cfg
+
+
 def load_config() -> dict[str, Any]:
     if CONFIG_PATH.exists():
         raw = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
@@ -658,7 +753,7 @@ def load_config() -> dict[str, Any]:
             z = dict(base.get("zspace") or {})
             z.update({k: v for k, v in raw["zspace"].items() if v is not None})
             base["zspace"] = z
-        return base
+        return reconcile_media_workspace_paths(base)
     return default_config()
 
 
@@ -672,6 +767,13 @@ def customer_local_paths(name: str, cfg: dict[str, Any] | None = None) -> dict[s
     cfg = cfg or load_config()
     local_root = Path(cfg.get("local_root") or DEFAULT_LOCAL)
     work_root = Path(cfg.get("work_root") or DEFAULT_WORK)
+    # 权威 SQLite / settings 永远在本机 bootstrap，不跟媒体工作区混放。
+    try:
+        from engine.config.settings import bootstrap_data_root
+
+        data_root = bootstrap_data_root()
+    except Exception:  # noqa: BLE001
+        data_root = Path.home() / "Suying" / "data"
     customer_root = (local_root / "速影客户").resolve()
     base = (customer_root / validate_customer_name(name)).resolve()
     if base.parent != customer_root:
@@ -686,7 +788,7 @@ def customer_local_paths(name: str, cfg: dict[str, Any] | None = None) -> dict[s
         "brand_root": str(base / "05-品牌"),
         "cover_templates_root": str(base / "05-品牌" / "封面模板"),
         "work_root": str(work_root),
-        "data_root": str(work_root / "db"),
+        "data_root": str(data_root),
         "cache_root": str(work_root / "cache"),
         "render_root": str(work_root / "render"),
     }
@@ -720,8 +822,10 @@ def ensure_customer_dirs(name: str, *, register: bool = True) -> dict[str, Any]:
     for sub in ("ready", "review", "failed"):
         (Path(paths["output_root"]) / sub).mkdir(parents=True, exist_ok=True)
     work = Path(paths["work_root"])
-    for sub in ("db", "cache/frames", "cache/library", "cache/proxies", "cache/temp", "render", "logs"):
+    # cache/render 在媒体工作区；SQLite 不在此树（data_root = ~/Suying/data）
+    for sub in ("cache/frames", "cache/library", "cache/proxies", "cache/temp", "render", "logs"):
         (work / sub).mkdir(parents=True, exist_ok=True)
+    Path(paths["data_root"]).mkdir(parents=True, exist_ok=True)
 
     cover_readme = Path(paths["cover_templates_root"]) / "README.txt"
     if not cover_readme.exists():
@@ -736,6 +840,7 @@ def ensure_customer_dirs(name: str, *, register: bool = True) -> dict[str, Any]:
     readme.parent.mkdir(parents=True, exist_ok=True)
     readme.write_text(
         "# 速影客户目录说明\n\n"
+        "默认本机工作区：~/Movies/速影工作区/\n"
         "速影客户/<客户名>/\n"
         "  01-片库/     源视频入库\n"
         "  02-成片/     ready | review | failed | packs\n"
@@ -743,7 +848,9 @@ def ensure_customer_dirs(name: str, *, register: bool = True) -> dict[str, Any]:
         "  04-音乐/     可选 BGM\n"
         "  05-品牌/     logo、字体、style_lock\n"
         "    封面模板/  每客户封面套装（index.json + tpl_*）\n\n"
-        "引擎状态在 ../速影工作区（db/cache/render，不同步到极空间）。\n",
+        "同树 cache/ · render/（可大体积，不同步极空间）。\n"
+        "权威库与 settings 在 ~/Suying/data（不进片库树）。\n"
+        "T2S 载体镜像默认 ~/Suying/carrier。\n",
         encoding="utf-8",
     )
 
@@ -974,6 +1081,7 @@ def service_status() -> dict[str, Any]:
         "media_sync_enabled": bool(cfg.get("media_sync_enabled", False)),
         "media_sources": cfg.get("media_sources") or [],
         "carrier_relpath": cfg.get("carrier_relpath") or "速影载体",
+        "carrier_remote_root": cfg.get("carrier_remote_root") or "",
         "carrier_mirror": cfg.get("carrier_mirror")
         or str(Path.home() / "Suying" / "carrier"),
         "script_fingerprint": fp,

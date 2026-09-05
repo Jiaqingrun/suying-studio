@@ -119,12 +119,15 @@ class IngestWatcher:
         count = 0
         session = get_session()
         try:
-            # Skip anything already catalogued (ready / reject / failed / in-flight).
-            # Previously only "ready" was known → rejected_landscape got re-normalized forever.
+            # Skip completed/in-flight rows. Migration marks formerly rejected
+            # landscape sources as pending so one explicit scan can re-ingest them.
             known = {
                 row
                 for row in session.scalars(
-                    select(Asset.source_path).where(Asset.customer_id == customer_id)
+                    select(Asset.source_path).where(
+                        Asset.customer_id == customer_id,
+                        Asset.status != "pending",
+                    )
                 ).all()
             }
             log.info("scan known_assets=%s", len(known))
@@ -150,6 +153,14 @@ class IngestWatcher:
                 )
                 attempted = 0
                 for path in missing:
+                    try:
+                        from engine.runtime.quiesce import scan_cancel_requested
+
+                        if scan_cancel_requested():
+                            log.info("scan cancelled by system pause after %s ready", count)
+                            return count
+                    except Exception:
+                        pass
                     try:
                         asset = ingest_file(
                             session,

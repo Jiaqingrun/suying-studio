@@ -63,11 +63,11 @@ _THEME_FALLBACK_COLORS: dict[str, tuple[int, int, int]] = {
     "🏪": (16, 185, 129),
     "✅": (34, 197, 94),
     "🛒": (244, 63, 94),
-    "🔧": (148, 163, 184),
-    "⚙️": (148, 163, 184),
+    "🔧": (249, 115, 22),
+    "⚙️": (234, 179, 8),
     "🏗️": (245, 158, 11),
     "✨": (250, 204, 21),
-    "🛠️": (161, 161, 170),
+    "🛠️": (59, 130, 246),
     "📌": (239, 68, 68),
     "👍": (52, 211, 153),
     "🏠": (96, 165, 250),
@@ -360,6 +360,20 @@ def _draw_fallback_sticker(emoji: str, dest: Path, *, size: int) -> Path | None:
     return dest
 
 
+# Metal/grey tool glyphs often fail "color Twemoji" QC (true Twemoji is low chroma).
+# Swap to high-chroma cues so burn + READY gate stay reliable offline.
+_LOW_CHROMA_EMOJI_SWAP: dict[str, str] = {
+    "🔧": "✨",
+    "🛠️": "✅",
+    "🛠": "✅",
+    "⚙️": "👍",
+    "⚙": "👍",
+    "🔩": "🛒",
+    "⛏️": "📌",
+    "⛏": "📌",
+}
+
+
 def sanitize_emoji_cues(
     cues: list[dict[str, Any]] | None,
     *,
@@ -377,6 +391,8 @@ def sanitize_emoji_cues(
         if "\u200d" in emoji:
             emoji = emoji.split("\u200d", 1)[0]
             emoji = "".join(_EMOJI_RE.findall(emoji)) or emoji[:2]
+        if emoji:
+            emoji = _LOW_CHROMA_EMOJI_SWAP.get(emoji) or emoji
         if not emoji:
             continue
         try:

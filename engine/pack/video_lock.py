@@ -17,8 +17,11 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 LOCKED_TITLE_COLOR = "#FFE600"
 LOCKED_TITLE_STROKE_COLOR = "#000000"
 LOCKED_TITLE_STROKE_WIDTH = 6
-# HARD (2026-07-26 用户)：标题整体下移 120px
-LOCKED_TITLE_OFFSET_Y_PX = 120
+# HARD (2026-07-30 用户)：最终不透明字形外接框顶边 = 220px。
+# legacy offset 仅为迁移输入，不再参与渲染验收。
+LOCKED_TITLE_TOP_PX = 220
+LOCKED_TITLE_OFFSET_Y_PX = 0
+LOCKED_SUBTITLE_BOTTOM_PX = 420
 
 # Product-neutral hard defaults (no customer disk paths in engine code)
 DEFAULT_LOCK: dict[str, Any] = {
@@ -39,7 +42,10 @@ DEFAULT_LOCK: dict[str, Any] = {
         "layout": "dual_chip",
         "position": "top",
         "offset_y_px": LOCKED_TITLE_OFFSET_Y_PX,
-        "max_chars": 10,
+        "glyph_top_px": LOCKED_TITLE_TOP_PX,
+        "font_size_min": 72,
+        "font_size_max": 92,
+        "max_chars": 24,
         "max_lines": 2,
         "spoken": False,
         "forbid_in_subtitle": True,
@@ -48,13 +54,14 @@ DEFAULT_LOCK: dict[str, Any] = {
         "prefer_full_dual": False,
         "random_single_or_dual": True,
         "min_chars_total": 6,
-        "target_chars_per_line": 8,
+        "target_chars_per_line": 12,
     },
     "subtitle": {
         "font_size": 64,
         "color": "#FFFFFF",
         "outline": "#000000",
-        "bottom_padding_px": 400,
+        "bottom_padding_px": LOCKED_SUBTITLE_BOTTOM_PX,
+        "glyph_bottom_px": LOCKED_SUBTITLE_BOTTOM_PX,
         "side_margin_px": 48,
         "no_background_mask": True,
         "auto_dual_line": True,
@@ -121,17 +128,44 @@ DEFAULT_LOCK: dict[str, Any] = {
         "cliplet_reject_status": "rejected_blur",
         "asset_reject_status": "rejected_blur",
     },
-    # PAPER_SLIP — 纸片规则写死（每日最多 2 次）
+    # PAPER_SLIP — 滚动避重写死
     "paper_slip": {
         "locked": True,
         "do_not_change_without_user_approval": True,
-        "max_daily_uses": 2,
+        "mode": "rolling_diversity",
+        "rolling_cliplet_window": 20,
+        "rolling_phrase_window": 15,
         "cliplet": True,
         "phrase": True,
         "count_on": "ready_only",
         "timezone": "Asia/Shanghai",
+        "forbid_quota_circuit": True,
     },
 }
+
+
+def is_inside_packaged_app_runtime(path: Path | str) -> bool:
+    """True when path sits under *.app/Contents/Resources/runtime (signed bundle).
+
+    Writing here creates files outside RUNTIME_MANIFEST and permanently blocks
+    App engine_start integrity checks after the next relaunch/reboot.
+    """
+    try:
+        parts = Path(path).expanduser().resolve().parts
+    except OSError:
+        parts = Path(path).expanduser().parts
+    for i, part in enumerate(parts):
+        if not part.endswith(".app"):
+            continue
+        if i + 3 >= len(parts):
+            continue
+        if (
+            parts[i + 1] == "Contents"
+            and parts[i + 2] == "Resources"
+            and parts[i + 3] == "runtime"
+        ):
+            return True
+    return False
 
 
 def lock_paths_for_customer(customer_name: str, *, output_root: str | Path | None = None) -> list[Path]:
@@ -145,6 +179,17 @@ def lock_paths_for_customer(customer_name: str, *, output_root: str | Path | Non
         paths.insert(0, parent / "05-品牌" / "VIDEO_LOCK.json")
         paths.insert(1, parent / "05-品牌" / "style_lock.json")
     return paths
+
+
+def writable_lock_paths_for_customer(
+    customer_name: str, *, output_root: str | Path | None = None
+) -> list[Path]:
+    """Paths safe to mutate — never the signed App runtime tree."""
+    return [
+        path
+        for path in lock_paths_for_customer(customer_name, output_root=output_root)
+        if not is_inside_packaged_app_runtime(path)
+    ]
 
 
 def load_video_lock(
@@ -173,12 +218,21 @@ def load_video_lock(
         _deep_merge(lock, profile["video_lock"])
     lock["locked"] = True
     lock["do_not_change_without_user_approval"] = True
-    # 强制参考 HARD_LOCKS / READY_GATE：文件/profile 不得改回红字黄描边；标题下移写死
+    # Style is orientation-scoped and user-approved. Keep values inside safe
+    # geometry; exact values are frozen into each Job and checked by READY_GATE.
     title = lock.get("title") if isinstance(lock.get("title"), dict) else {}
-    title["color"] = LOCKED_TITLE_COLOR
-    title["stroke_color"] = LOCKED_TITLE_STROKE_COLOR
-    title["stroke_width"] = max(int(title.get("stroke_width") or 0), LOCKED_TITLE_STROKE_WIDTH)
+    canvas = lock.get("canvas") if isinstance(lock.get("canvas"), dict) else {}
+    landscape = int(canvas.get("width") or 1080) > int(canvas.get("height") or 1920)
+    top_default, top_low, top_high = (120, 60, 260) if landscape else (220, 120, 420)
+    title["color"] = str(title.get("color") or LOCKED_TITLE_COLOR)
+    title["stroke_color"] = str(
+        title.get("stroke_color") or LOCKED_TITLE_STROKE_COLOR
+    )
+    title["stroke_width"] = max(0, min(12, int(title.get("stroke_width") or 0)))
     title["offset_y_px"] = LOCKED_TITLE_OFFSET_Y_PX
+    title["glyph_top_px"] = max(
+        top_low, min(top_high, int(title.get("glyph_top_px") or top_default))
+    )
     lock["title"] = title
     # QUALITY_LOCK FROZEN: file/profile cannot soften code floors
     from engine.ingest.quality import locked_quality_floors
@@ -203,6 +257,17 @@ def load_video_lock(
     # Subtitle / voice floors that were locked this sprint
     sub = lock.get("subtitle") if isinstance(lock.get("subtitle"), dict) else {}
     sub["side_margin_px"] = max(int(sub.get("side_margin_px") or 0), 48)
+    bottom_default, bottom_low, bottom_high = (
+        (180, 100, 360) if landscape else (420, 240, 620)
+    )
+    sub["bottom_padding_px"] = max(
+        bottom_low,
+        min(bottom_high, int(sub.get("bottom_padding_px") or bottom_default)),
+    )
+    sub["glyph_bottom_px"] = max(
+        bottom_low,
+        min(bottom_high, int(sub.get("glyph_bottom_px") or bottom_default)),
+    )
     sub["forbid_edge_clip"] = True
     sub["no_background_mask"] = True
     sub["align_to_voice_mandatory"] = True
@@ -231,8 +296,11 @@ def load_video_lock(
     emoji["forbid_spoken_emoji"] = True
     emoji["require_burn_mono"] = True
     lock["emoji"] = emoji
-    # PAPER_SLIP FROZEN: max_daily_uses 只可加严（≤2），不可放宽
-    from engine.catalog.paper_slip import MAX_DAILY_USES
+    # PAPER_SLIP FROZEN: 滚动避重窗口写死；禁止恢复日/周满额
+    from engine.catalog.paper_slip import (
+        ROLLING_CLIPLET_WINDOW,
+        ROLLING_PHRASE_WINDOW,
+    )
 
     ps = lock.get("paper_slip") if isinstance(lock.get("paper_slip"), dict) else {}
     ps["locked"] = True
@@ -241,49 +309,197 @@ def load_video_lock(
     ps["phrase"] = True
     ps["count_on"] = "ready_only"
     ps["timezone"] = "Asia/Shanghai"
-    try:
-        cfg_max = int(ps.get("max_daily_uses") or MAX_DAILY_USES)
-    except (TypeError, ValueError):
-        cfg_max = MAX_DAILY_USES
-    ps["max_daily_uses"] = min(cfg_max, MAX_DAILY_USES)
+    ps["mode"] = "rolling_diversity"
+    ps["forbid_quota_circuit"] = True
+    ps["rolling_cliplet_window"] = ROLLING_CLIPLET_WINDOW
+    ps["rolling_phrase_window"] = ROLLING_PHRASE_WINDOW
+    # Strip legacy hard-cap knobs so profile cannot reintroduce them.
+    ps.pop("max_daily_uses", None)
+    ps.pop("max_weekly_uses", None)
     lock["paper_slip"] = ps
     return lock
 
 
 def apply_lock_to_title_style(base: dict[str, Any], lock: dict[str, Any]) -> dict[str, Any]:
-    """Apply VIDEO_LOCK title style — 黄字黑描边 + 下移 offset_y_px（强制参考）."""
+    """Apply the customer-approved, safe title style."""
     t = lock.get("title") if isinstance(lock.get("title"), dict) else {}
     out = dict(base or {})
     out.update(
         {
             "position": t.get("position", out.get("position", "top")),
             "font_size": int(t.get("font_size", out.get("font_size", 92))),
-            "color": LOCKED_TITLE_COLOR,
-            "stroke_color": LOCKED_TITLE_STROKE_COLOR,
+            "color": str(t.get("color") or out.get("color") or LOCKED_TITLE_COLOR),
+            "stroke_color": str(
+                t.get("stroke_color")
+                or out.get("stroke_color")
+                or LOCKED_TITLE_STROKE_COLOR
+            ),
             "stroke_width": max(
-                int(t.get("stroke_width", out.get("stroke_width", LOCKED_TITLE_STROKE_WIDTH))),
-                LOCKED_TITLE_STROKE_WIDTH,
+                0,
+                min(
+                    12,
+                    int(
+                        t.get(
+                            "stroke_width",
+                            out.get("stroke_width", LOCKED_TITLE_STROKE_WIDTH),
+                        )
+                    ),
+                ),
             ),
             "offset_y_px": LOCKED_TITLE_OFFSET_Y_PX,
+            "glyph_top_px": int(
+                t.get("glyph_top_px")
+                or out.get("glyph_top_px")
+                or LOCKED_TITLE_TOP_PX
+            ),
+            "font_size_min": int(t.get("font_size_min") or 72),
+            "font_size_max": int(t.get("font_size_max") or 92),
             "bar_opacity": float(t.get("bar_opacity", out.get("bar_opacity", 0.0))),
             "bold": bool(t.get("bold", out.get("bold", True))),
             "layout": t.get("layout", out.get("layout", "dual_chip")),
-            "max_chars": int(t.get("max_chars", out.get("max_chars", 12))),
-            "max_lines": int(t.get("max_lines", out.get("max_lines", 2))),
+            "max_chars": int(t.get("max_chars") or out.get("max_chars") or 24),
+            "max_lines": int(t.get("max_lines") or out.get("max_lines") or 2),
         }
     )
     return out
 
 
+def overlay_production_rules_on_title_style(
+    title_style: dict[str, Any] | None,
+    production_rules: dict[str, Any] | None,
+    *,
+    orientation: str = "portrait",
+) -> dict[str, Any]:
+    """Job 冻结规则叠在 VIDEO_LOCK 之上（READY_GATE：锁 → 冻结值精确验收）。"""
+    out = dict(title_style or {})
+    er = production_rules if isinstance(production_rules, dict) else {}
+    if not er:
+        return out
+    if er.get("title_font_size") is not None:
+        out["font_size"] = int(er["title_font_size"])
+    if er.get("title_color"):
+        out["color"] = str(er["title_color"])
+    if er.get("title_stroke_color"):
+        out["stroke_color"] = str(er["title_stroke_color"])
+    if er.get("title_stroke_width") is not None:
+        out["stroke_width"] = int(er["title_stroke_width"])
+    if er.get("title_stroke_enabled") is False:
+        out["stroke_width"] = 0
+    if er.get("title_glyph_top_px") is not None:
+        out["glyph_top_px"] = int(er["title_glyph_top_px"])
+    elif out.get("glyph_top_px") is None:
+        out["glyph_top_px"] = 120 if str(orientation) == "landscape" else LOCKED_TITLE_TOP_PX
+    out["effect"] = str(er.get("title_effect") or out.get("effect") or "none")
+    out["align"] = str(er.get("title_align") or out.get("align") or "center")
+    return out
+
+
+def resolve_title_style(
+    base: dict[str, Any] | None = None,
+    *,
+    customer_name: str,
+    production_rules: dict[str, Any] | None = None,
+    profile: dict[str, Any] | None = None,
+    output_root: str | Path | None = None,
+    orientation: str = "portrait",
+) -> dict[str, Any]:
+    """规划/渲染共用：VIDEO_LOCK 上色后再叠 Job 冻结规则，避免跟镜黄字默认分叉。"""
+    out = dict(base or {})
+    lock = load_video_lock(
+        str(customer_name or ""),
+        output_root=output_root,
+        profile=profile if isinstance(profile, dict) else None,
+    )
+    out = apply_lock_to_title_style(out, lock)
+    return overlay_production_rules_on_title_style(
+        out, production_rules, orientation=orientation
+    )
+
+
+def sync_video_lock_into_rules(
+    rules: dict[str, Any] | None,
+    *,
+    customer_name: str,
+    profile: dict[str, Any] | None = None,
+    output_root: str | None = None,
+) -> dict[str, Any]:
+    """把客户 VIDEO_LOCK 标题/字幕/音色写入生产规则，避免 READY_GATE 与实渲分叉。
+
+    跟镜等路径会按 VIDEO_LOCK 上色；若 Job 冻结规则仍是实验室默认黄字，
+    会连续质检失败并质量熔断。
+    """
+    out = dict(rules or {})
+    lock = load_video_lock(
+        str(customer_name or ""),
+        output_root=output_root,
+        profile=profile if isinstance(profile, dict) else None,
+    )
+    title = lock.get("title") if isinstance(lock.get("title"), dict) else {}
+    subtitle = lock.get("subtitle") if isinstance(lock.get("subtitle"), dict) else {}
+    voice = lock.get("voice") if isinstance(lock.get("voice"), dict) else {}
+    if title.get("color"):
+        out["title_color"] = str(title.get("color"))
+    if title.get("stroke_color"):
+        out["title_stroke_color"] = str(title.get("stroke_color"))
+    if title.get("stroke_width") is not None:
+        out["title_stroke_width"] = int(title.get("stroke_width"))
+    if title.get("glyph_top_px") is not None:
+        out["title_glyph_top_px"] = int(title.get("glyph_top_px"))
+    if title.get("font_size") is not None:
+        out["title_font_size"] = int(title.get("font_size"))
+    if subtitle.get("color"):
+        out["subtitle_color"] = str(subtitle.get("color"))
+    if subtitle.get("outline"):
+        out["subtitle_stroke_color"] = str(subtitle.get("outline"))
+    if subtitle.get("glyph_bottom_px") is not None:
+        out["subtitle_glyph_bottom_px"] = int(subtitle.get("glyph_bottom_px"))
+    if voice.get("provider"):
+        out["tts_provider"] = str(voice.get("provider"))
+    if voice.get("voice"):
+        out["tts_voice"] = str(voice.get("voice"))
+    if voice.get("rate"):
+        out["narration_rate"] = str(voice.get("rate"))
+    if voice.get("volume"):
+        out["narration_volume"] = str(voice.get("volume"))
+    if voice.get("pitch"):
+        out["narration_pitch"] = str(voice.get("pitch"))
+    return out
+
+
+def is_title_style_lock_desync(gate_fails: list[str] | None) -> bool:
+    """READY_GATE 失败是否仅为标题色/描边与冻结规则不一致（可自愈）。"""
+    fails = [str(x) for x in (gate_fails or []) if str(x).strip()]
+    if not fails:
+        return False
+    return all(
+        f.startswith("title: color=")
+        or f.startswith("title: stroke_color=")
+        or f.startswith("title: stroke_width=")
+        for f in fails
+    )
+
+
 def apply_lock_to_settings_patch(lock: dict[str, Any]) -> dict[str, Any]:
+    from engine.pack.voice_clone import is_clone_provider
+
     v = lock.get("voice") if isinstance(lock.get("voice"), dict) else {}
-    return {
-        "tts_provider": str(v.get("provider") or "edge"),
+    provider = str(v.get("provider") or "edge")
+    patch: dict[str, Any] = {
+        "tts_provider": provider,
         "tts_voice": str(v.get("voice") or "zh-CN-XiaoxiaoNeural"),
         "tts_rate": str(v.get("rate") or "-8%"),
         "tts_pitch": str(v.get("pitch") or "+35Hz"),
         "tts_chars_per_sec_zh": float(v.get("chars_per_sec_zh") or 3.8),
     }
+    if is_clone_provider(provider):
+        patch["tts_clone_pack"] = str(v.get("voice_pack") or v.get("voice") or "aunt_slow")
+        patch["tts_clone_speed"] = float(v.get("clone_speed") or 1.0)
+        patch["tts_chars_per_sec_zh"] = float(v.get("chars_per_sec_zh") or 3.3)
+        if v.get("ref_wav"):
+            patch["tts_clone_ref_wav"] = str(v.get("ref_wav"))
+        if v.get("ref_text"):
+            patch["tts_clone_ref_text"] = str(v.get("ref_text"))
+    return patch
 
 
 def logo_enabled_from_lock(lock: dict[str, Any], profile: dict[str, Any] | None = None) -> bool:
@@ -322,7 +538,7 @@ def _normalize_style_lock(data: dict[str, Any]) -> dict[str, Any]:
                 or title.get("top_padding_px")
                 or LOCKED_TITLE_OFFSET_Y_PX
             ),
-            "max_chars": int(title.get("max_chars") or 12),
+            "max_chars": int(title.get("max_chars") or 24),
             "max_lines": int(title.get("max_lines") or 2),
             "layout": title.get("layout") or "dual_chip",
             "bold": bool(title.get("bold", True)),
@@ -330,7 +546,7 @@ def _normalize_style_lock(data: dict[str, Any]) -> dict[str, Any]:
     if sub:
         out["subtitle"] = {
             "font_size": int(sub.get("font_size_px") or sub.get("font_size") or 64),
-            "bottom_padding_px": int(sub.get("bottom_padding_px") or 400),
+            "bottom_padding_px": int(sub.get("bottom_padding_px") or LOCKED_SUBTITLE_BOTTOM_PX),
             "no_background_mask": bool(sub.get("no_background_mask", True)),
         }
     if canvas:

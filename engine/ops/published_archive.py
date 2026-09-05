@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,7 +20,52 @@ def _day_stamp(iso: str | None = None) -> str:
 
 
 def published_root(output_root: str | Path) -> Path:
-    return Path(output_root) / "published"
+    return Path(output_root) / "retired" / "published"
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _move_file_resume(src: Path, dest: Path) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if src.is_file():
+        if dest.exists():
+            if _sha256(src) != _sha256(dest):
+                raise OSError(f"归档目标冲突: {dest}")
+            src.unlink()
+        else:
+            shutil.move(str(src), str(dest))
+    elif not dest.is_file():
+        raise OSError(f"待归档文件不存在: {src}")
+
+
+def _move_tree_resume(src: Path, dest: Path) -> None:
+    if src.is_dir():
+        dest.mkdir(parents=True, exist_ok=True)
+        for child in sorted(src.rglob("*")):
+            if child.is_file():
+                _move_file_resume(child, dest / child.relative_to(src))
+        for child in sorted(src.rglob("*"), reverse=True):
+            if child.is_dir():
+                child.rmdir()
+        src.rmdir()
+    elif not dest.is_dir():
+        raise OSError(f"待归档目录不存在: {src}")
+
+
+def _rewrite_paths(value: Any, replacements: dict[str, str]) -> Any:
+    if isinstance(value, dict):
+        return {key: _rewrite_paths(item, replacements) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_rewrite_paths(item, replacements) for item in value]
+    if isinstance(value, str):
+        return replacements.get(value, value)
+    return value
 
 
 def archive_published_output(
@@ -28,10 +75,10 @@ def archive_published_output(
     platform: str = "",
     note: str = "",
 ) -> dict[str, Any]:
-    """Move mp4 + sidecar (+ covers) from ready/ into published/YYYY-MM-DD/.
+    """Move every output asset into retired/published/YYYY-MM-DD/output-<id>/.
 
-    Updates RenderOutput.output_path / sidecar_path / state=published.
-    Idempotent if already under published/.
+    The move is restartable. A SHA256 manifest is written only after all assets
+    are present; DB paths are changed only after that complete filesystem step.
     """
     src = Path(out.output_path) if out.output_path else None
     result: dict[str, Any] = {
@@ -42,49 +89,49 @@ def archive_published_output(
         "to": None,
         "state": out.state,
     }
-    if not src or not src.is_file():
-        result["error"] = "成片文件不存在"
-        return result
-
-    # Already archived
-    try:
-        if "published" in src.parts:
-            out.state = "published"
-            result["ok"] = True
-            result["to"] = str(src)
-            result["state"] = "published"
-            return result
-    except Exception:
-        pass
-
     day = _day_stamp()
-    dest_dir = published_root(output_root) / day
+    archive_base = published_root(output_root)
+    existing = sorted(archive_base.glob(f"*/output-{out.id}/output.mp4"))
+    if existing:
+        dest_dir = existing[0].parent
+    else:
+        dest_dir = archive_base / day / f"output-{out.id}"
     dest_dir.mkdir(parents=True, exist_ok=True)
-    dest = dest_dir / src.name
-    if dest.exists():
-        dest = dest_dir / f"{src.stem}_{out.id}{src.suffix}"
-
-    shutil.move(str(src), str(dest))
-    result["moved"] = True
+    dest = dest_dir / "output.mp4"
+    if src is None:
+        result["error"] = "成片路径为空"
+        return result
+    original_video = str(src)
+    _move_file_resume(src, dest)
+    result["moved"] = src != dest
     result["to"] = str(dest)
 
     new_side: Path | None = None
     if out.sidecar_path:
         side_src = Path(out.sidecar_path)
-        if side_src.is_file():
-            new_side = dest.with_suffix(".json")
-            shutil.move(str(side_src), str(new_side))
-        # move companion covers next to video if present
-        for pattern in (f"{src.stem}_covers", f"{src.stem}.covers"):
-            covers = src.parent / pattern
-            if covers.is_dir():
-                dest_covers = dest_dir / covers.name
-                if dest_covers.exists():
-                    shutil.rmtree(dest_covers, ignore_errors=True)
-                shutil.move(str(covers), str(dest_covers))
+        new_side = dest_dir / "sidecar.json"
+        _move_file_resume(side_src, new_side)
+
+    original_pack = str(out.pack_dir or "")
+    new_pack: Path | None = None
+    if out.pack_dir:
+        new_pack = dest_dir / "publish_pack"
+        _move_tree_resume(Path(out.pack_dir), new_pack)
+
+    # Move output-specific cover folders and standalone subtitle/voice files.
+    sibling_root = src.parent
+    for name in (f"{src.stem}_covers", f"{src.stem}.covers"):
+        candidate = sibling_root / name
+        if candidate.is_dir() or (dest_dir / "covers" / name).is_dir():
+            _move_tree_resume(candidate, dest_dir / "covers" / name)
+    media_suffixes = {".srt", ".vtt", ".wav", ".mp3", ".m4a", ".aac", ".flac"}
+    if sibling_root.is_dir():
+        for candidate in sibling_root.glob(f"{src.stem}*"):
+            if candidate.is_file() and candidate.suffix.lower() in media_suffixes:
+                _move_file_resume(candidate, dest_dir / "companions" / candidate.name)
 
     # stamp sidecar meta
-    side_path = new_side or dest.with_suffix(".json")
+    side_path = new_side or dest_dir / "sidecar.json"
     data = read_sidecar(side_path) if side_path.is_file() else {}
     meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
     meta["archived_published"] = True
@@ -92,22 +139,48 @@ def archive_published_output(
     meta["archived_platform"] = platform or ""
     if note:
         meta["archive_note"] = note
+    replacements = {original_video: str(dest)}
+    if original_pack and new_pack:
+        replacements[original_pack] = str(new_pack)
+    if out.sidecar_path:
+        replacements[str(out.sidecar_path)] = str(side_path)
+    data = _rewrite_paths(data, replacements)
     data["meta"] = meta
-    try:
-        write_sidecar(side_path, data)
-    except OSError:
-        pass
+    write_sidecar(side_path, data)
+
+    files = sorted(
+        path for path in dest_dir.rglob("*") if path.is_file() and path.name != "SHA256.json"
+    )
+    manifest = {
+        "schema": "suying.retired-published.v1",
+        "output_id": out.id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "files": [
+            {
+                "path": str(path.relative_to(dest_dir)),
+                "size": path.stat().st_size,
+                "sha256": _sha256(path),
+            }
+            for path in files
+        ],
+    }
+    manifest_path = dest_dir / "SHA256.json"
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
     out.output_path = str(dest)
-    if new_side:
-        out.sidecar_path = str(new_side)
-    elif side_path.is_file():
+    if side_path.is_file():
         out.sidecar_path = str(side_path)
-    out.state = "published"
+    if new_pack:
+        out.pack_dir = str(new_pack)
+    out.state = "retired_published"
 
     result["ok"] = True
-    result["state"] = "published"
+    result["state"] = "retired_published"
     result["sidecar"] = out.sidecar_path
+    result["pack_dir"] = out.pack_dir
+    result["manifest"] = str(manifest_path)
     return result
 
 
@@ -115,7 +188,8 @@ def is_archived_path(path: str | Path | None) -> bool:
     if not path:
         return False
     try:
-        return "published" in Path(path).parts
+        parts = Path(path).parts
+        return "retired" in parts and "published" in parts
     except Exception:
         return False
 
@@ -124,7 +198,7 @@ def publish_stats(output_root: str | Path) -> dict[str, Any]:
     """Filesystem counts under ready/ and published/."""
     root = Path(output_root)
     ready_dir = root / "ready"
-    pub_dir = root / "published"
+    pub_dir = published_root(root)
     ready_n = len(list(ready_dir.rglob("*.mp4"))) if ready_dir.is_dir() else 0
     pub_n = len(list(pub_dir.rglob("*.mp4"))) if pub_dir.is_dir() else 0
     today = datetime.now().strftime("%Y-%m-%d")

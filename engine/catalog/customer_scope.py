@@ -105,17 +105,36 @@ def require_active_customer(session: Session, settings: AppSettings) -> Customer
 
 
 def effective_paths(settings: AppSettings, customer: Customer) -> PathConfig:
+    """Overlay *only this customer*'s library/output (and sibling 04-音乐) onto settings.
+
+    Never leave the previous tenant's media roots in place: bare settings.paths is
+    shared on the machine pointer and will otherwise leak voice packs / BGM / locks.
+    """
     paths = settings.paths.model_copy(deep=True)
     if customer.library_root:
         paths.library_root = Path(customer.library_root)
-    if customer.library_roots:
-        paths.library_roots = [Path(p) for p in customer.library_roots]
+    if customer.library_roots is not None:
+        paths.library_roots = [Path(p) for p in (customer.library_roots or [])]
     if customer.output_root:
-        paths.output_root = Path(customer.output_root)
+        out = Path(customer.output_root)
+        paths.output_root = out
+        # Standard layout: …/<customer>/02-成片 → …/<customer>/04-音乐
+        try:
+            paths.music_root = out.expanduser().resolve().parent / "04-音乐"
+        except OSError:
+            paths.music_root = out.expanduser().parent / "04-音乐"
     return paths
 
 
 def settings_with_customer_paths(settings: AppSettings, customer: Customer) -> AppSettings:
     s = settings.model_copy(deep=True)
+    s.active_customer = customer.name or s.active_customer
     s.paths = effective_paths(settings, customer)
     return s
+
+
+def bind_active_customer_into_settings(settings: AppSettings, customer: Customer) -> AppSettings:
+    """Persist absolute tenant isolation: active_customer + customer-scoped paths."""
+    settings.active_customer = customer.name
+    settings.paths = effective_paths(settings, customer)
+    return settings
