@@ -2,14 +2,20 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
-.env
-.DS_Store
-*.db
-MontageStudio/
 apps/desktop/node_modules/
 apps/desktop/dist/
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
+apps/desktop-v2/node_modules/
+apps/desktop-v2/dist/
+apps/desktop-v2/src-tauri/target/
+apps/desktop-v2/src-tauri/gen/
+apps/desktop-v2/.env.development.local
+apps/desktop-v2/.env*.local
+.env
+.DS_Store
+*.db
+MontageStudio/
 *.log
 # Keep project rules/skills versionable; ignore other local Cursor state.
 .cursor/*
@@ -28,3 +34,25 @@ htmlcov/
 # Local QA / smoke scratch (never ship)
 _qa*.png
 _smoke_*/
+
+# Local promo/export artifacts
+suying-promo-*.png
+Testing.app/
+tools/chrome-for-testing/
+
+# Local release staging (if present under repo)
+apps/desktop/*.dmg
+
+# GRuleVisualLab bundled font binaries (fetch via scripts/fetch_fx_fonts.sh)
+configs/fx_assets/fonts/*
+!configs/fx_assets/fonts/README.md
+!configs/fx_assets/fonts/OFL.txt
+
+# Local promo videos (never ship)
+suying-promo-*.mp4
+
+# Icon regenerate backups
+apps/desktop/src-tauri/icons.bak.*/
+
+# One-off remote debug scratch
+scripts/_tmp_*.py

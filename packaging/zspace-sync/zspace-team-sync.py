@@ -23,15 +23,17 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 
-DEFAULT_LOCAL = Path.home() / "Suying" / "sync"
+DEFAULT_LOCAL = Path.home() / "Movies" / "速影工作区"
 DEFAULT_REMOTE = "/public"
 DEFAULT_PROXY = "http://127.0.0.1:13579"
 VUEX = Path.home() / "Library/Application Support/zspace/vuex.json"
 LOG_DIR = Path.home() / ".qr/logs"
 STATE_PATH = Path.home() / ".qr/zspace-team-sync-state.json"
-LOCK_PATH = Path.home() / ".qr/zspace-team-sync.lock"
+LOCK_DIR = Path.home() / ".qr/zspace-team-sync.locks"
+LOCK_REGISTRY_PATH = LOCK_DIR / ".registry.lock"
 CONFIG_PATH = Path.home() / ".qr" / "suying-sync.json"
 
 PUSH_SKIP_PARTS = {".DS_Store", "rendering", "Thumbs.db"}
@@ -43,7 +45,49 @@ PATH_ALIASES: list[tuple[str, str]] = []
 PUSH_LOCAL_PREFIXES: list[str] = []
 
 
-def load_runtime_maps() -> dict:
+def _normalized_relative_path(value: object, *, field: str) -> str:
+    raw = str(value or "").strip().replace("\\", "/").strip("/")
+    path = Path(raw)
+    if not raw or path.is_absolute() or ".." in path.parts:
+        raise RuntimeError(f"{field} 必须是安全的相对路径")
+    return path.as_posix()
+
+
+def _paths_overlap(left: Path, right: Path) -> bool:
+    a = left.expanduser().resolve()
+    b = right.expanduser().resolve()
+    return a == b or a in b.parents or b in a.parents
+
+
+def _validate_media_sources(sources: list[dict]) -> list[dict]:
+    parsed: list[dict] = []
+    for source in sources:
+        remote = _normalized_relative_path(
+            source.get("remote_root") or source.get("remote"),
+            field="media_sources.remote_root",
+        )
+        local = _normalized_relative_path(
+            source.get("local_target") or source.get("local"),
+            field="media_sources.local_target",
+        )
+        customer = str(source.get("customer_key") or "").strip()
+        if not customer:
+            raise RuntimeError("media_sources.customer_key 不能为空")
+        parsed.append({**source, "_remote": remote, "_local": local, "_customer": customer})
+    for index, left in enumerate(parsed):
+        for right in parsed[index + 1 :]:
+            remote_overlap = _paths_overlap(Path(left["_remote"]), Path(right["_remote"]))
+            local_overlap = _paths_overlap(Path(left["_local"]), Path(right["_local"]))
+            if remote_overlap or local_overlap:
+                raise RuntimeError(
+                    "媒体同步规则重叠，拒绝并行/串行写入: "
+                    f"{left['_customer']}({left['_remote']} → {left['_local']}) 与 "
+                    f"{right['_customer']}({right['_remote']} → {right['_local']})"
+                )
+    return parsed
+
+
+def load_runtime_maps(only_media_customers: set[str] | None = None) -> dict:
     """Load aliases/push prefixes from ~/.qr/suying-sync.json (App 预设置)."""
     global PATH_ALIASES, PUSH_LOCAL_PREFIXES
     if not CONFIG_PATH.exists():
@@ -54,14 +98,24 @@ def load_runtime_maps() -> dict:
         raise RuntimeError(f"同步配置无效: {CONFIG_PATH}: {e}") from e
     mode = str(cfg.get("sync_mode") or "carrier_only")
     if mode == "carrier_only":
+        if only_media_customers:
+            raise RuntimeError("--only-media-customer 仅适用于 media 同步模式")
         PATH_ALIASES = []
-        PUSH_LOCAL_PREFIXES = [""]
-        remote = f"/public/{str(cfg.get('carrier_relpath') or '速影载体').strip('/')}"
+        # The signed update repository is publisher-owned and client pull-only.
+        PUSH_LOCAL_PREFIXES = []
+        configured_remote = str(cfg.get("carrier_remote_root") or "").strip()
+        remote = configured_remote or f"/public/{str(cfg.get('carrier_relpath') or '速影载体').strip('/')}"
+        if not remote.startswith("/") or ".." in Path(remote).parts:
+            raise RuntimeError("carrier_remote_root 必须是安全的极空间绝对路径")
+        mirror = Path(cfg.get("carrier_mirror") or Path.home() / "Suying" / "carrier")
+        if configured_remote and mirror.name != "app":
+            mirror = mirror / "app"
         return {
             "mode": mode,
-            "local_root": Path(cfg.get("carrier_mirror") or Path.home() / "Suying" / "carrier"),
+            "local_root": mirror,
             "remote_root": remote,
             "pull_remote_roots": [remote],
+            "destination_roots": [mirror],
         }
     if not bool(cfg.get("media_sync_enabled", False)):
         raise RuntimeError("媒体同步未显式启用")
@@ -87,6 +141,9 @@ def load_runtime_maps() -> dict:
 
     # 1) Push candidates (legacy behavior, can be enabled explicitly by customer.push_local).
     for c in cfg.get("customers") or []:
+        customer_name = str(c.get("name") or "").strip()
+        if only_media_customers and customer_name not in only_media_customers:
+            continue
         for pfx in c.get("push_local") or []:
             if pfx not in push:
                 push.append(str(pfx))
@@ -94,28 +151,36 @@ def load_runtime_maps() -> dict:
     # 2) Media pull mapping.
     raw_sources = cfg.get("media_sources")
     if isinstance(raw_sources, list) and raw_sources:
-        for s in raw_sources:
-            remote_root = s.get("remote_root") or s.get("remote")
-            local_target = s.get("local_target") or s.get("local")
-            if not remote_root or not local_target:
+        validated_sources = _validate_media_sources(raw_sources)
+        for s in validated_sources:
+            if only_media_customers and s["_customer"] not in only_media_customers:
                 continue
-            remote_rel = str(remote_root).strip().removeprefix("/public/").strip("/")
-            if not remote_rel or ".." in remote_rel:
-                continue
-            aliases.append((remote_rel, str(local_target)))
+            remote_rel = s["_remote"].removeprefix("public/").strip("/")
+            aliases.append((remote_rel, s["_local"]))
             pull_roots.append(f"/public/{remote_rel}")
     else:
         # Back-compat for legacy config.
+        if only_media_customers:
+            raise RuntimeError(
+                "--only-media-customer 要求使用 v3 media_sources；旧 customers[].aliases 不支持筛选"
+            )
+        legacy_sources: list[dict] = []
         for c in cfg.get("customers") or []:
             for a in c.get("aliases") or []:
                 r, l = a.get("remote"), a.get("local")
                 if not r or not l:
                     continue
-                remote_rel = str(r).strip().removeprefix("/public/").strip("/")
-                if not remote_rel or ".." in remote_rel:
-                    continue
-                aliases.append((remote_rel, str(l)))
-                pull_roots.append(f"/public/{remote_rel}")
+                legacy_sources.append(
+                    {
+                        "customer_key": str(c.get("name") or "legacy"),
+                        "remote_root": r,
+                        "local_target": l,
+                    }
+                )
+        for source in _validate_media_sources(legacy_sources):
+            remote_rel = source["_remote"].removeprefix("public/").strip("/")
+            aliases.append((remote_rel, source["_local"]))
+            pull_roots.append(f"/public/{remote_rel}")
 
         # Optional explicit narrow pull scope (if user already provided it).
         raw_roots = cfg.get("pull_remote_roots")
@@ -130,15 +195,21 @@ def load_runtime_maps() -> dict:
     # Also de-duplicate pull roots.
     pull_roots = sorted({r for r in pull_roots if r})
     if not aliases or not pull_roots:
-        raise RuntimeError("媒体同步未配置任何有效媒体来源（media_sources 或 customers[].aliases 为空）")
+        selected = f"（筛选客户: {sorted(only_media_customers)}）" if only_media_customers else ""
+        raise RuntimeError(
+            "媒体同步未配置任何有效媒体来源"
+            f"{selected}（media_sources 或 customers[].aliases 为空）"
+        )
 
     PATH_ALIASES = aliases
     PUSH_LOCAL_PREFIXES = push
+    local_root = Path(mount_point) / str(cfg.get("volume_relpath") or "极空间团队文件同步")
     return {
         "mode": mode,
-        "local_root": Path(mount_point) / str(cfg.get("volume_relpath") or "极空间团队文件同步"),
+        "local_root": local_root,
         "remote_root": DEFAULT_REMOTE,
         "pull_remote_roots": pull_roots,
+        "destination_roots": [local_root / local for _, local in aliases],
     }
 
 
@@ -443,7 +514,11 @@ class ZSpaceClient:
             "seek": str(seek),
             "crtime": str(mtime_ms),
             "modify_time": str(mtime_ms),
-            "rename": "0",
+            # Upload conflict policy:
+            # - 0 = fail when filename exists
+            # - 1 = server-side rename/backup (may create *-1 variants)
+            # - 3 = best-effort overwrite (used for update repo publishing)
+            "rename": "3",
             "token": urllib.parse.quote(self.session["token"], safe=""),
             "plat": "pc",
             "nasid": self.session["nas_id"],
@@ -517,26 +592,159 @@ def walk_files(client: ZSpaceClient, root: str) -> list[dict]:
     return files
 
 
-def acquire_lock() -> int:
-    LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(str(LOCK_PATH), os.O_CREAT | os.O_RDWR)
-    try:
-        import fcntl
+def protected_local_roots() -> list[Path]:
+    """Local application state that sync downloads must never touch."""
+    home = Path.home()
+    roots = [
+        home / "Suying" / "data",
+        home / "Suying" / "cache",
+        home / "Suying" / "render",
+        home / "Suying" / "runtime",
+        home / "Library" / "Application Support" / "com.qr.suying",
+    ]
+    settings_path = home / "Suying" / "data" / "settings.json"
+    if settings_path.is_file():
+        try:
+            raw = json.loads(settings_path.read_text(encoding="utf-8"))
+            paths = raw.get("paths") or {}
+            for key in ("data_root", "cache_root", "render_root"):
+                value = str(paths.get(key) or "").strip()
+                if value:
+                    roots.append(Path(value))
+        except (OSError, json.JSONDecodeError):
+            # Static local roots remain protected. Invalid settings are reported by the engine.
+            pass
+    unique: dict[str, Path] = {}
+    for root in roots:
+        resolved = root.expanduser().resolve()
+        unique[str(resolved)] = resolved
+    return list(unique.values())
 
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError as e:
-        os.close(fd)
-        raise RuntimeError("另一同步任务正在运行") from e
+
+def assert_safe_destination_roots(local_root: Path, destination_roots: list[Path]) -> list[Path]:
+    sandbox = local_root.expanduser().resolve()
+    if not destination_roots:
+        raise RuntimeError("同步未解析出任何本地目的地")
+    protected = protected_local_roots()
+    safe: list[Path] = []
+    for root in destination_roots:
+        resolved = root.expanduser().resolve()
+        if resolved != sandbox and sandbox not in resolved.parents:
+            raise RuntimeError(f"同步目的地越出写入沙盒: {resolved}（沙盒 {sandbox}）")
+        for blocked in protected:
+            if _paths_overlap(resolved, blocked):
+                raise RuntimeError(f"同步目的地命中本机保护目录: {resolved} ↔ {blocked}")
+        safe.append(resolved)
+    for index, left in enumerate(safe):
+        for right in safe[index + 1 :]:
+            if _paths_overlap(left, right):
+                raise RuntimeError(f"本次同步目的地相互重叠: {left} ↔ {right}")
+    return sorted(set(safe), key=str)
+
+
+def assert_safe_destination(
+    destination: Path,
+    *,
+    allowed_roots: list[Path],
+    protected_roots: list[Path],
+) -> Path:
+    resolved = destination.expanduser().resolve()
+    if not any(resolved == root or root in resolved.parents for root in allowed_roots):
+        raise RuntimeError(f"下载目标不在本次规则的显式目的地内: {resolved}")
+    for blocked in protected_roots:
+        if resolved == blocked or blocked in resolved.parents:
+            raise RuntimeError(f"下载目标命中本机保护目录: {resolved}")
+    return resolved
+
+
+@dataclass
+class DestinationLease:
+    fd: int
+    path: Path
+    roots: list[Path]
+
+
+def _registry_fd() -> int:
+    import fcntl
+
+    LOCK_DIR.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(LOCK_REGISTRY_PATH), os.O_CREAT | os.O_RDWR, 0o600)
+    fcntl.flock(fd, fcntl.LOCK_EX)
     return fd
 
 
-def release_lock(fd: int) -> None:
-    try:
-        import fcntl
+def _release_registry(fd: int) -> None:
+    import fcntl
 
+    try:
         fcntl.flock(fd, fcntl.LOCK_UN)
     finally:
         os.close(fd)
+
+
+def acquire_destination_lease(destination_roots: list[Path]) -> DestinationLease:
+    """Atomically reject overlapping active destinations while allowing disjoint rules."""
+    import fcntl
+
+    roots = sorted({root.expanduser().resolve() for root in destination_roots}, key=str)
+    registry = _registry_fd()
+    try:
+        for lease_path in LOCK_DIR.glob("*.lease"):
+            try:
+                active_fd = os.open(str(lease_path), os.O_RDWR)
+            except FileNotFoundError:
+                continue
+            try:
+                try:
+                    fcntl.flock(active_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    try:
+                        payload = json.loads(lease_path.read_text(encoding="utf-8"))
+                        active_roots = [Path(item).resolve() for item in payload.get("roots") or []]
+                    except (OSError, json.JSONDecodeError):
+                        raise RuntimeError(f"活动同步租约不可读，拒绝并发: {lease_path}")
+                    if any(_paths_overlap(root, active) for root in roots for active in active_roots):
+                        raise RuntimeError(
+                            "另一同步任务正在写入重叠目的地: "
+                            + ", ".join(str(root) for root in active_roots)
+                        )
+                    continue
+                # Lock can be acquired: the owning process is gone, so this is stale.
+                lease_path.unlink(missing_ok=True)
+            finally:
+                os.close(active_fd)
+
+        digest = hashlib.sha256("\n".join(str(root) for root in roots).encode()).hexdigest()[:16]
+        lease_path = LOCK_DIR / f"{os.getpid()}-{digest}.lease"
+        fd = os.open(str(lease_path), os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            payload = {
+                "pid": os.getpid(),
+                "roots": [str(root) for root in roots],
+                "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            os.write(fd, (json.dumps(payload, ensure_ascii=False) + "\n").encode())
+            os.fsync(fd)
+        except Exception:
+            os.close(fd)
+            lease_path.unlink(missing_ok=True)
+            raise
+        return DestinationLease(fd=fd, path=lease_path, roots=roots)
+    finally:
+        _release_registry(registry)
+
+
+def release_destination_lease(lease: DestinationLease) -> None:
+    import fcntl
+
+    registry = _registry_fd()
+    try:
+        lease.path.unlink(missing_ok=True)
+        fcntl.flock(lease.fd, fcntl.LOCK_UN)
+        os.close(lease.fd)
+    finally:
+        _release_registry(registry)
 
 
 def relative_under_remote(path: str, remote_root: str) -> Path:
@@ -556,10 +764,12 @@ def sync_pull(
     remote_root: str,
     dry_run: bool,
     log_file: Path,
+    allowed_destination_roots: list[Path],
     pull_roots: list[str] | None = None,
     strict_mapped_only: bool = False,
 ) -> dict:
     roots = [r for r in (pull_roots or [remote_root]) if r]
+    blocked_roots = protected_local_roots()
     if not roots:
         roots = [remote_root]
     log(f"PULL 枚举远程 {roots}", log_file)
@@ -590,7 +800,11 @@ def sync_pull(
         local_rel = remote_rel_to_local_rel(rel)
         if strict_mapped_only and local_rel == rel:
             continue
-        dest = local_root / local_rel
+        dest = assert_safe_destination(
+            local_root / local_rel,
+            allowed_roots=allowed_destination_roots,
+            protected_roots=blocked_roots,
+        )
         size = int(it.get("size") or 0)
         if not (dest.exists() and dest.stat().st_size == size and size >= 0):
             pending += 1
@@ -611,7 +825,11 @@ def sync_pull(
         elif strict_mapped_only:
             unmapped_skipped += 1
             continue
-        dest = local_root / local_rel
+        dest = assert_safe_destination(
+            local_root / local_rel,
+            allowed_roots=allowed_destination_roots,
+            protected_roots=blocked_roots,
+        )
         size = int(it.get("size") or 0)
         mtime = int(it.get("modify_time") or 0)
 
@@ -753,21 +971,60 @@ def main() -> int:
     ap.add_argument("--once", action="store_true", help="同默认；兼容 launchd")
     ap.add_argument("--pull-only", action="store_true", help="只拉取，不回传")
     ap.add_argument("--push-only", action="store_true", help="只回传成片/词池")
+    ap.add_argument(
+        "--only-media-customer",
+        action="append",
+        default=[],
+        help="仅运行指定 customer_key 的 media_sources 规则；可重复",
+    )
     args = ap.parse_args()
 
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    log_file = LOG_DIR / "zspace-team-sync.log"
 
-    fd = None
+    lease: DestinationLease | None = None
     try:
-        fd = acquire_lock()
-        runtime = load_runtime_maps()
+        selected_customers = {
+            str(item).strip() for item in args.only_media_customer if str(item).strip()
+        }
+        runtime = load_runtime_maps(selected_customers or None)
+        runtime_local = Path(runtime["local_root"]).expanduser().resolve()
+        runtime_destinations = [
+            Path(item).expanduser().resolve() for item in runtime.get("destination_roots") or []
+        ]
         if args.local == DEFAULT_LOCAL:
-            args.local = runtime["local_root"]
+            args.local = runtime_local
+            destination_roots = runtime_destinations
+        else:
+            args.local = args.local.expanduser().resolve()
+            destination_roots = []
+            for root in runtime_destinations:
+                try:
+                    relative = root.relative_to(runtime_local)
+                except ValueError as exc:
+                    raise RuntimeError(f"运行时目的地不在配置 local_root 内: {root}") from exc
+                destination_roots.append(args.local / relative)
         if args.remote == DEFAULT_REMOTE:
             args.remote = runtime["remote_root"]
+        destination_roots = assert_safe_destination_roots(args.local, destination_roots)
+        scope_hash = hashlib.sha256(
+            "\n".join(str(root) for root in destination_roots).encode()
+        ).hexdigest()[:12]
+        filtered_run = bool(selected_customers)
+        log_file = LOG_DIR / (
+            f"zspace-team-sync.{scope_hash}.log" if filtered_run else "zspace-team-sync.log"
+        )
+        state_path = (
+            STATE_PATH.with_name(f"zspace-team-sync-state.{scope_hash}.json")
+            if filtered_run
+            else STATE_PATH
+        )
+        lease = acquire_destination_lease(destination_roots)
         args.local.mkdir(parents=True, exist_ok=True)
-        log(f"配置: {CONFIG_PATH} aliases={len(PATH_ALIASES)} push={len(PUSH_LOCAL_PREFIXES)}", log_file)
+        log(
+            f"配置: {CONFIG_PATH} aliases={len(PATH_ALIASES)} "
+            f"push={len(PUSH_LOCAL_PREFIXES)} destinations={destination_roots}",
+            log_file,
+        )
 
         session = load_session()
         assert_bound_account(session)
@@ -808,6 +1065,7 @@ def main() -> int:
                 args.remote,
                 args.dry_run,
                 log_file,
+                destination_roots,
                 pull_roots=pull_roots,
                 strict_mapped_only=(runtime.get("mode") != "carrier_only"),
             )
@@ -815,7 +1073,7 @@ def main() -> int:
             summary["push"] = sync_push(client, args.local, args.remote, args.dry_run, log_file)
 
         summary["finished_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-        STATE_PATH.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+        state_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
 
         failed = 0
         if "pull" in summary:
@@ -824,11 +1082,12 @@ def main() -> int:
             failed += int(summary["push"].get("failed") or 0)
         return 1 if failed else 0
     except Exception as e:
-        log(f"错误: {e}", log_file)
+        fallback_log = locals().get("log_file", LOG_DIR / "zspace-team-sync.log")
+        log(f"错误: {e}", fallback_log)
         return 2
     finally:
-        if fd is not None:
-            release_lock(fd)
+        if lease is not None:
+            release_destination_lease(lease)
 
 
 if __name__ == "__main__":

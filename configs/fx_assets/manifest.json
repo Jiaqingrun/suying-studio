@@ -1,0 +1,146 @@
+{
+  "version": 1,
+  "gate": "GRuleVisualLab",
+  "note": "Tier A only. Not legal advice. Licenses must ship with redistributed files.",
+  "transitions": {
+    "default": "none",
+    "max_duration_sec": 0.8,
+    "default_duration_sec": 0.4,
+    "xfade": [
+      "fade", "wipeleft", "wiperight", "wipeup", "wipedown",
+      "slideleft", "slideright", "slideup", "slidedown",
+      "circlecrop", "rectcrop", "distance", "fadeblack", "fadewhite",
+      "radial", "smoothleft", "smoothright", "smoothup", "smoothdown",
+      "circleopen", "circleclose", "vertopen", "vertclose", "horzopen", "horzclose",
+      "dissolve", "pixelize", "diagtl", "diagtr", "diagbl", "diagbr",
+      "hlslice", "hrslice", "vuslice", "vdslice", "hblur", "fadegrays",
+      "wipetl", "wipetr", "wipebl", "wipebr", "squeezeh", "squeezev", "zoomin",
+      "fadefast", "fadeslow", "hlwind", "hrwind", "vuwind", "vdwind",
+      "coverleft", "coverright", "coverup", "coverdown",
+      "revealleft", "revealright", "revealup", "revealdown"
+    ]
+  },
+  "fonts": [
+    {
+      "id": "default",
+      "label": "系统默认",
+      "use_hint": "通用兜底",
+      "spdx": null,
+      "redistributable": false,
+      "bundled": false
+    },
+    {
+      "id": "inter",
+      "label": "Inter",
+      "use_hint": "英文标题·现代简洁",
+      "official_url": "https://github.com/rsms/inter",
+      "spdx": "OFL-1.1",
+      "redistributable": true,
+      "attribution": "OFL.txt beside font files",
+      "bundled_relpath": "fonts/Inter-Regular.ttf"
+    },
+    {
+      "id": "noto_sans_sc",
+      "label": "Noto Sans SC",
+      "use_hint": "中文字幕·清晰易读",
+      "official_url": "https://fonts.google.com/noto/specimen/Noto+Sans+SC",
+      "spdx": "OFL-1.1",
+      "redistributable": true,
+      "attribution": "OFL.txt",
+      "bundled_relpath": "fonts/NotoSansSC-Regular.ttf"
+    },
+    {
+      "id": "noto_serif_sc",
+      "label": "Noto Serif SC",
+      "use_hint": "正式标题·品牌质感",
+      "official_url": "https://fonts.google.com/noto/specimen/Noto+Serif+SC",
+      "spdx": "OFL-1.1",
+      "redistributable": true,
+      "attribution": "OFL.txt",
+      "bundled_relpath": "fonts/NotoSerifSC-Regular.otf"
+    },
+    {
+      "id": "zcool_kuaile",
+      "label": "站酷快乐体",
+      "use_hint": "活泼促销·吸睛标题",
+      "official_url": "https://fonts.google.com/specimen/ZCOOL+KuaiLe",
+      "spdx": "OFL-1.1",
+      "redistributable": true,
+      "attribution": "OFL.txt",
+      "bundled_relpath": "fonts/ZCOOLKuaiLe-Regular.ttf"
+    },
+    {
+      "id": "lxgw_wenkai",
+      "label": "霞鹜文楷",
+      "use_hint": "温润人文·旁白感",
+      "official_url": "https://github.com/lxgw/LxgwWenKai",
+      "spdx": "OFL-1.1",
+      "redistributable": true,
+      "attribution": "OFL.txt",
+      "bundled_relpath": "fonts/LXGWWenKai-Regular.ttf"
+    },
+    {
+      "id": "source_han_sans_sc",
+      "label": "思源黑体 SC",
+      "use_hint": "中文标题字幕·稳妥",
+      "official_url": "https://github.com/adobe-fonts/source-han-sans",
+      "spdx": "OFL-1.1",
+      "redistributable": true,
+      "attribution": "OFL.txt; reserved name Source",
+      "bundled_relpath": "fonts/SourceHanSansSC-Regular.otf"
+    }
+  ],
+  "stickers": [
+    {
+      "id": "twemoji",
+      "official_url": "https://github.com/twitter/twemoji",
+      "spdx": "CC-BY-4.0",
+      "redistributable": true,
+      "attribution": "App About / legal: Twemoji graphics CC-BY-4.0",
+      "tier": "A"
+    },
+    {
+      "id": "noto_emoji",
+      "official_url": "https://github.com/googlefonts/noto-emoji",
+      "spdx": "Apache-2.0",
+      "redistributable": true,
+      "attribution": "NOTICE / Apache-2.0",
+      "tier": "A"
+    },
+    {
+      "id": "openmoji",
+      "official_url": "https://github.com/hfg-gmuend/openmoji",
+      "spdx": "CC-BY-SA-4.0",
+      "redistributable": false,
+      "tier": "B",
+      "note": "ShareAlike — not bundled by default"
+    }
+  ],
+  "masks": {
+    "max_layers": 8,
+    "builtin": [
+      {"id": "geom_vignette", "label": "暗角", "spdx": "proprietary-self"},
+      {"id": "geom_bottom_gradient", "label": "底部渐暗", "spdx": "proprietary-self"},
+      {"id": "geom_top_gradient", "label": "顶部渐暗", "spdx": "proprietary-self"},
+      {"id": "geom_side_bar_left", "label": "左侧条带", "spdx": "proprietary-self"},
+      {"id": "geom_side_bar_right", "label": "右侧条带", "spdx": "proprietary-self"}
+    ],
+    "optional_packs": [
+      {
+        "id": "oga_sbs_anim_trans",
+        "official_url": "https://opengameart.org/content/animated-transitions-pack",
+        "spdx": "CC0-1.0",
+        "redistributable": true,
+        "tier": "A"
+      }
+    ]
+  },
+  "narration_text_effects": ["none", "karaoke", "marquee"],
+  "subtitle_layouts": ["horizontal", "vertical"],
+  "rejected_examples": [
+    "OpenMontage/Remotion runtime",
+    "aggregator free LUT mega packs without SPDX",
+    "assets forbidding redistribution inside software",
+    "CapCut/PR unauthorized templates"
+  ]
+}

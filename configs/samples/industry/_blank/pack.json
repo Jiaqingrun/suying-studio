@@ -2,10 +2,21 @@
   "id": "_blank",
   "name": "空白行业包",
   "locale": "zh-CN",
+  "semantic_vision_notes": [],
   "hooks": ["今日推荐", "现货速达", "品质之选", "欢迎咨询", "马上行动"],
   "content_themes": ["default"],
   "theme_rules": [],
   "pack_to_content": { "default": "default" },
   "content_to_pack": { "default": ["default"] },
-  "template_bindings": {}
+  "template_bindings": {},
+  "narration_lines": {
+    "default": [
+      "跟着镜头看当前画面。",
+      "眼见为实先看这里。",
+      "可见动作一步跟着一步。",
+      "细节都在眼前画面里。",
+      "镜头停在看得见的地方。",
+      "先看明白在场发生什么。"
+    ]
+  }
 }

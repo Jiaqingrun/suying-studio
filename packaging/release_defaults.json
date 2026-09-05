@@ -1,0 +1,6 @@
+{
+  "customer_ref": "customer-b2d8c1fae3fb07b2",
+  "delivery_id": "delivery-6dc4d41da8cc1a025a54cdd7b62c5df3",
+  "default_flavor": "core",
+  "notes": "默认交付引用（样板客户脱敏）；可用环境变量 SUYING_CUSTOMER_REF / SUYING_DELIVERY_ID 覆盖"
+}

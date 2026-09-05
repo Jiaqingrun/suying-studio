@@ -14,8 +14,14 @@ dependencies = [
   "pydantic-settings>=2.6.0",
   "watchdog>=6.0.0",
   "sqlalchemy>=2.0.36",
+  "aiosqlite>=0.20.0",
   "python-multipart>=0.0.12",
   "httpx>=0.27.0",
+  "pillow>=10.0.0",
+  "numpy>=2.0.0",
+  "opencv-python-headless>=4.8.0",
+  "edge-tts>=7.0.0",
+  "cryptography",
 ]
 
 [project.scripts]
@@ -25,3 +31,7 @@ montage-engine = "engine.main:main"  # 兼容旧入口名
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["engine*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = [".git", ".venv", "node_modules", "target", "dist", "build"]

@@ -1,0 +1,11 @@
+{
+  "id": "aunt_slow",
+  "label": "阿姨慢速旁白",
+  "engine": "f5",
+  "ref_wav": "ref.wav",
+  "ref_text": "ref.txt",
+  "speed": 1.0,
+  "chars_per_sec_zh": 3.3,
+  "license_note": "Reference audio authorized by voice owner. F5-TTS model is CC-BY-NC — commercial redistribution of the model weights requires separate clearance.",
+  "notes": "Slow literary reference (≈3.3 cps). Do not mix in fast product-promo refs."
+}

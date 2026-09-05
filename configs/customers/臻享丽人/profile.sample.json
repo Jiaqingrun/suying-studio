@@ -1,0 +1,54 @@
+{
+  "industry_pack": "life-service",
+  "locale": "zh-CN",
+  "note": "臻享丽人：养生美容护理；用 life-service；勿用 building-supply 行业包",
+  "brand": {
+    "display_name": "臻享丽人",
+    "primary_color": "#8B6B5A",
+    "logo_enabled": true,
+    "logo_path": "",
+    "logo_position": "bottom_right",
+    "logo_max_width": 160,
+    "logo_margin": 36,
+    "title_layout": "dual_chip"
+  },
+  "expression": {
+    "voice_lang": "zh",
+    "subtitle_lang": "zh",
+    "subtitle_burn": "external"
+  },
+  "compliance": {
+    "banned_terms": [
+      "100%",
+      "一次见效",
+      "七日见效",
+      "三天见效",
+      "中医诊断",
+      "中医诊疗",
+      "保证",
+      "保证变美",
+      "保证瘦",
+      "假一赔十",
+      "免单",
+      "全网最低",
+      "包好",
+      "包治",
+      "包赔",
+      "医师",
+      "医生诊断",
+      "医疗美容",
+      "医美手术",
+      "医院"
+    ],
+    "require_disclaimer": false
+  },
+  "publish": {
+    "platforms": [
+      "douyin",
+      "channels",
+      "xhs",
+      "wechat_mp"
+    ],
+    "default_lang": "zh"
+  }
+}

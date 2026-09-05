@@ -1,0 +1,3940 @@
+{
+  "meta": {
+    "schema": "suying.customer.content-pack.v2",
+    "revision": 21,
+    "version": 2,
+    "generated_at": "2026-08-08T19:19:46.767414+00:00",
+    "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化",
+    "customer_key": "shijiazhuang-zhenxiangliren",
+    "customer_name": "臻享丽人",
+    "converted_for": "montage-studio",
+    "change_summary": "GRL.8 标题收口：片上标题改回能发的短视频句；店规/传记不上屏；客情与创始人事实留在旁白素材层；不改 L20 vo_style_lock",
+    "title_constraints": {
+      "min_chars": 6,
+      "max_chars": 48,
+      "max_chars_per_line": 24,
+      "spoken": false,
+      "target_chars_per_line": 12,
+      "min_chars_total": 12
+    },
+    "risk_softening": [
+      "弱化：中医/医疗/诊疗用语 → 养生护理、到店护理（不宣称医疗机构与诊疗）",
+      "弱化：一人一诊一方案 → 到店沟通后定方案；去掉“诊/检测/诊断”",
+      "剔除：性龄管理、私密功效、疗效/根治/治愈/治疗/效果保证",
+      "弱化：效果为王 → 注重体验反馈；独一无二 → 自有服务体系",
+      "弱化：免单承诺 → 我们更在意服务做得细不细、态度稳不稳（不作平台保证性话术）",
+      "规模数字（会员/员工/门店）仅事实层 client_statement，片上标题不写硬数字背书",
+      "愿景中的「百年」仅愿景口号，不写成已达成资质",
+      "已封禁广告法极限词与医美夸大词；门店名可作内容标签，不做医疗背书",
+      "弱化：拆步数/拼满时类表述 → 服务质量与服务态度（不作保证性服务承诺）"
+    ],
+    "notes": [
+      "标题统一轻松欢快，贴内容；禁冷清物设与口号式基本功",
+      "对外弱化「拆步数/拼满时」类话术，改强调服务质量与服务态度",
+      "弱化：中医/医疗/诊疗用语 → 养生护理、到店护理（不宣称医疗机构与诊疗）",
+      "弱化：一人一诊一方案 → 到店沟通后定方案；去掉“诊/检测/诊断”",
+      "剔除：性龄管理、私密功效、疗效/根治/治愈/治疗/效果保证",
+      "弱化：效果为王 → 注重体验反馈；独一无二 → 自有服务体系",
+      "弱化：免单承诺 → 我们更在意服务做得细不细、态度稳不稳（不作平台保证性话术）",
+      "规模数字（会员/员工/门店）仅事实层 client_statement，片上标题不写硬数字背书",
+      "愿景中的「百年」仅愿景口号，不写成已达成资质",
+      "已封禁广告法极限词与医美夸大词；门店名可作内容标签，不做医疗背书",
+      "口播组件以完整自然句为主，服务流程优先，环境只作点缀",
+      "禁用广告法极限词与医疗/疗效承诺词，标题禁「治愈」等词",
+      "无人选片规则仍有效；词池不引导人物特写口播",
+      "对客称「您」；优先「倾听」而非草草的听",
+      "项目安排强调理性：不盲目、不强推",
+      "评价维度用细不细/好不好/舒不舒服，禁用「稳/稳不稳/稳稳」",
+      "休息区与茶点是服务组成部分，不得矮化成「做完还能随便歇一下」",
+      "开场用来到，不用路过；收尾用可转化来店体验详聊",
+      "连贯叙事：尊重倾听→合理安排→统一专业标准→尊贵体验→优雅收尾",
+      "片上标题禁网感词：打卡/拉满/上头/妥妥/松弛感/超舒服；客情与创始人故事只写可公开、能说出口的句子",
+      "片上标题必须是能发的短视频句，禁止店规步骤（换鞋/托盘/签字/送到门口）和创始人传记碎片（农村/十六岁/有我呢）上屏"
+    ],
+    "updated_at": "2026-08-12T10:39:17.276350+00:00",
+    "vo_style_lock": {
+      "address": "您",
+      "open": "来到臻享丽人（禁用路过）",
+      "promise": "我们的服务包您满意",
+      "flow": "先倾听完您的想法 → 再安排适合您的项目 → 细致护理 → 安静优雅休息区+精致茶点 → 来店体验详聊",
+      "standard": "我们每个店都是统一的服务标准（含培训一致）",
+      "premium": "尊贵从容的服务与享受（禁体验更连贯等生硬词）",
+      "forbid": [
+        "路过臻享丽人",
+        "聊两句服务",
+        "做完还能歇一会儿",
+        "体验更连贯",
+        "稳不稳",
+        "稳稳",
+        "细节当面再细说就好",
+        "店与店之间尽量统一",
+        "先请听完",
+        "先请听完您的想法",
+        "请听完您的想法"
+      ],
+      "open_fix": "来到臻享丽人，先感受我们怎样为您服务（禁：安排到店服务·绕口）",
+      "booking": "如果您有预约，我们会提前为您安排好（安全感）",
+      "forbid_extra": [
+        "路过臻享丽人",
+        "聊两句服务",
+        "做完还能歇一会儿",
+        "体验更连贯",
+        "稳不稳",
+        "稳稳",
+        "细节当面再细说就好",
+        "店与店之间尽量统一",
+        "安排到店服务",
+        "来之前需要怎样安排",
+        "会提前和您讲清楚"
+      ],
+      "flow_v11": "来到臻享丽人 → 先感受我们怎样为您服务 → （有预约则提前安排好）→ 先听想法再安排适合项目 → 细致护理/统一标准 → 休息茶点 → 来店体验详聊",
+      "case42_v12": {
+        "open": "来到臻享丽人，先感受我们怎样为您服务",
+        "booking": "如果您有预约，我们会提前为您安排好",
+        "forbid": [
+          "安排到店服务",
+          "来之前需要",
+          "会提前和您讲清楚"
+        ],
+        "flow": "先感受服务 → 有预约提前安排 → (听想法再排项目) → 统一标准 → 来店详聊"
+      },
+      "case42_v13": {
+        "open": "来到/欢迎来到臻享丽人，先感受我们怎样为您服务",
+        "mid": "如果您有预约，我们会提前为您安排好。我们会先倾听完您的想法，然后再安排适合您的项目。",
+        "value_prefer": "统一服务标准",
+        "cta": "您有时间随时可以来店里体验详聊",
+        "demote": [
+          "沟通清楚、安排合理",
+          "当面把服务与安排讲清楚",
+          "欢迎抽空来店感受一次完整服务"
+        ],
+        "flow": "先感受服务 → 有预约提前安排 + 先听想法再安排适合项目 → 统一标准 → 来店体验详聊"
+      },
+      "listen_word": "倾听（禁：先请听完）",
+      "l20_frozen": true
+    },
+    "frozen": true,
+    "frozen_at": "2026-08-09",
+    "frozen_lock": "HARD_LOCKS L20 / SERVICE_NARRATION_LOCK",
+    "frozen_note": "用户听感验收；无当面授权禁止再改金句/禁词/权重/vo_style_lock"
+  },
+  "identity": {
+    "customer_key": "shijiazhuang-zhenxiangliren",
+    "display_name": "臻享丽人",
+    "short_name": "臻享丽人",
+    "positioning_fact_id": "company.positioning_one_liner"
+  },
+  "facts": {
+    "company.legal_name": {
+      "value": "臻享丽人健康咨询服务（石家庄）有限公司",
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化",
+      "notes": "公开线索，使用前请以工商登记为准"
+    },
+    "company.brand_names": {
+      "value": [
+        "臻享丽人",
+        "ZHENXIANGLIREN"
+      ],
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化"
+    },
+    "company.display_name_preferred": {
+      "value": "臻享丽人",
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化"
+    },
+    "company.region": {
+      "value": "河北石家庄",
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化"
+    },
+    "company.founded_year": {
+      "value": 2013,
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化",
+      "notes": "海报自述"
+    },
+    "company.category": {
+      "value": "连锁养生美容护理（生活服务，非医疗机构）",
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化"
+    },
+    "company.positioning_one_liner": {
+      "value": "石家庄本地连锁养生美容护理门店",
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化"
+    },
+    "company.positioning_boundary": {
+      "value": "侧重护肤护理、身体护理与到店服务体验；不宣称诊疗、医疗美容或疗效",
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化"
+    },
+    "company.slogan": {
+      "value": "一颗美丽心，百年臻享梦",
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化",
+      "notes": "品牌口号/愿景向，不作年限资质宣称"
+    },
+    "company.name_meaning": {
+      "value": "臻：追求完善；享：好好拥有。整体表达：追求美丽与体面生活",
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化"
+    },
+    "company.service_model": {
+      "value": "到店沟通需求后确定护理方案，耐心到店服务",
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化"
+    },
+    "company.core_principles_soft": {
+      "value": [
+        "基础扎实",
+        "强调专业服务",
+        "重视客户反馈",
+        "服务态度优先"
+      ],
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化"
+    },
+    "company.care_dimensions_soft": {
+      "value": [
+        "肌肤护理",
+        "肤质护理",
+        "形体护理",
+        "到店陪伴与休息体验",
+        "服务沟通与情绪关照"
+      ],
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化",
+      "notes": "原「五维管理」已去医疗化改写"
+    },
+    "company.vision": {
+      "value": "做让客户安心、让员工有归属感、受本地认可的长期经营品牌",
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化"
+    },
+    "company.mission": {
+      "value": "让每位到店客人感受舒适护理与温和陪伴",
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化"
+    },
+    "company.business_idea": {
+      "value": "客户优先，品质可靠，服务为本",
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化"
+    },
+    "company.service_tenet": {
+      "value": "以客户为中心，以服务为根本，专业细致，持续改进",
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化"
+    },
+    "company.values": {
+      "value": [
+        "利他真诚",
+        "诚信做事",
+        "主动担责",
+        "合作共赢",
+        "保持热情",
+        "敢于进步"
+      ],
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化"
+    },
+    "company.goals_stage": {
+      "value": "近中期：稳扎本地多店服务；中远期：覆盖石家庄更多区域门店",
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化",
+      "notes": "已弱化「5年10店/20+店」硬承诺为方向性表述"
+    },
+    "company.service_standards_soft": {
+      "value": [
+        "服务态度礼貌认真",
+        "到店沟通耐心细致",
+        "服务过程用心到位",
+        "回应疑问不推诿"
+      ],
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化",
+      "notes": "原保证性促销话术已改为服务态度与质量口径，不作平台保障"
+    },
+    "company.product_principles_soft": {
+      "value": [
+        "优先选择店内充分体验过的项目",
+        "不强调过度功效表述",
+        "安全性与适应度优先沟通"
+      ],
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化",
+      "notes": "原「3不做」弱化"
+    },
+    "company.timeline": {
+      "value": [
+        {
+          "year": 2013,
+          "event": "首店祥龙泰店开办，品牌启航"
+        },
+        {
+          "year": 2015,
+          "event": "皇庄店等节点；口碑沉淀阶段"
+        },
+        {
+          "year": 2018,
+          "event": "北杜店、益庄店同年设立，进入多店阶段"
+        },
+        {
+          "year": 2020,
+          "event": "品项升级；强调专业服务思路；曹园店开办"
+        },
+        {
+          "year": 2023,
+          "event": "碧景园店开办；团队与会员规模增长（海报自述）"
+        },
+        {
+          "year": 2024,
+          "event": "品牌与服务体系升级阶段"
+        }
+      ],
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化"
+    },
+    "company.store_nodes": {
+      "value": [
+        "祥龙泰店",
+        "皇庄店",
+        "北杜店",
+        "益庄店",
+        "曹园店",
+        "碧景园店"
+      ],
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化",
+      "notes": "发展历程节点；在营清单以客户确认为准"
+    },
+    "company.headcount_claimed": {
+      "value": {
+        "total_approx": 50,
+        "as_of": "2023海报",
+        "client_allows_public_use": false
+      },
+      "visibility": "internal",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化",
+      "notes": "仅内部参考，片上/外发不写死数字"
+    },
+    "company.members_claimed": {
+      "value": {
+        "service_members_approx": 10000,
+        "as_of": "2023海报",
+        "client_allows_public_use": false
+      },
+      "visibility": "internal",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化",
+      "notes": "仅内部参考，外发改用多年服务本地客群"
+    },
+    "company.avoid_public_claims": {
+      "value": [
+        "医疗机构、医师、处方等表述",
+        "效果保证、包治、根治类表述",
+        "性龄管理及私密功效承诺",
+        "免单、包好、绝对变美",
+        "未核验的会员/员工规模硬数字"
+      ],
+      "visibility": "internal",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化"
+    },
+    "company.public_blurb_short": {
+      "value": "臻享丽人是石家庄本地的连锁养生美容护理品牌，2013年起深耕本地门店服务，以到店沟通、温和护理与清晰流程为主，欢迎到店了解适合自己的护理安排。",
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化"
+    },
+    "company.public_blurb": {
+      "value": "臻享丽人创办于2013年，是石家庄本地连锁养生美容护理品牌。品牌倡导「一颗美丽心，百年臻享梦」，以客户舒适体验与细致护理体验为重心，在祥龙泰、皇庄、北杜、益庄、曹园、碧景园等节点逐步形成多店服务。服务注重到店沟通后再定方案，更看重服务态度、服务质量与可感知的到店体验。公开内容只呈现门店环境、服务过程与本地生活服务定位，避免不实效果承诺。",
+      "visibility": "public",
+      "evidence_status": "client_statement",
+      "valid_until": null,
+      "source": "客户品牌海报（发展历程/企业文化/品牌介绍）+ 公开答谢宴文案；广告法与平台口径已弱化"
+    }
+  },
+  "taxonomy": {
+    "content_types": {
+      "storefront": {
+        "label": "门店门头与环境",
+        "match_any": [
+          "store",
+          "storefront",
+          "facade",
+          "signboard",
+          "entrance"
+        ]
+      },
+      "interior_space": {
+        "label": "店内空间与休息区",
+        "match_any": [
+          "interior",
+          "lobby",
+          "reception",
+          "sofa",
+          "decor",
+          "room"
+        ]
+      },
+      "care_process": {
+        "label": "护理过程与手法展示",
+        "match_any": [
+          "care",
+          "facial",
+          "massage",
+          "treatment_room",
+          "process",
+          "hands"
+        ]
+      },
+      "product_display": {
+        "label": "护理品与器具陈列",
+        "match_any": [
+          "product",
+          "bottle",
+          "display",
+          "shelf",
+          "device"
+        ]
+      },
+      "team_service": {
+        "label": "顾问与服务沟通",
+        "match_any": [
+          "person_visible",
+          "team",
+          "consultant",
+          "service",
+          "welcome"
+        ]
+      },
+      "daily_overview": {
+        "label": "综合日更",
+        "match_any": [
+          "overview",
+          "store",
+          "care",
+          "daily"
+        ]
+      }
+    }
+  },
+  "copy_components": {
+    "default": {
+      "hooks": [
+        "今天来看看这家店",
+        "镜头带你进门看看",
+        "先感受一下店里的样子",
+        "跟着进门走一圈",
+        "店里不吵，人也不急"
+      ],
+      "titles": [
+        "这家门店好温柔",
+        "石家庄养肤小天地",
+        "放松一刻从这里开始",
+        "护肤也能很轻松",
+        "到店就像串门子",
+        "店里氛围很舒服",
+        "给自己放个小假",
+        "细节服务很贴心",
+        "态度温暖更安心",
+        "一进门就不着急",
+        "护理场景好温柔",
+        "笑容满满的门店",
+        "好好宠自己一次",
+        "到店护理先沟通",
+        "过程清楚好放松",
+        "约个时间慢慢问"
+      ],
+      "title_banks": {
+        "服务态度": [
+          "笑着接待很暖心",
+          "服务态度加满分",
+          "被好好对待的感觉",
+          "细节里的小温柔",
+          "到店沟通不尴尬"
+        ],
+        "护理过程": [
+          "护肤过程好温柔",
+          "护理细节很贴心",
+          "手法温柔有节奏",
+          "照顾皮肤的小心思",
+          "服务过程很细致",
+          "被好好照顾着"
+        ]
+      }
+    },
+    "themes": {
+      "default": {
+        "label": "综合品牌",
+        "keywords": [
+          {
+            "text": "臻享丽人",
+            "weight": 3
+          },
+          {
+            "text": "石家庄护理",
+            "weight": 3
+          },
+          {
+            "text": "养生美容",
+            "weight": 3
+          },
+          {
+            "text": "连锁门店",
+            "weight": 2
+          },
+          {
+            "text": "到店护理",
+            "weight": 3
+          },
+          {
+            "text": "护肤护理",
+            "weight": 2
+          },
+          {
+            "text": "本地服务",
+            "weight": 2
+          },
+          {
+            "text": "门店实拍",
+            "weight": 2
+          },
+          {
+            "text": "细致护理",
+            "weight": 2
+          },
+          {
+            "text": "温柔陪伴",
+            "weight": 1
+          }
+        ],
+        "titles": [
+          "这家门店好温柔",
+          "石家庄养肤小天地",
+          "放松一刻从这里开始",
+          "护肤也能很轻松",
+          "到店就像串门子",
+          "店里氛围很舒服",
+          "给自己放个小假",
+          "细节服务很贴心",
+          "态度温暖更安心",
+          "一进门就不着急",
+          "护理场景好温柔",
+          "笑容满满的门店",
+          "好好宠自己一次",
+          "到店护理先沟通",
+          "过程清楚好放松",
+          "约个时间慢慢问"
+        ],
+        "hooks": [
+          "今天来看看这家店",
+          "先感受一下店里的样子",
+          "店里不吵人也不急"
+        ]
+      },
+      "门店形象": {
+        "label": "门店形象",
+        "keywords": [
+          {
+            "text": "门店门头",
+            "weight": 3
+          },
+          {
+            "text": "店内环境",
+            "weight": 3
+          },
+          {
+            "text": "换鞋区",
+            "weight": 2
+          },
+          {
+            "text": "接待区",
+            "weight": 2
+          },
+          {
+            "text": "休息区",
+            "weight": 2
+          },
+          {
+            "text": "送到门口",
+            "weight": 2
+          }
+        ],
+        "titles": [
+          "这家店一看就安静",
+          "店里光线干净明亮",
+          "一进门就不着急",
+          "坐下来慢慢待着",
+          "石家庄这家护理店",
+          "店里不吵人也不急",
+          "到店先歇一口气",
+          "角落收拾得很干净",
+          "在店里待着就安心",
+          "进门就是小放松"
+        ],
+        "hooks": [
+          "今天来看看这家店",
+          "先感受一下店里的样子",
+          "店里不吵人也不急"
+        ]
+      },
+      "护肤护理": {
+        "label": "护肤护理",
+        "keywords": [
+          {
+            "text": "肌肤护理",
+            "weight": 3
+          },
+          {
+            "text": "面部护理",
+            "weight": 3
+          },
+          {
+            "text": "细致护肤",
+            "weight": 2
+          },
+          {
+            "text": "护肤产品",
+            "weight": 2
+          }
+        ],
+        "titles": [
+          "护肤过程好温柔",
+          "轻拍也觉得舒服",
+          "护理细节很贴心",
+          "手法温柔有节奏",
+          "躺下心就松了",
+          "照顾皮肤的小心思",
+          "到店护理先沟通",
+          "服务细态度在线",
+          "本地美护慢慢聊",
+          "过程清楚好放松",
+          "约个时间慢慢问"
+        ],
+        "hooks": [
+          "护理过程软软的"
+        ]
+      },
+      "身体与形体": {
+        "label": "身体与形体护理",
+        "keywords": [
+          {
+            "text": "身体护理",
+            "weight": 3
+          },
+          {
+            "text": "形体护理",
+            "weight": 2
+          },
+          {
+            "text": "放松护理",
+            "weight": 2
+          }
+        ],
+        "titles": [
+          "身体放松好柔软",
+          "慢慢揉到放松",
+          "舒适护理放空中",
+          "身心都在偷懒"
+        ],
+        "hooks": [
+          "身体护理也轻松",
+          "放松节奏慢慢来"
+        ]
+      },
+      "服务沟通": {
+        "label": "服务沟通",
+        "keywords": [
+          {
+            "text": "到店沟通",
+            "weight": 3
+          },
+          {
+            "text": "倾听想法",
+            "weight": 3
+          },
+          {
+            "text": "托盘端茶",
+            "weight": 2
+          },
+          {
+            "text": "午间用餐",
+            "weight": 2
+          },
+          {
+            "text": "预约下次",
+            "weight": 2
+          },
+          {
+            "text": "服务态度",
+            "weight": 2
+          }
+        ],
+        "titles": [
+          "先听完您再安排",
+          "到店先沟通再动手",
+          "不催不赶有礼貌",
+          "问什么都耐心答",
+          "被好好对待的感觉",
+          "接待的人很暖",
+          "说到做到不敷衍",
+          "当面沟通不尴尬",
+          "细节欢迎慢慢问",
+          "来到臻享丽人坐坐"
+        ],
+        "hooks": [
+          "先听完您再安排",
+          "到店先沟通再动手",
+          "不催不赶慢慢来"
+        ]
+      },
+      "品牌故事": {
+        "label": "品牌故事",
+        "keywords": [
+          {
+            "text": "回乡开店",
+            "weight": 3
+          },
+          {
+            "text": "本地品牌",
+            "weight": 3
+          },
+          {
+            "text": "学手艺",
+            "weight": 2
+          },
+          {
+            "text": "石家庄门店",
+            "weight": 2
+          },
+          {
+            "text": "跟着干",
+            "weight": 2
+          }
+        ],
+        "titles": [
+          "石家庄本地护理店",
+          "在这儿做了好多年",
+          "本地人的护肤店",
+          "陪伴到店这么多年",
+          "臻享时光慢慢来",
+          "手艺是一点点练的",
+          "好好生活好好美",
+          "家门口就能做护理",
+          "本地服务这几年了",
+          "街角藏着这家店"
+        ],
+        "hooks": [
+          "这是石家庄的本地店",
+          "在这儿做了好多年",
+          "手艺是一点点练的"
+        ]
+      }
+    },
+    "library": {
+      "hooks": [
+        {
+          "id": "hook.01",
+          "text": "来到臻享丽人，我们的服务包您满意",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 25
+        },
+        {
+          "id": "hook.02",
+          "text": "来到臻享丽人，先感受我们怎样对待每一位到店的您",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.03",
+          "text": "来到臻享丽人，今天跟您认真说说到店服务",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.04",
+          "text": "来到臻享丽人，服务从进门到护理后都为您周到安排",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.05",
+          "text": "来到臻享丽人，我们希望您从一开始就安心、被尊重",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.06",
+          "text": "来到臻享丽人，护理服务会按清晰节奏为您展开",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.07",
+          "text": "来到臻享丽人，先把服务如何让您满意讲明白",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.08",
+          "text": "来到臻享丽人，请放心把想法交给我们倾听",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.09",
+          "text": "来到臻享丽人，本地连锁的标准服务欢迎您体验",
+          "tags": [
+            "hook",
+            "service",
+            "local"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.10",
+          "text": "来到臻享丽人，我们把细致与礼貌放在很前面",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.11",
+          "text": "来到臻享丽人，今天不讲虚的，只讲服务怎样做好",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.12",
+          "text": "来到臻享丽人，您会被认真对待，而不是被催着上项目",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.13",
+          "text": "来到臻享丽人，从沟通到护理再到休息，一条链路都清楚",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.14",
+          "text": "来到臻享丽人，我们愿用专业服务换您的安心与舒适",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.15",
+          "text": "来到臻享丽人，欢迎您感受统一标准下的到店体验",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.16",
+          "text": "来到臻享丽人，先听服务，再谈项目，这样更踏实",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.17",
+          "text": "来到臻享丽人，我们的安排会尽量合理、贴合您",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.18",
+          "text": "来到臻享丽人，请允许我们用完整服务流程招待您",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.19",
+          "text": "来到臻享丽人，服务态度与质量我们同样看重",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.20",
+          "text": "来到臻享丽人，这一段请您跟着服务节奏慢慢听",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.v11.01",
+          "text": "来到臻享丽人，先感受我们怎样为您服务",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 80
+        },
+        {
+          "id": "hook.v11.03",
+          "text": "欢迎来到臻享丽人，先感受我们怎样为您服务",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 80
+        }
+      ],
+      "visible_facts": [
+        {
+          "id": "visible.01",
+          "text": "店内空间干净明亮，通道宽敞好走",
+          "tags": [
+            "visible_facts",
+            "store"
+          ],
+          "requires_evidence": [
+            "semantic.scene"
+          ],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "visible.02",
+          "text": "护理间用品整齐备好，动手前都准备妥当",
+          "tags": [
+            "visible_facts",
+            "care"
+          ],
+          "requires_evidence": [
+            "semantic.scene"
+          ],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "visible.03",
+          "text": "接待区与休息位都留有空间，接待清楚不乱",
+          "tags": [
+            "visible_facts",
+            "interior"
+          ],
+          "requires_evidence": [
+            "semantic.scene"
+          ],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "visible.04",
+          "text": "休息区安静优雅，适合护理后从容放松",
+          "tags": [
+            "visible_facts",
+            "rest"
+          ],
+          "requires_evidence": [
+            "semantic.scene"
+          ],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "visible.05",
+          "text": "休息区可搭配精致茶点，让收尾更体面",
+          "tags": [
+            "visible_facts",
+            "rest"
+          ],
+          "requires_evidence": [
+            "semantic.scene"
+          ],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "visible.06",
+          "text": "店内灯光柔和，坐着不刺眼",
+          "tags": [
+            "visible_facts",
+            "ambiance"
+          ],
+          "requires_evidence": [
+            "semantic.scene"
+          ],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "visible.07",
+          "text": "门头店招清楚，好找也好认",
+          "tags": [
+            "visible_facts",
+            "brand"
+          ],
+          "requires_evidence": [
+            "semantic.scene"
+          ],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "visible.08",
+          "text": "整体陈设利落，细节经得起看",
+          "tags": [
+            "visible_facts",
+            "store"
+          ],
+          "requires_evidence": [
+            "semantic.scene"
+          ],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "visible.09",
+          "text": "护理台面干净，步骤所需都在顺手处",
+          "tags": [
+            "visible_facts",
+            "care"
+          ],
+          "requires_evidence": [
+            "semantic.scene"
+          ],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "visible.10",
+          "text": "从进门到护理区，动线清楚，接待有序",
+          "tags": [
+            "visible_facts",
+            "store"
+          ],
+          "requires_evidence": [
+            "semantic.scene"
+          ],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "visible.11",
+          "text": "休息角落安静，方便您慢慢缓一缓",
+          "tags": [
+            "visible_facts",
+            "rest"
+          ],
+          "requires_evidence": [
+            "semantic.scene"
+          ],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 1
+        },
+        {
+          "id": "visible.12",
+          "text": "店内气质干净优雅，符合从容服务的节奏",
+          "tags": [
+            "visible_facts",
+            "ambiance"
+          ],
+          "requires_evidence": [
+            "semantic.scene"
+          ],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 1
+        }
+      ],
+      "process": [
+        {
+          "id": "process.31",
+          "text": "如果您有预约，我们会提前为您安排好。我们会先倾听完您的想法，然后再安排适合您的项目。",
+          "weight": 120,
+          "tags": [
+            "process",
+            "booking",
+            "consult",
+            "gold_v13"
+          ]
+        },
+        {
+          "id": "process.01",
+          "text": "我们会先倾听完您的想法，然后再安排适合您的项目",
+          "tags": [
+            "process",
+            "consult"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.02",
+          "text": "到店先沟通需求，不盲目上项目",
+          "tags": [
+            "process",
+            "consult"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.03",
+          "text": "会认真倾听您想怎么护理，再一起商量合适的安排",
+          "tags": [
+            "process",
+            "consult"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.04",
+          "text": "项目确定后，护理过程细心完成，节奏清楚不慌",
+          "tags": [
+            "process",
+            "steps"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.4
+        },
+        {
+          "id": "process.05",
+          "text": "护理时动作尽量轻柔，让您放松、被好好对待",
+          "tags": [
+            "process",
+            "comfort"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.4
+        },
+        {
+          "id": "process.06",
+          "text": "过程中有任何不适，我们会及时询问并配合调整",
+          "tags": [
+            "process",
+            "attitude"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.07",
+          "text": "服务全程尽量安静舒适，少打扰您休息",
+          "tags": [
+            "process",
+            "comfort"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.08",
+          "text": "如果您有预约，我们会提前为您安排好",
+          "tags": [
+            "process",
+            "briefing"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.09",
+          "text": "从沟通到动手，每一步都会与您确认后再进行",
+          "tags": [
+            "process",
+            "steps"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.10",
+          "text": "不会一进门就赶着做，先安顿好您再开始护理",
+          "tags": [
+            "process",
+            "comfort"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.11",
+          "text": "如果您有预约，我们会提前为您安排好，让您更安心",
+          "tags": [
+            "process",
+            "briefing"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.12",
+          "text": "整段服务以沟通清楚为前提，不强推、不硬塞",
+          "tags": [
+            "process",
+            "consult"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.2
+        },
+        {
+          "id": "process.13",
+          "text": "护理动作按步骤进行，细致认真，不草率跳步",
+          "tags": [
+            "process",
+            "steps"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.14",
+          "text": "每次到店都会先确认今天的护理重点",
+          "tags": [
+            "process",
+            "consult"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.15",
+          "text": "做护理更看重细节与体验，不图快",
+          "tags": [
+            "process",
+            "quality"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.16",
+          "text": "服务态度保持温和有礼，有问必耐心回应",
+          "tags": [
+            "process",
+            "attitude"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.17",
+          "text": "护理完成后，可在安静优雅的休息区放松",
+          "tags": [
+            "process",
+            "rest",
+            "hospitality"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.18",
+          "text": "休息区备有精致茶点，供您慢慢享用",
+          "tags": [
+            "process",
+            "rest",
+            "hospitality"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.19",
+          "text": "做完护理后的休息与茶点，同样是服务的一部分",
+          "tags": [
+            "process",
+            "rest",
+            "hospitality"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.20",
+          "text": "我们不会做完就催您走，休息区安静优雅，供您从容放松",
+          "tags": [
+            "process",
+            "rest",
+            "hospitality"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.21",
+          "text": "护理结束后，还有片刻体面的休憩时间留给您",
+          "tags": [
+            "process",
+            "rest",
+            "hospitality"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.22",
+          "text": "安静的休息角落加上精致茶点，让服务收尾更完整",
+          "tags": [
+            "process",
+            "rest",
+            "hospitality"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.23",
+          "text": "从护理到茶歇，流程连贯，让您始终被周到照顾",
+          "tags": [
+            "process",
+            "rest",
+            "steps"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.24",
+          "text": "隐私与舒适感我们都会注意，让您安心把时间交给服务",
+          "tags": [
+            "process",
+            "comfort"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.25",
+          "text": "若您想放慢节奏，告诉我们，我们会配合调整",
+          "tags": [
+            "process",
+            "consult"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.26",
+          "text": "身体护理或面部护理，当面讲清再进行",
+          "tags": [
+            "process",
+            "steps"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.27",
+          "text": "充分听完再安排，是为了项目更贴合您",
+          "tags": [
+            "process",
+            "consult"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.28",
+          "text": "安排合理、步骤清楚，就是希望您全程都安心",
+          "tags": [
+            "process",
+            "consult"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.29",
+          "text": "服务人员按统一流程接待，不随意、不慌乱",
+          "tags": [
+            "process",
+            "steps"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        },
+        {
+          "id": "process.30",
+          "text": "护理间收拾干净，用品备齐，开始前都准备妥当",
+          "tags": [
+            "process",
+            "prep"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.5
+        }
+      ],
+      "value": [
+        {
+          "id": "value.29",
+          "text": "我们会先倾听完您的想法，然后再安排适合您的项目。",
+          "weight": 0.3,
+          "tags": [
+            "value",
+            "consult",
+            "gold_v13"
+          ]
+        },
+        {
+          "id": "value.01",
+          "text": "我们的服务包您满意",
+          "tags": [
+            "value",
+            "promise"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.6
+        },
+        {
+          "id": "value.02",
+          "text": "我们更在意服务做得细不细、态度好不好",
+          "tags": [
+            "value",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.6
+        },
+        {
+          "id": "value.03",
+          "text": "我们每个店都是统一的服务标准",
+          "tags": [
+            "value",
+            "standard",
+            "local"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 50
+        },
+        {
+          "id": "value.04",
+          "text": "各店统一标准、统一流程，管理更专业",
+          "tags": [
+            "value",
+            "standard"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.6
+        },
+        {
+          "id": "value.05",
+          "text": "店员都经过规范培训，服务质量与态度保持一致",
+          "tags": [
+            "value",
+            "standard",
+            "training"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.6
+        },
+        {
+          "id": "value.06",
+          "text": "统一培训、统一接待标准，是为了您到任何分店都安心",
+          "tags": [
+            "value",
+            "standard",
+            "local"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.6
+        },
+        {
+          "id": "value.07",
+          "text": "希望您体验到尊贵、从容的服务与享受",
+          "tags": [
+            "value",
+            "premium"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.6
+        },
+        {
+          "id": "value.08",
+          "text": "我们注重让您被尊重、被好好对待",
+          "tags": [
+            "value",
+            "respect"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.6
+        },
+        {
+          "id": "value.09",
+          "text": "沟通清楚、安排合理，让您对每一步都放心",
+          "tags": [
+            "value",
+            "respect"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.08
+        },
+        {
+          "id": "value.10",
+          "text": "在石家庄本地做护理服务，已经好些年了",
+          "tags": [
+            "value",
+            "local"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.6
+        },
+        {
+          "id": "value.11",
+          "text": "石家庄本地多家门店，就近体验同一套标准也方便",
+          "tags": [
+            "value",
+            "local"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 50
+        },
+        {
+          "id": "value.12",
+          "text": "不会把话说满，把服务做细致、做体面更重要",
+          "tags": [
+            "value",
+            "honest"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.6
+        },
+        {
+          "id": "value.13",
+          "text": "舒适体验和礼貌沟通，是我们始终坚持的",
+          "tags": [
+            "value",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.6
+        },
+        {
+          "id": "value.14",
+          "text": "您的反馈我们会认真倾听，并持续改进",
+          "tags": [
+            "value",
+            "feedback"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.6
+        },
+        {
+          "id": "value.15",
+          "text": "细致不等于冷冰冰，态度始终真诚可亲",
+          "tags": [
+            "value",
+            "attitude"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.6
+        },
+        {
+          "id": "value.16",
+          "text": "护理内容以当面沟通为准，不替您擅自决定",
+          "tags": [
+            "value",
+            "consult"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.6
+        },
+        {
+          "id": "value.17",
+          "text": "专业体现在标准统一、态度一致、流程清楚",
+          "tags": [
+            "value",
+            "standard"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.6
+        },
+        {
+          "id": "value.18",
+          "text": "把基础服务做体面，比空喊口号更打动人",
+          "tags": [
+            "value",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.6
+        },
+        {
+          "id": "value.19",
+          "text": "从进门到护理后休息，服务气质保持优雅从容",
+          "tags": [
+            "value",
+            "premium"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.6
+        },
+        {
+          "id": "value.20",
+          "text": "希望您感受到的是尊贵服务，而不是被催促的推销",
+          "tags": [
+            "value",
+            "premium"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.6
+        },
+        {
+          "id": "value.21",
+          "text": "统一的服务标准，也方便您信任每一次到店体验",
+          "tags": [
+            "value",
+            "standard"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 50
+        },
+        {
+          "id": "value.22",
+          "text": "认真倾听、合理安排，是尊重您的开始",
+          "tags": [
+            "value",
+            "respect"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.6
+        },
+        {
+          "id": "value.23",
+          "text": "本地连锁经营，标准一致，体验也更完整",
+          "tags": [
+            "value",
+            "local"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.6
+        },
+        {
+          "id": "value.24",
+          "text": "服务好坏您感受得到，我们说清楚、做周到",
+          "tags": [
+            "value",
+            "honest"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.6
+        },
+        {
+          "id": "value.25",
+          "text": "美护本该舒服从容，我们把尊贵体验放在前面",
+          "tags": [
+            "value",
+            "premium"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.6
+        },
+        {
+          "id": "value.26",
+          "text": "不盲目上项目，是对您时间和体验负责",
+          "tags": [
+            "value",
+            "consult"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.6
+        },
+        {
+          "id": "value.27",
+          "text": "每一家店按同一套标准接待，态度与质量都对齐",
+          "tags": [
+            "value",
+            "standard"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 50
+        },
+        {
+          "id": "value.28",
+          "text": "培训到位的团队，是统一服务标准的底气",
+          "tags": [
+            "value",
+            "training"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.6
+        }
+      ],
+      "cta": [
+        {
+          "id": "cta.01",
+          "text": "您有时间随时可以来店里体验详聊",
+          "tags": [
+            "cta"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 100
+        },
+        {
+          "id": "cta.02",
+          "text": "欢迎抽空来店体验，当面把服务与安排讲清楚",
+          "tags": [
+            "cta"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.15
+        },
+        {
+          "id": "cta.03",
+          "text": "有兴趣就约个时间到店感受一次完整服务",
+          "tags": [
+            "cta"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.4
+        },
+        {
+          "id": "cta.04",
+          "text": "想试一试的话，来店详聊比只听介绍更真切",
+          "tags": [
+            "cta"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.4
+        },
+        {
+          "id": "cta.05",
+          "text": "方便时可就近门店走一趟，亲身感受统一标准",
+          "tags": [
+            "cta",
+            "local"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.4
+        },
+        {
+          "id": "cta.06",
+          "text": "预约到店后，会按约定时间为您认真接待",
+          "tags": [
+            "cta"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.4
+        },
+        {
+          "id": "cta.07",
+          "text": "具体项目到店沟通后安排，不必当下就定",
+          "tags": [
+            "cta"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.4
+        },
+        {
+          "id": "cta.08",
+          "text": "带着问题来也欢迎，我们一件件耐心说明",
+          "tags": [
+            "cta"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.4
+        },
+        {
+          "id": "cta.09",
+          "text": "您若想体验护理与休息区氛围，随时可以预约",
+          "tags": [
+            "cta"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.4
+        },
+        {
+          "id": "cta.10",
+          "text": "欢迎来店看看休息区的优雅与茶点招待",
+          "tags": [
+            "cta"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.4
+        },
+        {
+          "id": "cta.11",
+          "text": "先到店了解服务流程，再决定是否预约护理",
+          "tags": [
+            "cta"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.4
+        },
+        {
+          "id": "cta.12",
+          "text": "我们期待您来店，感受从容、被尊重的服务",
+          "tags": [
+            "cta"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.4
+        },
+        {
+          "id": "cta.13",
+          "text": "就近分店同样标准接待，欢迎您选方便的一家",
+          "tags": [
+            "cta",
+            "local"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.4
+        },
+        {
+          "id": "cta.14",
+          "text": "聊完再决定也完全可以，我们不会催促您",
+          "tags": [
+            "cta"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.4
+        },
+        {
+          "id": "cta.15",
+          "text": "想来试体验的，留下时间我们给您安排好",
+          "tags": [
+            "cta"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.4
+        },
+        {
+          "id": "cta.16",
+          "text": "来店详聊一次，比反复猜项目更安心",
+          "tags": [
+            "cta"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.4
+        },
+        {
+          "id": "cta.17",
+          "text": "服务与茶歇空间都欢迎您当面感受",
+          "tags": [
+            "cta"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.4
+        },
+        {
+          "id": "cta.18",
+          "text": "有空就来店里坐坐详聊，我们认真接待每一位",
+          "tags": [
+            "cta"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.4
+        },
+        {
+          "id": "cta.19",
+          "text": "想体验尊贵从容的服务节奏，欢迎您预约到店",
+          "tags": [
+            "cta"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.4
+        },
+        {
+          "id": "cta.20",
+          "text": "标准统一、安排清楚，到店一次您会更有感",
+          "tags": [
+            "cta"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.4
+        },
+        {
+          "id": "cta.v11.02",
+          "text": "想试一试的话，到店详聊会更清楚",
+          "tags": [
+            "cta"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.4
+        }
+      ],
+      "hook": [
+        {
+          "id": "hook.01",
+          "text": "来到臻享丽人，我们的服务包您满意",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 25
+        },
+        {
+          "id": "hook.02",
+          "text": "来到臻享丽人，先感受我们怎样对待每一位到店的您",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.03",
+          "text": "来到臻享丽人，今天跟您认真说说到店服务",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.04",
+          "text": "来到臻享丽人，服务从进门到护理后都为您周到安排",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.05",
+          "text": "来到臻享丽人，我们希望您从一开始就安心、被尊重",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.06",
+          "text": "来到臻享丽人，护理服务会按清晰节奏为您展开",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.07",
+          "text": "来到臻享丽人，先把服务如何让您满意讲明白",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.08",
+          "text": "来到臻享丽人，请放心把想法交给我们倾听",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.09",
+          "text": "来到臻享丽人，本地连锁的标准服务欢迎您体验",
+          "tags": [
+            "hook",
+            "service",
+            "local"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.10",
+          "text": "来到臻享丽人，我们把细致与礼貌放在很前面",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.11",
+          "text": "来到臻享丽人，今天不讲虚的，只讲服务怎样做好",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.12",
+          "text": "来到臻享丽人，您会被认真对待，而不是被催着上项目",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.13",
+          "text": "来到臻享丽人，从沟通到护理再到休息，一条链路都清楚",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.14",
+          "text": "来到臻享丽人，我们愿用专业服务换您的安心与舒适",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.15",
+          "text": "来到臻享丽人，欢迎您感受统一标准下的到店体验",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.16",
+          "text": "来到臻享丽人，先听服务，再谈项目，这样更踏实",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.17",
+          "text": "来到臻享丽人，我们的安排会尽量合理、贴合您",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.18",
+          "text": "来到臻享丽人，请允许我们用完整服务流程招待您",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.19",
+          "text": "来到臻享丽人，服务态度与质量我们同样看重",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.20",
+          "text": "来到臻享丽人，这一段请您跟着服务节奏慢慢听",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 0.8
+        },
+        {
+          "id": "hook.v11.01",
+          "text": "来到臻享丽人，先感受我们怎样为您服务",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 80
+        },
+        {
+          "id": "hook.v11.03",
+          "text": "欢迎来到臻享丽人，先感受我们怎样为您服务",
+          "tags": [
+            "hook",
+            "service"
+          ],
+          "requires_evidence": [],
+          "risk": "low",
+          "platforms": [
+            "douyin",
+            "channels",
+            "xhs",
+            "kuaishou"
+          ],
+          "weight": 80
+        }
+      ]
+    },
+    "hashtags": [
+      "臻享丽人",
+      "石家庄美容护理",
+      "养生美容",
+      "到店护理",
+      "本地门店"
+    ],
+    "title_banks": {
+      "门店门头": [
+        "街角藏着这家店",
+        "臻享丽人在这里",
+        "石家庄这家护理店",
+        "招牌就在这条街上"
+      ],
+      "店内环境": [
+        "进门就是小放松",
+        "店里光线好温柔",
+        "坐下来慢慢待着",
+        "空间干净又明亮",
+        "这家店一看就安静"
+      ],
+      "护理过程": [
+        "护肤过程好温柔",
+        "护理细节很贴心",
+        "手法温柔有节奏",
+        "照顾皮肤的小心思",
+        "服务过程很细致",
+        "被好好照顾着",
+        "护理一步步讲清楚",
+        "到店先沟通再动手",
+        "过程细态度也在线",
+        "安静护理慢慢来",
+        "护理后优雅歇一歇",
+        "节奏清楚好放松",
+        "护理后安静歇一歇",
+        "茶歇也是服务的一部分",
+        "从护理到休息都周到",
+        "安静休息区慢慢缓"
+      ],
+      "服务态度": [
+        "笑着接待很暖心",
+        "被好好对待的感觉",
+        "细节里的小温柔",
+        "到店沟通不尴尬",
+        "接待的人很暖"
+      ],
+      "品牌愿景": [
+        "石家庄本地护理店",
+        "在这儿做了好多年",
+        "臻享时光慢慢来",
+        "好好生活好好美"
+      ],
+      "服务沟通": [
+        "先听完您再安排",
+        "到店先沟通再动手",
+        "不催不赶有礼貌",
+        "当面沟通不尴尬",
+        "细节欢迎慢慢问",
+        "来到臻享丽人坐坐"
+      ],
+      "本地门店": [
+        "石家庄本地护理店",
+        "就近了解也方便",
+        "本地服务这几年了",
+        "家门口就能做护理"
+      ]
+    }
+  },
+  "recipes": {
+    "storefront": {
+      "id": "recipe.storefront",
+      "label": "门店门头与环境",
+      "match": {
+        "any_tags": [
+          "store",
+          "storefront",
+          "facade",
+          "signboard",
+          "entrance"
+        ]
+      },
+      "sequence": [
+        "hook",
+        "visible_facts",
+        "process",
+        "value",
+        "cta"
+      ],
+      "required_evidence": [
+        "semantic.strict_v1"
+      ],
+      "max_components": 5,
+      "fallback_recipe": "recipe.daily_overview"
+    },
+    "interior_space": {
+      "id": "recipe.interior_space",
+      "label": "店内空间与休息区",
+      "match": {
+        "any_tags": [
+          "interior",
+          "lobby",
+          "reception",
+          "sofa",
+          "decor",
+          "room"
+        ]
+      },
+      "sequence": [
+        "hook",
+        "visible_facts",
+        "process",
+        "value",
+        "cta"
+      ],
+      "required_evidence": [
+        "semantic.strict_v1"
+      ],
+      "max_components": 5,
+      "fallback_recipe": "recipe.daily_overview"
+    },
+    "care_process": {
+      "id": "recipe.care_process",
+      "label": "护理过程与手法展示",
+      "match": {
+        "any_tags": [
+          "care",
+          "facial",
+          "massage",
+          "treatment_room",
+          "process",
+          "hands"
+        ]
+      },
+      "sequence": [
+        "hook",
+        "visible_facts",
+        "process",
+        "value",
+        "cta"
+      ],
+      "required_evidence": [
+        "semantic.strict_v1"
+      ],
+      "max_components": 5,
+      "fallback_recipe": "recipe.daily_overview"
+    },
+    "product_display": {
+      "id": "recipe.product_display",
+      "label": "护理品与器具陈列",
+      "match": {
+        "any_tags": [
+          "product",
+          "bottle",
+          "display",
+          "shelf",
+          "device"
+        ]
+      },
+      "sequence": [
+        "hook",
+        "visible_facts",
+        "process",
+        "value",
+        "cta"
+      ],
+      "required_evidence": [
+        "semantic.strict_v1"
+      ],
+      "max_components": 5,
+      "fallback_recipe": "recipe.daily_overview"
+    },
+    "team_service": {
+      "id": "recipe.team_service",
+      "label": "顾问与服务沟通",
+      "match": {
+        "any_tags": [
+          "person_visible",
+          "team",
+          "consultant",
+          "service",
+          "welcome"
+        ]
+      },
+      "sequence": [
+        "hook",
+        "visible_facts",
+        "process",
+        "value",
+        "cta"
+      ],
+      "required_evidence": [
+        "semantic.strict_v1"
+      ],
+      "max_components": 5,
+      "fallback_recipe": "recipe.daily_overview"
+    },
+    "daily_overview": {
+      "id": "recipe.daily_overview",
+      "label": "综合日更",
+      "match": {
+        "any_tags": [
+          "overview",
+          "store",
+          "care",
+          "daily"
+        ]
+      },
+      "sequence": [
+        "hook",
+        "visible_facts",
+        "process",
+        "value",
+        "cta"
+      ],
+      "required_evidence": [
+        "semantic.strict_v1"
+      ],
+      "max_components": 5,
+      "fallback_recipe": "recipe.daily_overview"
+    }
+  },
+  "compliance": {
+    "policy_version": "2026-08-beauty-care-platform-v1",
+    "hard_deny": [
+      "100%",
+      "一次见效",
+      "七日见效",
+      "三天见效",
+      "中医诊断",
+      "中医诊疗",
+      "保证",
+      "保证变美",
+      "保证瘦",
+      "假一赔十",
+      "免单",
+      "全网最低",
+      "包好",
+      "包治",
+      "包赔",
+      "医师",
+      "医生诊断",
+      "医疗美容",
+      "医美手术",
+      "医院",
+      "国家级",
+      "处方",
+      "央企指定",
+      "妇科治疗",
+      "开处方",
+      "必达",
+      "性功能",
+      "性龄管理",
+      "手术",
+      "效果保证",
+      "无效退款",
+      "最专业",
+      "最好",
+      "最强",
+      "权威认证",
+      "根治",
+      "永久",
+      "治愈",
+      "治疗",
+      "治疗效果",
+      "治病",
+      "注射填充",
+      "独一无二",
+      "疗效",
+      "病理",
+      "看病",
+      "确诊",
+      "私密修复",
+      "立即见效",
+      "第一",
+      "绝对",
+      "缩阴",
+      "药到病除",
+      "诊所",
+      "诊疗",
+      "顶级专家",
+      "打卡",
+      "拉满",
+      "上头",
+      "妥妥",
+      "松弛感",
+      "超舒服",
+      "超贴心",
+      "满满的幸福感"
+    ],
+    "blocked_terms": [
+      "100%",
+      "一次见效",
+      "七日见效",
+      "三天见效",
+      "中医诊断",
+      "中医诊疗",
+      "保证",
+      "保证变美",
+      "保证瘦",
+      "假一赔十",
+      "免单",
+      "全网最低",
+      "包好",
+      "包治",
+      "包赔",
+      "医师",
+      "医生诊断",
+      "医疗美容",
+      "医美手术",
+      "医院",
+      "国家级",
+      "处方",
+      "央企指定",
+      "妇科治疗",
+      "开处方",
+      "必达",
+      "性功能",
+      "性龄管理",
+      "手术",
+      "效果保证",
+      "无效退款",
+      "最专业",
+      "最好",
+      "最强",
+      "权威认证",
+      "根治",
+      "永久",
+      "治愈",
+      "治疗",
+      "治疗效果",
+      "治病",
+      "注射填充",
+      "独一无二",
+      "疗效",
+      "病理",
+      "看病",
+      "确诊",
+      "私密修复",
+      "立即见效",
+      "第一",
+      "绝对",
+      "缩阴",
+      "药到病除",
+      "诊所",
+      "诊疗",
+      "顶级专家",
+      "一人一诊",
+      "排毒治病",
+      "效果为王",
+      "根治色斑",
+      "治愈亚健康",
+      "百年企业",
+      "祛病",
+      "科学检测"
+    ],
+    "caution_terms": [
+      "中医",
+      "调理",
+      "抗衰",
+      "逆龄",
+      "回春",
+      "再生",
+      "干细胞",
+      "仪器检测",
+      "检测报告",
+      "健康管理中心",
+      "放心",
+      "靠谱",
+      "立竿见影",
+      "显著改善",
+      "会员上万",
+      "五十多名员工",
+      "二十多家店"
+    ],
+    "evidence_required": {},
+    "internal_only_fact_prefixes": [
+      "company.legal_name",
+      "company.headcount_claimed",
+      "company.members_claimed",
+      "company.avoid_public_claims"
+    ],
+    "safe_rewrites": {
+      "中医养生": "养生护理",
+      "中医美容": "养生美容护理",
+      "一人一诊一方案": "到店沟通后确定护理方案",
+      "科学检测": "到店沟通了解需求",
+      "系统调理": "分步护理",
+      "效果为王": "注重体验反馈",
+      "独一无二": "自有服务体系",
+      "免单": "重视服务标准",
+      "治疗": "护理",
+      "诊疗": "到店沟通",
+      "疗效": "体验感受",
+      "性龄管理": "日常养护陪伴",
+      "健康管理中心": "养生护理门店",
+      "根治": "日常护理",
+      "保证": "以到店沟通为准",
+      "百年企业": "长期经营愿景"
+    },
+    "notes": [
+      "弱化：中医/医疗/诊疗用语 → 养生护理、到店护理（不宣称医疗机构与诊疗）",
+      "弱化：一人一诊一方案 → 到店沟通后定方案；去掉“诊/检测/诊断”",
+      "剔除：性龄管理、私密功效、疗效/根治/治愈/治疗/效果保证",
+      "弱化：效果为王 → 注重体验反馈；独一无二 → 自有服务体系",
+      "弱化：免单承诺 → 我们更在意服务做得细不细、态度好不好（不作平台保证性话术）",
+      "规模数字（会员/员工/门店）仅事实层 client_statement，片上标题不写硬数字背书",
+      "愿景中的「百年」仅愿景口号，不写成已达成资质",
+      "已封禁广告法极限词与医美夸大词；门店名可作内容标签，不做医疗背书"
+    ]
+  },
+  "keyword_pool": {
+    "themes": {
+      "default": {
+        "label": "综合品牌",
+        "keywords": [
+          {
+            "text": "臻享丽人",
+            "weight": 3.0
+          },
+          {
+            "text": "石家庄护理",
+            "weight": 3.0
+          },
+          {
+            "text": "养生美容",
+            "weight": 3.0
+          },
+          {
+            "text": "连锁门店",
+            "weight": 2.0
+          },
+          {
+            "text": "到店护理",
+            "weight": 3.0
+          },
+          {
+            "text": "护肤护理",
+            "weight": 2.0
+          },
+          {
+            "text": "本地服务",
+            "weight": 2.0
+          },
+          {
+            "text": "门店实拍",
+            "weight": 2.0
+          },
+          {
+            "text": "细致护理",
+            "weight": 2.0
+          },
+          {
+            "text": "温柔陪伴",
+            "weight": 1.0
+          }
+        ],
+        "hooks": [
+          "今天来看看这家店",
+          "先感受一下店里的样子",
+          "店里不吵人也不急"
+        ]
+      },
+      "门店形象": {
+        "label": "门店形象",
+        "keywords": [
+          {
+            "text": "门店门头",
+            "weight": 3.0
+          },
+          {
+            "text": "店内环境",
+            "weight": 3.0
+          },
+          {
+            "text": "换鞋区",
+            "weight": 2.0
+          },
+          {
+            "text": "接待区",
+            "weight": 2.0
+          },
+          {
+            "text": "休息区",
+            "weight": 2.0
+          },
+          {
+            "text": "送到门口",
+            "weight": 2.0
+          }
+        ],
+        "hooks": [
+          "今天来看看这家店",
+          "先感受一下店里的样子",
+          "店里不吵人也不急"
+        ]
+      },
+      "护肤护理": {
+        "label": "护肤护理",
+        "keywords": [
+          {
+            "text": "肌肤护理",
+            "weight": 3.0
+          },
+          {
+            "text": "面部护理",
+            "weight": 3.0
+          },
+          {
+            "text": "细致护肤",
+            "weight": 2.0
+          },
+          {
+            "text": "护肤产品",
+            "weight": 2.0
+          }
+        ],
+        "hooks": [
+          "护理过程软软的"
+        ]
+      },
+      "身体与形体": {
+        "label": "身体与形体护理",
+        "keywords": [
+          {
+            "text": "身体护理",
+            "weight": 3.0
+          },
+          {
+            "text": "形体护理",
+            "weight": 2.0
+          },
+          {
+            "text": "放松护理",
+            "weight": 2.0
+          }
+        ],
+        "hooks": [
+          "身体护理也轻松",
+          "放松节奏慢慢来"
+        ]
+      },
+      "服务沟通": {
+        "label": "服务沟通",
+        "keywords": [
+          {
+            "text": "到店沟通",
+            "weight": 3.0
+          },
+          {
+            "text": "倾听想法",
+            "weight": 3.0
+          },
+          {
+            "text": "托盘端茶",
+            "weight": 2.0
+          },
+          {
+            "text": "午间用餐",
+            "weight": 2.0
+          },
+          {
+            "text": "预约下次",
+            "weight": 2.0
+          },
+          {
+            "text": "服务态度",
+            "weight": 2.0
+          }
+        ],
+        "hooks": [
+          "先听完您再安排",
+          "到店先沟通再动手",
+          "不催不赶慢慢来"
+        ]
+      },
+      "品牌故事": {
+        "label": "品牌故事",
+        "keywords": [
+          {
+            "text": "回乡开店",
+            "weight": 3.0
+          },
+          {
+            "text": "本地品牌",
+            "weight": 3.0
+          },
+          {
+            "text": "学手艺",
+            "weight": 2.0
+          },
+          {
+            "text": "石家庄门店",
+            "weight": 2.0
+          },
+          {
+            "text": "跟着干",
+            "weight": 2.0
+          }
+        ],
+        "hooks": [
+          "这是石家庄的本地店",
+          "在这儿做了好多年",
+          "手艺是一点点练的"
+        ]
+      }
+    },
+    "hooks": [
+      "今天来看看这家店",
+      "先感受一下店里的样子",
+      "店里不吵人也不急",
+      "护理过程软软的",
+      "身体护理也轻松",
+      "放松节奏慢慢来",
+      "先听完您再安排",
+      "到店先沟通再动手",
+      "不催不赶慢慢来",
+      "这是石家庄的本地店",
+      "在这儿做了好多年",
+      "手艺是一点点练的",
+      "镜头带你进门看看",
+      "跟着进门走一圈"
+    ],
+    "hashtags": [
+      "臻享丽人",
+      "石家庄美容护理",
+      "养生美容",
+      "到店护理",
+      "本地门店"
+    ],
+    "title_pool": {
+      "meta": {
+        "spoken": false,
+        "max_chars_per_line": 24,
+        "target_chars_per_line": 12,
+        "min_chars_per_line": 6,
+        "min_chars_total": 12,
+        "max_total_chars": 48,
+        "purpose": "片上标题"
+      },
+      "theme_category_bindings": {
+        "default": [
+          "default标题"
+        ],
+        "门店形象": [
+          "门店形象标题"
+        ],
+        "护肤护理": [
+          "护肤护理标题"
+        ],
+        "身体与形体": [
+          "身体与形体标题"
+        ],
+        "服务沟通": [
+          "服务沟通标题"
+        ],
+        "品牌故事": [
+          "品牌故事标题"
+        ]
+      },
+      "categories": {
+        "default标题": [
+          "这家门店好温柔",
+          "石家庄养肤小天地",
+          "放松一刻从这里开始",
+          "护肤也能很轻松",
+          "到店就像串门子",
+          "店里氛围很舒服",
+          "给自己放个小假",
+          "细节服务很贴心",
+          "态度温暖更安心",
+          "一进门就不着急",
+          "护理场景好温柔",
+          "笑容满满的门店",
+          "好好宠自己一次",
+          "到店护理先沟通",
+          "过程清楚好放松",
+          "约个时间慢慢问"
+        ],
+        "门店形象标题": [
+          "这家店一看就安静",
+          "店里光线干净明亮",
+          "一进门就不着急",
+          "坐下来慢慢待着",
+          "石家庄这家护理店",
+          "店里不吵人也不急",
+          "到店先歇一口气",
+          "角落收拾得很干净",
+          "在店里待着就安心",
+          "进门就是小放松"
+        ],
+        "护肤护理标题": [
+          "护肤过程好温柔",
+          "轻拍也觉得舒服",
+          "护理细节很贴心",
+          "手法温柔有节奏",
+          "躺下心就松了",
+          "照顾皮肤的小心思",
+          "到店护理先沟通",
+          "服务细态度在线",
+          "本地美护慢慢聊",
+          "过程清楚好放松",
+          "约个时间慢慢问"
+        ],
+        "身体与形体标题": [
+          "身体放松好柔软",
+          "慢慢揉到放松",
+          "舒适护理放空中",
+          "身心都在偷懒"
+        ],
+        "服务沟通标题": [
+          "先听完您再安排",
+          "到店先沟通再动手",
+          "不催不赶有礼貌",
+          "问什么都耐心答",
+          "被好好对待的感觉",
+          "接待的人很暖",
+          "说到做到不敷衍",
+          "当面沟通不尴尬",
+          "细节欢迎慢慢问",
+          "来到臻享丽人坐坐"
+        ],
+        "品牌故事标题": [
+          "石家庄本地护理店",
+          "在这儿做了好多年",
+          "本地人的护肤店",
+          "陪伴到店这么多年",
+          "臻享时光慢慢来",
+          "手艺是一点点练的",
+          "好好生活好好美",
+          "家门口就能做护理",
+          "本地服务这几年了",
+          "街角藏着这家店"
+        ],
+        "默认标题": [
+          "这家门店好温柔",
+          "石家庄养肤小天地",
+          "放松一刻从这里开始",
+          "护肤也能很轻松",
+          "到店就像串门子",
+          "店里氛围很舒服",
+          "给自己放个小假",
+          "细节服务很贴心",
+          "态度温暖更安心",
+          "一进门就不着急",
+          "护理场景好温柔",
+          "笑容满满的门店",
+          "好好宠自己一次",
+          "到店护理先沟通",
+          "过程清楚好放松",
+          "约个时间慢慢问"
+        ],
+        "门店门头标题": [
+          "街角藏着这家店",
+          "臻享丽人在这里",
+          "石家庄这家护理店",
+          "招牌就在这条街上"
+        ],
+        "店内环境标题": [
+          "进门就是小放松",
+          "店里光线好温柔",
+          "坐下来慢慢待着",
+          "空间干净又明亮",
+          "这家店一看就安静"
+        ],
+        "护理过程标题": [
+          "护肤过程好温柔",
+          "护理细节很贴心",
+          "手法温柔有节奏",
+          "照顾皮肤的小心思",
+          "服务过程很细致",
+          "被好好照顾着",
+          "护理一步步讲清楚",
+          "到店先沟通再动手",
+          "过程细态度也在线",
+          "安静护理慢慢来",
+          "护理后优雅歇一歇",
+          "节奏清楚好放松",
+          "护理后安静歇一歇",
+          "茶歇也是服务的一部分",
+          "从护理到休息都周到",
+          "安静休息区慢慢缓"
+        ],
+        "服务态度标题": [
+          "笑着接待很暖心",
+          "被好好对待的感觉",
+          "细节里的小温柔",
+          "到店沟通不尴尬",
+          "接待的人很暖"
+        ],
+        "品牌愿景标题": [
+          "石家庄本地护理店",
+          "在这儿做了好多年",
+          "臻享时光慢慢来",
+          "好好生活好好美"
+        ],
+        "本地门店标题": [
+          "石家庄本地护理店",
+          "就近了解也方便",
+          "本地服务这几年了",
+          "家门口就能做护理"
+        ]
+      }
+    }
+  }
+}

@@ -1,12 +1,9 @@
 {
   "locked": true,
-  "locked_at": "2026-07-26",
+  "locked_at": "2026-08-09",
   "do_not_change_without_user_approval": true,
-  "reference_title": "少等半天少跑几趟路",
-  "reference_outputs": [
-    "/Users/qr/Desktop/始峰五金-旁白贯穿.mp4",
-    "/Users/qr/QR-Volume/极空间团队文件同步/速影客户/北京始峰伟业/02-成片/ready/2026-07-25/montage_45_1116965198.mp4"
-  ],
+  "reference_title": "到店护理先沟通再安排",
+  "reference_outputs": [],
   "strip_all_punctuation": true,
   "canvas": {
     "width": 1080,
@@ -14,10 +11,10 @@
     "aspect": "9:16"
   },
   "title": {
-    "font_size": 92,
-    "color": "#FFE600",
-    "stroke_color": "#000000",
-    "stroke_width": 6,
+    "font_size": 88,
+    "color": "#F3E2C5",
+    "stroke_color": "#3A271C",
+    "stroke_width": 5,
     "bar_opacity": 0.0,
     "bold": true,
     "layout": "dual_chip",
@@ -35,13 +32,13 @@
     "prefer_full_dual": false,
     "random_single_or_dual": true,
     "min_chars_total": 12,
-    "target_chars_per_line": 14,
+    "target_chars_per_line": 12,
     "max_chars_per_line": 24
   },
   "subtitle": {
-    "font_size": 64,
-    "color": "#FFFFFF",
-    "outline": "#000000",
+    "font_size": 60,
+    "color": "#FFF8F0",
+    "outline": "#2A1C14",
     "bottom_padding_px": 420,
     "glyph_bottom_px": 420,
     "side_margin_px": 48,
@@ -50,7 +47,7 @@
     "horizontal": "center",
     "forbid_edge_clip": true,
     "tail_trim_seconds": 0.12,
-    "inter_sentence_gap_seconds": 0.15,
+    "inter_sentence_gap_seconds": 0.18,
     "align_to_voice_mandatory": true,
     "clear_during_silence": true,
     "forbid_title_content": true,
@@ -67,16 +64,19 @@
     "fill_video_duration": true,
     "forbid_theme_announce": true,
     "chars_per_sec_zh": 3.2,
-    "max_chars_per_breath": 18,
-    "emotion_boost": true
+    "max_chars_per_breath": 16,
+    "emotion_boost": true,
+    "note": "服务介绍主线；欢快晓晓；rate -8%"
   },
   "logo": {
-    "enabled": false
+    "enabled": true,
+    "file": "logo.png",
+    "note": "2026-08-11 用户提供品牌标；AI水印白底已抠透明 PNG"
   },
   "narration": {
     "rich_theme_script": true,
     "strip_punctuation": true,
-    "max_chars_per_breath": 18,
+    "max_chars_per_breath": 16,
     "require_sentence_breaks": true,
     "forbid_title_content": true,
     "emotional_delivery": true,
@@ -89,19 +89,31 @@
       "啦",
       "嘿",
       "哈",
-      "哇"
+      "哇",
+      "宝子",
+      "绝绝子"
     ],
     "forbid_tech_jargon": [
       "参数",
       "规格",
       "立方",
       "型号参数",
-      "技术指标"
+      "技术指标",
+      "疗效",
+      "根治",
+      "治疗",
+      "诊疗",
+      "检测",
+      "医美",
+      "手术"
     ],
     "focus": [
-      "配货效率",
-      "发货效率",
-      "配送服务"
+      "门店环境",
+      "到店沟通",
+      "温和护理",
+      "服务质量",
+      "服务态度",
+      "自然口语"
     ]
   },
   "emoji": {
@@ -141,5 +153,6 @@
     "count_on": "ready_only",
     "timezone": "Asia/Shanghai",
     "forbid_quota_circuit": true
-  }
+  },
+  "note": "臻享丽人：服务介绍为主；选片无人/无正脸；非医美/工程风"
 }

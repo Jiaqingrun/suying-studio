@@ -34,7 +34,7 @@
     "font_size_px": 92,
     "color": "#FFE600",
     "align": "center",
-    "max_chars": 10,
+    "max_chars": 24,
     "max_lines": 2,
     "line_spacing_px": 14,
     "stroke": {

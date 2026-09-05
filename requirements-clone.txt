@@ -1,0 +1,4 @@
+# Optional local voice-clone TTS (F5). Installed into the App python when
+# EMBED_CLONE_TTS=1 (default) during scripts/embed-app-runtime.sh.
+# Keep out of the default requirements.txt so lightweight smoke venvs stay small.
+f5-tts>=1.1.0

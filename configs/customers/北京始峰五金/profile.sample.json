@@ -1,7 +1,7 @@
 {
   "industry_pack": "building-supply",
   "locale": "zh-CN",
-  "note": "北京始峰伟业（品牌：始峰五金）；用 building-supply；勿串 life-service。始峰五金为同主体品牌面，见 configs/customers/北京始峰五金/",
+  "note": "始峰五金=北京始峰伟业贸易有限公司旗下品牌（同主体品牌面）。用 building-supply；法定主体资料见 configs/customers/北京始峰伟业/",
   "brand": {
     "display_name": "始峰五金",
     "primary_color": "#E10600",
@@ -15,8 +15,7 @@
   "expression": {
     "voice_lang": "zh",
     "subtitle_lang": "zh",
-    "subtitle_burn": "external",
-    "_comment": "voice_lang/subtitle_lang: zh|en|none；subtitle_burn: external|burn_mono|burn_dual"
+    "subtitle_burn": "external"
   },
   "compliance": {
     "banned_terms": [

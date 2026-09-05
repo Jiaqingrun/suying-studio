@@ -8,4 +8,10 @@ aiosqlite>=0.20.0
 python-multipart>=0.0.12
 httpx>=0.27.0
 pillow>=10.0.0
-cursor-sdk>=0.1.0
+numpy>=2.0.0
+opencv-python-headless>=4.8.0
+edge-tts>=7.0.0
+# Optional local clone TTS (GVoiceClone). Production App embeds via
+# requirements-clone.txt when EMBED_CLONE_TTS=1 (scripts/embed-app-runtime.sh).
+# f5-tts>=1.1.0
+cryptography
