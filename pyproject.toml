@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "montage-studio-engine"
+name = "suying-engine"
 version = "0.1.0"
-description = "Local montage production engine for Montage Studio"
+description = "速影（Suying）本地混剪引擎 — Python FastAPI"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115.0",
@@ -19,7 +19,8 @@ dependencies = [
 ]
 
 [project.scripts]
-montage-engine = "engine.main:main"
+suying-engine = "engine.main:main"
+montage-engine = "engine.main:main"  # 兼容旧入口名
 
 [tool.setuptools.packages.find]
 where = ["."]

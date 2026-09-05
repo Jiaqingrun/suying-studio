@@ -1,8 +1,8 @@
 # 速影（Suying）
 
-对外产品名 **速影**；代码仓目录仍为 `montage-studio`。本地智能混剪 — Python 引擎 + Tauri 桌面控制台。
+对外产品名 **速影**（Suying）。本地智能混剪 — Python 引擎 + Tauri 桌面控制台。
 
-> 注意：本仓库在 `~/QR/dev/montage-studio`，**不在** OpenMontage 工作区内。  
+> 注意：本仓库在 `~/QR/dev/速影`（旧名 `montage-studio` 目录已废弃），**不在** OpenMontage 工作区内。  
 > 桌面 App：`~/Desktop/速影.app`；续跑说明：`~/Desktop/速影续跑说明.md`。
 
 ## 文档位置
@@ -37,7 +37,7 @@ python3 scripts/fixtures/convert_shifeng_keyword_pack.py
 ## 快速开始
 
 ```bash
-cd ~/QR/dev/montage-studio
+cd ~/QR/dev/速影
 python3 -m pip install -r requirements.txt
 chmod +x scripts/*.sh
 ./scripts/start-engine.sh   # 终端 1
