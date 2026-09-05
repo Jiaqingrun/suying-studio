@@ -1,9 +1,11 @@
 # 速影 · 语义切片与成片表达规格（优化版）
 
-> **状态：2026-07-26 · P0–P5 完成**（P5：严格语义门禁 v1）
+> **状态：2026-07-30 · P0–P7 完成；GSemanticOps 仅文档开闸，功能实现 TODO**
 > **焦点：** 切片 + 描述 + 向量（理解层）优先；封面模板每客户固定目录；混剪规则 / 口播 / 多语言为后续消费层。  
 > **约束：** 遵守 [`DEVELOPMENT_STANDARDS.md`](DEVELOPMENT_STANDARDS.md)（引擎零业务硬编码、客户边界、同步区≠工作区）。
+> **专项硬锁：** [`SEMANTIC_OBJECT_VECTOR_LOCK.md`](SEMANTIC_OBJECT_VECTOR_LOCK.md)（证据分层、日周配额、物品标注与向量运营）。
 
+> 冲突时：`DEV_LOCK.md` / `HARD_LOCKS.md` > 本文。权威索引见 [`README.md`](README.md)。
 ### 已落地（P0）
 
 - Cliplet：`scene` / `objects_json` / `actions_json` + 迁移  
@@ -40,22 +42,28 @@
 
 ### 2.0 严格语义门禁 v1（P5）
 
-新切片必须按以下顺序进入检索：
+语义分为普通生产与严格生产两条通道：
 
 ```text
 画质门禁通过
-  → 每段抽 3 个带时间戳的帧
-  → Vision 返回 suying.cliplet.semantic.v1
-  → schema / 可见事实 / 分类 / 置信度 / 帧间一致性门禁
-  → 通过：status=usable → 组合结构化向量文本 → embedding
-  → 失败：换抽帧位置重试（最多 3 次）
-  → 仍失败：status=rejected_semantic + embedding=NULL（隔离、可审计）
+  ├─ 普通生产：metadata/category/time → coarse.v1 → embedding → 立即可选
+  └─ Dry-run 入选候选：9B 单次多帧验证
+       → 通过 strict semantic.v1：可用于严格选片
+       → 未通过：保留 coarse 向量供普通生产，不冒充 strict
 ```
 
-有限重试是安全约束，不接受“直至成功”的无限循环：模型离线、持续输出坏
-schema 或素材本身不可辨认时，无限重试只会重复消耗算力并制造队列饥饿。三次
-尝试分别使用不同抽帧位置；每次抽帧路径/时间、失败原因、最终处置都写入
-`semantic_gate_json`，`semantic_attempts` 记录次数。
+全库 VLM 回填默认停用。历史严格回填代码仍保留为受控迁移能力，但普通设置与
+App 不开放；候选验证固定 `qwen3.5:9b`、单次、无级联。验证失败不会销毁已有
+coarse/legacy 向量，严格任务仍只认通过完整门禁的 `semantic.v1`。
+
+#### 证据层级（GSemanticOps 硬锁）
+
+- `coarse.v1` 只表示画质合格、描述非空且已有粗向量；任何字段名、UI 文案或迁移都不得把它显示/转换为 strict。
+- 官方目录证据单独记录规范中文名称、分类、型号和目录关系；它证明“官方目录如此记载”，不证明“当前画面直接可见”。
+- 画面事实只来自指定证据帧；目录、文件名、路径、行业常识均不得进入 `visible_facts`。
+- 目录名称仅可规范化已有画面证据支持的物品名。无画面证据时须留在“目录候选/未知”层，不得取得 `semantic.v1` 资格。
+- `semantic.v1` 仍只由本节既有多帧 schema、证据、人物一致性和置信门禁产生，禁止目录匹配或人工改状态绕过。
+- sidecar/API/App 必须分别展示 `coarse`、`catalog evidence`、`visual evidence`、`strict` 及 provenance，不得合并成模糊的“已识别”。
 
 真实样本收紧（2026-07-27）：
 
@@ -85,13 +93,13 @@ schema 或素材本身不可辨认时，无限重试只会重复消耗算力并�
 总置信度 ≥0.72；人物有/无与分类一致；产品字段完整；帧间一致；
 schema 版本完全匹配。任何一项失败均 fail-closed。
 
-视觉调用约束（2026-07-27 · 分档级联）：
+视觉调用约束（2026-07-27 · 按需 9B）：
 
 - 向量一律 `nomic-embed-text`。
-- **16GB / standard 及以下**：默认视觉 `qwen3.5:9b`（约 6.6GB），**禁止**默认 `qwen3.5:27b-q4_K_M`；超时约 180s。
-- **32–64GB / pro（含至 95GB）**：默认 9B 快筛，门禁失败 / `vision_timeout` / `schema_not_object` 可升级 27B；超时约 240s（升级 300s）。
-- **≥96GB / max**：推荐同样「9B 快筛 → 27B 升级」以提速；也可主跑 27B（须显式配置）；超时约 300s。
-- 级联消耗同一 `MAX_SEMANTIC_ATTEMPTS=3` 预算，不额外加次；门禁阈值 0.65 / 0.72 不放宽。
+- 所有内存档位默认只安装/推荐 `qwen3.5:9b`；禁止自动拉取或自动升级 27B。
+- 新素材快速入库不调用 Vision；仅 Dry-run 入选候选可由操作者执行 9B 单次验证。
+- `coarse.v1` 只要求画质合格、描述非空和可生成向量；它不是 strict v1。
+- strict v1 的 schema、证据、人物一致性与 0.65 / 0.72 门禁保持不变。
 - Ollama `/api/chat` 的 `format` 必须传完整 JSON Schema（`semantic_response_json_schema()`），
   `options.temperature=0`；`gemma4` 仍为 `compat` 可选。
 
@@ -123,7 +131,7 @@ Asset ready
   → compose_embed_text → embed → 写入 embedding_json
 ```
 
-**算力策略：** 关键帧为主，禁止默认全库逐帧细分类；回填任务可限速后台跑。
+**算力策略：** 禁止默认全库 VLM 回填；先粗索引正常出片，再只验证本次生产候选。
 
 ### 2.3 嵌入文本（优化点）
 
@@ -140,6 +148,8 @@ theme={theme}；scene={scene}；物品={objects}；动作={actions}；{descripti
 在 `configs/samples/industry/<id>/pack.json` 增加（可选）：
 
 - `scene_rules` / `object_rules` / `action_rules`（同 theme_rules 结构）
+- `semantic_vision_notes`（字符串列表，可选）：叠在全局中性 vision 提示词之后，只改 description / 可见事实 / 人称用词，不改 JSON 字段与 label 枚举。建材包写「不写地面、男性称靓仔、女性称美女」；生活服务包留空。禁止写客户名。
+- 落库前全局硬过滤（所有行业）：剥开场「画面展示/画面显示/视频展示/视频记录」、抽帧编号（f1/f2、「第N帧」）及空人套话；**不**在全局改地面或「靓仔/美女」。
 - 缺省时从 `theme_rules` 关键词回退推导
 
 ### 2.5 验收（理解层）
@@ -147,6 +157,17 @@ theme={theme}；scene={scene}；物品={objects}；动作={actions}；{descripti
 - 新入库 cliplet：`description` 非空；`theme` 有值；`embedding_json` 非空  
 - 语义搜「装车 货车」：Top10 中 ≥7 条含装车/配送相关 scene 或 theme  
 - 组片 sidecar 能读出每槽命中的 theme/scene（后续编排层）
+
+### 2.6 向量运营（GSemanticOps · 待实现）
+
+本节是已授权实现合同，不表示现有代码已经满足：
+
+1. 待处理 cliplet 按首次具备资格的 `eligible_at ASC`、稳定主键升序领取；失败重试不得刷新年龄。
+2. API/App 的开始或继续操作只写持久队列并返回队列事实，不得在 HTTP 请求内直接执行 embedding，也不得把 queued 写成 running/completed。
+3. 状态至少区分 `queued / running / completed / failed / abandoned`，进度来自持久任务与已落盘向量。
+4. 暂停时取消或放弃当前尚未完成的模型请求，该 attempt 记 `abandoned`；此前已完成并原子落盘的向量保留。
+5. 恢复为未完成对象创建新 attempt，仍沿用原 `eligible_at` 最老优先；结果不明先核对向量与 provenance，禁止猜测完成。
+6. 所有领取、状态与向量写入必须按 `customer_id` 隔离并可审计。
 
 ---
 
@@ -230,6 +251,25 @@ theme={theme}；scene={scene}；物品={objects}；动作={actions}；{descripti
 6. **P3** `burn_mono` / `burn_dual` → ffmpeg 真烧录进 `publish_pack/video.burned.mp4` ✅（无 libass 时用 Pillow+overlay 回退）  
 7. **P4** 第二客户零分叉验收 ✅（[`ZERO_FORK.md`](ZERO_FORK.md) · `scripts/smoke_zero_fork.py`）  
 8. **P5** 多帧结构化分类 + 有限重试语义门禁 + 向量文本消费 ✅
+9. **P6** coarse 快速索引 + 全库回填默认停用 + Dry-run 候选 9B 单次验证 ✅
+10. **P7** 最终切片内容指纹 → 客户词池 recipe/component 路由 → 全字段声明合规门禁 ✅
+
+### P7 内容指纹与词池路由
+
+`engine/content/content_fingerprint.py` 只聚合最终入选 cliplet 已落盘的
+`scenes/products/interactions/people/frames.visible_facts/unknowns`。输出包含主成片类型、
+次标签、证据帧、允许事实和未知项；不得读取文件名或用行业常识补齐用途。
+
+流程固定为：
+
+```text
+宽检索组片 → 最终 cliplet 集合 → content fingerprint
+→ schema v2 taxonomy 匹配 → recipe/component 选择
+→ 标题/旁白/平台文案 → 统一合规门禁
+```
+
+sidecar 必须保存 `content_fingerprint`、`recipe_id`、`component_ids` 与冻结词池 revision，
+使冷却、近似去重、合规审计和重建物料可追溯。
 
 ---
 

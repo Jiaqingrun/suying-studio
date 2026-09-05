@@ -1,0 +1,25 @@
+HTTP/2 302 
+date: Wed, 29 Jul 2026 07:24:43 GMT
+content-type: text/html; charset=UTF-8
+content-length: 489
+location: https://twds.dl.sourceforge.net/project/lame/lame/3.101/lame-3.101.tar.gz?viasf=1&fid=048df64527216df9&e=1785396283&st=VCPFrgyOcAbp0iJaliy4Gg
+server: cloudflare
+content-security-policy: upgrade-insecure-requests
+content-disposition: attachment; filename="lame-3.101.tar.gz"
+cf-cache-status: DYNAMIC
+set-cookie: sf_mirror_attempt=lame:twds:lame/3.101/lame-3.101.tar.gz; Max-Age=120; Path=/; expires=Wed, 29-Jul-2026 07:26:43 GMT; secure
+set-cookie: __cf_bm=z08Ti_7hrYPSF_3tWU6XZok4MQoBbV6nK08Rdy3_Zto-1785309883.8098385-1.0.1.1-PTSsJHJP.QUIe.XiI03OBa2H8muFxhTTlSmJirZvTtPEp.KhKg9liXvIK5XR2kFe5X2flTimzX1.K8lc25z1FhQpXkWxMOgLDTuxGNAlSnn0v_QuPoa5Dp_NdZB94soO; HttpOnly; SameSite=None; Secure; Path=/; Domain=sourceforge.net; Expires=Wed, 29 Jul 2026 07:54:43 GMT
+cf-ray: a22a62b5cdb04e81-LAX
+alt-svc: h3=":443"; ma=86400
+
+HTTP/1.1 200 OK
+Server: nginx
+Date: Wed, 29 Jul 2026 07:24:46 GMT
+Content-Type: application/x-gzip
+Content-Length: 1466586
+Connection: close
+last-modified: Thu, 09 Jul 2026 12:29:55 GMT
+etag: "6a4f9443-1660da"
+X-Cache-Status: HIT
+Accept-Ranges: bytes
+

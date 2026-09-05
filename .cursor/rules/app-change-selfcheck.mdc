@@ -18,7 +18,15 @@ alwaysApply: true
    - `kill $(lsof -t -iTCP:8766 -sTCP:LISTEN)`（若有监听）
    - `SUYING_FORCE=1 ./scripts/start-engine.sh` 重启引擎
    - 若桌面端热更新未吃到改动，提示用户刷新/重启 App
-4. **循环默认间隔**
+4. **一体包 / 正式 App 前端交付**
+   - 生产安装的 `/Applications/速影 Studio.app` 把前端嵌在 `appsdesktop` 二进制内；**只改 `apps/desktop/src` 不会出现在已装 App**
+   - 要对当前已装 App 验收 UI 改动：须 `npm run build` + 重建/覆盖壳，或使用 `tauri dev`；禁止在只跑旧一体包时宣称 UI 已修好
+5. **循环默认间隔**
    - 用户要求「建立循环 / 下一步」且未指定间隔时，默认 **30s**（`AGENT_LOOP_TICK_*`）
+6. **冻结项不得顺手改**
+   - HARD_LOCKS **L17**：`LangCombobox` / `.lang-combo*` 已验收冻结，无授权不得改动（见 `docs/DEVELOPMENT_STANDARDS.md` §5.2.1）
+   - HARD_LOCKS **L18**：Local-first 主盘工作区已冻结，无授权不得改默认路径/拓扑/`external_required` 默认/插盘中心语义（见 `docs/V8_STORAGE.md`、`docs/HARD_LOCKS.md` L18）
+   - HARD_LOCKS **L19**：本地 F5 就绪与试听已冻结，无授权不得改 `voice_clone` / `/voice/packs/preview` / 设置页音色试听（见 `docs/VOICE_CLONE.md`、`docs/HARD_LOCKS.md` L19）
+ - HARD_LOCKS **L20**：生活服务旁白已冻结，无授权不得改 Ollama base_lock / 服务向 `narration_script` 开场禁词 / 配方 hook 加权 / 已验收词池口径（见 `docs/SERVICE_NARRATION_LOCK.md`、`docs/HARD_LOCKS.md` L20）
 
 不要把自检结果只说成「应该没问题」——要实际跑命令并处理失败。

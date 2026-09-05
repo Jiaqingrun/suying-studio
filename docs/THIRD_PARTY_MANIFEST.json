@@ -1,0 +1,200 @@
+{
+  "schema_version": "suying.third-party.v1",
+  "audit_scope": "/Users/qr/Desktop/速影-offline-depot-arm64-ready",
+  "distribution_status": "ready",
+  "covered_components": [
+    "app",
+    "ollama",
+    "ffmpeg",
+    "models-lite",
+    "models-standard",
+    "models-pro",
+    "models-max"
+  ],
+  "packages": [
+    {
+      "name": "FFmpeg",
+      "version": "8.1.2_1",
+      "license_expression": "GPL-3.0-or-later",
+      "source_url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
+      "component_ids": ["ffmpeg"],
+      "license_paths": ["legal/licenses/ffmpeg-8.1.2_1/LICENSE.md", "legal/licenses/ffmpeg-8.1.2_1/COPYING.GPLv3"],
+      "source_required": true,
+      "source_sha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c",
+      "formula_path": "legal/homebrew-evidence/formulae/ffmpeg.rb",
+      "install_receipt_path": "legal/homebrew-evidence/install-receipts/ffmpeg-8.1.2_1.json",
+      "corresponding_source_paths": ["legal/source-offer/ffmpeg-8.1.2.tar.xz"]
+    },
+    {
+      "name": "x264",
+      "version": "r3222 (b35605ace3ddf7c1a5d67a2eb553f034aef41d55)",
+      "license_expression": "GPL-2.0-or-later",
+      "source_url": "https://code.videolan.org/videolan/x264.git",
+      "component_ids": ["ffmpeg"],
+      "license_paths": ["legal/licenses/x264-r3222/COPYING"],
+      "source_required": true,
+      "source_revision": "b35605ace3ddf7c1a5d67a2eb553f034aef41d55",
+      "source_archive_sha256": "cd71a7515b0e9a012e1ac9b1f8415bebcaf6fc97d4db32286642ac4c0fbe24f9",
+      "formula_path": "legal/homebrew-evidence/formulae/x264.rb",
+      "install_receipt_path": "legal/homebrew-evidence/install-receipts/x264-r3222.json",
+      "corresponding_source_paths": ["legal/source-offer/x264-r3222-b35605ace3dd.tar.gz"]
+    },
+    {
+      "name": "x265",
+      "version": "4.2",
+      "license_expression": "GPL-2.0-or-later",
+      "source_url": "https://bitbucket.org/multicoreware/x265_git/downloads/x265_4.2.tar.gz",
+      "component_ids": ["ffmpeg"],
+      "license_paths": ["legal/licenses/x265-4.2/COPYING"],
+      "source_required": true,
+      "source_sha256": "40b1ea0453e0309f0eba934e0ddf533f8f6295966679e8894e8f1c1c8d5e1210",
+      "formula_path": "legal/homebrew-evidence/formulae/x265.rb",
+      "install_receipt_path": "legal/homebrew-evidence/install-receipts/x265-4.2.json",
+      "corresponding_source_paths": ["legal/source-offer/x265_4.2.tar.gz"]
+    },
+    {
+      "name": "LAME",
+      "version": "3.101",
+      "license_expression": "LGPL-2.0-or-later",
+      "source_url": "https://downloads.sourceforge.net/project/lame/lame/3.101/lame-3.101.tar.gz",
+      "component_ids": ["ffmpeg"],
+      "license_paths": ["legal/licenses/lame-3.101/COPYING", "legal/licenses/lame-3.101/LICENSE"],
+      "source_required": true,
+      "source_sha256": "7578af6eebd578b2bd64e468fac4ae1f03670a7e028166e67f855674b9b6aeac",
+      "formula_path": "legal/homebrew-evidence/formulae/lame.rb",
+      "install_receipt_path": "legal/homebrew-evidence/install-receipts/lame-3.101.json",
+      "corresponding_source_paths": ["legal/source-offer/lame-3.101.tar.gz"]
+    },
+    {
+      "name": "mpg123",
+      "version": "1.33.6",
+      "license_expression": "LGPL-2.1-only",
+      "source_url": "https://www.mpg123.de/download/mpg123-1.33.6.tar.bz2",
+      "component_ids": ["ffmpeg"],
+      "license_paths": ["legal/licenses/mpg123-1.33.6/COPYING"],
+      "source_required": true,
+      "source_sha256": "929a7c18ba662b8927aed4de229ad9ae8ab2b4806dd0f30b90113eb1b4e2195a",
+      "formula_path": "legal/homebrew-evidence/formulae/mpg123.rb",
+      "install_receipt_path": "legal/homebrew-evidence/install-receipts/mpg123-1.33.6.json",
+      "corresponding_source_paths": ["legal/source-offer/mpg123-1.33.6.tar.bz2"]
+    },
+    {
+      "name": "dav1d",
+      "version": "1.5.3",
+      "license_expression": "BSD-2-Clause",
+      "source_url": "https://code.videolan.org/videolan/dav1d/-/archive/1.5.3/dav1d-1.5.3.tar.bz2",
+      "component_ids": ["ffmpeg"],
+      "license_paths": ["legal/licenses/dav1d-1.5.3/COPYING"],
+      "source_required": false,
+      "corresponding_source_paths": []
+    },
+    {
+      "name": "libvpx",
+      "version": "1.16.0",
+      "license_expression": "BSD-3-Clause",
+      "source_url": "https://github.com/webmproject/libvpx/archive/refs/tags/v1.16.0.tar.gz",
+      "component_ids": ["ffmpeg"],
+      "license_paths": ["legal/licenses/libvpx-1.16.0/LICENSE"],
+      "source_required": false,
+      "corresponding_source_paths": []
+    },
+    {
+      "name": "libvmaf",
+      "version": "3.2.0",
+      "license_expression": "BSD-2-Clause-Patent",
+      "source_url": "https://github.com/Netflix/vmaf/archive/refs/tags/v3.2.0.tar.gz",
+      "component_ids": ["ffmpeg"],
+      "license_paths": ["legal/licenses/libvmaf-3.2.0/LICENSE"],
+      "source_required": false,
+      "corresponding_source_paths": []
+    },
+    {
+      "name": "OpenSSL",
+      "version": "3.6.3",
+      "license_expression": "Apache-2.0",
+      "source_url": "https://github.com/openssl/openssl/releases/download/openssl-3.6.3/openssl-3.6.3.tar.gz",
+      "component_ids": ["ffmpeg"],
+      "license_paths": ["legal/licenses/openssl-3.6.3/LICENSE.txt"],
+      "source_required": false,
+      "corresponding_source_paths": []
+    },
+    {
+      "name": "Opus",
+      "version": "1.6.1",
+      "license_expression": "BSD-3-Clause",
+      "source_url": "https://ftp.osuosl.org/pub/xiph/releases/opus/opus-1.6.1.tar.gz",
+      "component_ids": ["ffmpeg"],
+      "license_paths": ["legal/licenses/opus-1.6.1/COPYING"],
+      "source_required": false,
+      "corresponding_source_paths": []
+    },
+    {
+      "name": "SVT-AV1",
+      "version": "4.1.0",
+      "license_expression": "BSD-3-Clause",
+      "source_url": "https://gitlab.com/AOMediaCodec/SVT-AV1/-/archive/v4.1.0/SVT-AV1-v4.1.0.tar.bz2",
+      "component_ids": ["ffmpeg"],
+      "license_paths": ["legal/licenses/svt-av1-4.1.0/LICENSE.md"],
+      "source_required": false,
+      "corresponding_source_paths": []
+    },
+    {
+      "name": "Ollama",
+      "version": "0.24.0 (c28ddc0a7b273cd286b680a6db0bef0c17bc0ec0)",
+      "license_expression": "MIT",
+      "source_url": "https://github.com/ollama/ollama.git",
+      "component_ids": ["ollama"],
+      "license_paths": ["legal/licenses/ollama-0.24.0/LICENSE"],
+      "source_required": false,
+      "corresponding_source_paths": []
+    },
+    {
+      "name": "Packaged CPython and Python distributions",
+      "version": "CPython 3.12; 59 dist-info distributions",
+      "license_expression": "mixed (embedded dist-info license texts; autocommand LGPLv3 source is shipped as Python)",
+      "source_url": "embedded METADATA Project-URL/Home-page fields",
+      "component_ids": ["app"],
+      "license_paths": ["legal/python-runtime/THIRD_PARTY_LICENSES.txt"],
+      "source_required": false,
+      "corresponding_source_paths": []
+    },
+    {
+      "name": "nomic-embed-text model",
+      "version": "latest (manifest sha256:0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f)",
+      "license_expression": "Apache-2.0",
+      "source_url": "registry.ollama.ai/library/nomic-embed-text/latest",
+      "component_ids": ["models-lite", "models-standard", "models-pro", "models-max"],
+      "license_paths": ["legal/model-licenses/nomic-embed-text-latest.LICENSE.txt"],
+      "local_provenance": {
+        "manifest_path": "~/.ollama/models/manifests/registry.ollama.ai/library/nomic-embed-text/latest",
+        "manifest_sha256": "0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f",
+        "license_layer_media_type": "application/vnd.ollama.image.license",
+        "license_layer_sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "license_file_sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "notice_layer_present": false
+      },
+      "source_required": false,
+      "corresponding_source_paths": []
+    },
+    {
+      "name": "qwen3.5:9b model",
+      "version": "9b (manifest sha256:6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7)",
+      "license_expression": "Apache-2.0",
+      "source_url": "registry.ollama.ai/library/qwen3.5/9b",
+      "component_ids": ["models-standard", "models-pro", "models-max"],
+      "license_paths": ["legal/model-licenses/qwen3.5-9b.LICENSE.txt"],
+      "local_provenance": {
+        "manifest_path": "~/.ollama/models/manifests/registry.ollama.ai/library/qwen3.5/9b",
+        "manifest_sha256": "6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
+        "license_layer_media_type": "application/vnd.ollama.image.license",
+        "license_layer_sha256": "7339fa418c9ad3e8e12e74ad0fd26a9cc4be8703f9c110728a992b193be85cb2",
+        "license_file_sha256": "7382b1cf711e7a7c7af9816e0e07b49b91e7149b7c6d347225f98800fcb1f1c2",
+        "license_file_normalization": "source layer plus one terminal LF; license text otherwise byte-identical",
+        "notice_layer_present": false
+      },
+      "source_required": false,
+      "corresponding_source_paths": []
+    }
+  ],
+  "gaps": []
+}

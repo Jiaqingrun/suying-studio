@@ -1,5 +1,7 @@
 # 速影 BGM 曲库说明（全局）
 
+
+> 冲突时：`DEV_LOCK.md` / `HARD_LOCKS.md` > 本文。权威索引见 [`README.md`](README.md)。
 权威调用说明；客户盘 `04-音乐/README.md` 应与本文件保持一致。
 
 ## 如何被引擎调用

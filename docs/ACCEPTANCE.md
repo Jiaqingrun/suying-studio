@@ -3,7 +3,7 @@
 ## A. 环境与路径
 - [x] 引擎 `/health` 返回 200
 - [x] 资料库/输出路径可配置且持久化
-- [x] 外置盘未挂载时（若启用 external_required）禁止任务并提示
+- [x] 主盘工作区默认可生产；仅当 `external_required` 或片库路径缺失且严格模式开启时禁止任务并提示
 
 ## B. 词包与模板
 - [x] 可导入样例或客户词包
@@ -36,5 +36,5 @@
 在目标 Mac 上按 SOP 日更试跑，稳定产出 `ready` 成片，且**黄金样片**已由你方签字认可。
 
 ## 验收记录（2026-07-22）
-- [x] **暂且通过**：功能项基本齐；导演质量与黄金样片未签字（见 [`MVP_PASSED.md`](MVP_PASSED.md)、[`BACKLOG.md`](BACKLOG.md)）。
+- [x] **暂且通过**：功能项基本齐；导演质量与黄金样片未签字（见 [`MVP_PASSED.md`](archive/MVP_PASSED.md)、[`BACKLOG.md`](archive/BACKLOG.md)）。
 - V1/V2 已继续推进：语义取片、日历、无人值守加固。

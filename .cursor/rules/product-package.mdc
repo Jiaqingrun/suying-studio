@@ -5,44 +5,161 @@ alwaysApply: false
 
 # 速影 · 生产打包（scheme A）
 
-用户说「打包 / 出包 / 生产包 / 打 DMG / package」时按本规则执行。权威客户说明：`docs/CUSTOMER_INSTALL.md`。
+用户说「打包 / 出包 / 生产包 / 打 DMG / package / 重打一体包」时按本规则执行。权威客户说明：`docs/CUSTOMER_INSTALL.md`；远程覆盖安装：`docs/REMOTE_DEPLOY.md`。
+
+## 默认闭环（2026-08-15 起：极空间 API）
+
+权威推送规范：`docs/T2S_UPDATE_PUSH.md`。**禁止**默认依赖 `~/QR/dev/T2s/ZSPACE` NFS 挂载。
+
+**只要打包，就必须完整走下面步骤，不得拆开省略：**
+
+1. **升版本**：默认 `BUMP=patch`（禁止无故 `SKIP_BUMP=1`）
+2. **出包 + API 直传 + 本机覆盖 + 清本地**：`./scripts/release-to-t2s.sh`（默认 `PUBLISH=1`、`INSTALL_LOCAL=1`、`KEEP_LOCAL=0`）→ T2S `M.2存储11/速影/更新包/` → 覆盖 `/Applications` → **立即删除** `~/Suying/releases` 内套件/ZIP/DMG（仅留 `LAST_PUBLISH.json`）
+3. **打开 App**：`open -a "速影 Studio"`；保留 Chrome profile / DB / 许可
+
+唯一正式入口：
+
+```bash
+RUNTIME_FLAVOR=core ./scripts/release-to-t2s.sh
+open -a "速影 Studio"
+```
+
+仅当用户**显式**要求「网页推送 / 网页暂存」时才允许 `PUBLISH=0 WEB_STAGE=1`；仅当用户**显式**说「不升版本重打」时才允许 `SKIP_BUMP=1`；仅当用户**显式**说「只打本地、不推仓」时才允许 `PUBLISH=0 WEB_STAGE=0`；仅调试可 `KEEP_LOCAL=1`。偏离默认须事后说明。
 
 ## 命令（默认一体包）
 
 ```bash
-# 推荐：Tauri build + 嵌入 studio/creative/Python + 桌面套件 + DMG
-cd apps/desktop && npm run package:mac
+# 正式发布（默认）：升 patch → 暂存 ~/Suying/releases → 极空间 API 直传 → 本机覆盖 → 立即清本地
+# 禁止把交付物落到桌面；禁止默认 NFS 挂载推送；禁止本机堆历史包
+RUNTIME_FLAVOR=core ./scripts/release-to-t2s.sh
 
-# 产品套件（含安装脚本）；需 openmontage 旁路仓
-BUILD_APP=1 ./scripts/package-product.sh
+# 备用：网页暂存 + 人工网页上传——须用户显式要求
+PUBLISH=0 WEB_STAGE=1 RUNTIME_FLAVOR=core ./scripts/release-to-t2s.sh
 
-# 仅往已有 .app 塞运行时
+# 仅本地出包、不推仓——须用户显式要求（此时保留本机产物）
+PUBLISH=0 WEB_STAGE=0 RUNTIME_FLAVOR=core ./scripts/release-to-t2s.sh
+
+# 底层：Tauri build + embed（产物暂存 ~/Suying/releases，正式真源在 T2S）
+cd apps/desktop && RUNTIME_FLAVOR=core npm run package:mac
+
+# 产品套件（含安装脚本）
+BUILD_APP=1 RUNTIME_FLAVOR=core ./scripts/package-product.sh
+
+# 仅往已有 .app 塞运行时（调试用；不算正式交付）
 ./scripts/embed-app-runtime.sh /path/to/速影.app
 ```
 
+- **正式交付入口**：`scripts/release-to-t2s.sh`（默认 `BUMP=patch`、`RUNTIME_FLAVOR=core`、自动 `release_seq+1`、**`PUBLISH=1` API 直传**、**`INSTALL_LOCAL=1`**、**`KEEP_LOCAL=0` 推后清本地**；网页暂存仅备用）。
+- **推仓**：默认极空间本地 API；细则 `docs/T2S_UPDATE_PUSH.md`。
+- **本机覆盖**：API 直传成功后由脚本执行套件 `安装到-应用程序.sh`（`rm -rf` 后 `ditto`，禁止合并残留）；再删本机暂存。不得把 ZIP 长期留在 `~/Suying/releases`。
+- **本机暂存**：`${SUYING_RELEASE_ROOT:-~/Suying/releases}` 仅作出包中转；正式真源在 T2S。离线工具/模型：`~/Suying/offline/`。
 - 默认 `EMBED=1`。壳-only：`EMBED=0`。
 - Python：生产包默认且必须使用可迁移 standalone CPython；仅本机调试可显式 `PREFER_STANDALONE=0 ALLOW_HOST_VENV_FALLBACK=1`。
-- `OPENMONTAGE_ROOT` 默认 `../openmontage`。
+- Runtime flavor：**正式 release 默认 `core`**。客户 VIDEO_LOCK 要求 clone 时：部署 **core + F5 Runtime Kit**（`package-f5-runtime-kit` / `--f5-kit`），见 `docs/VOICE_CLONE.md`。`RUNTIME_FLAVOR=clone` 内嵌 F5 仅应急，禁止作为周更默认。底层 package 脚本若默认 clone 时，**release-to-t2s 必须以 core 覆盖**。两者都写入并签名 `BUNDLE_FLAVOR`。
+- **覆盖安装只替换 App**，不得删除 `~/Suying/runtime/f5_site_packages`。
 - Tauri `bundle.targets` 保持 `["app"]`；DMG 由 `package-macos.sh` 在 **embed 之后** 用 `hdiutil` 生成（勿只靠 tauri dmg）。
+- **热补客户机 `.py` 不算交付**：线上问题修完后必须重打一体包再 `deploy-remote`，禁止把 scp 热补当正式版本。
+- **禁止**常态 `diag_fix` merge F5 进 App（LEGACY；下次 core 必丢）。
+- **远程部署唯一正式路径**：`docs/REMOTE_DEPLOY.md` §0（离线 tools/models + 许可证 + 单 ZIP）；默认禁止 brew / 客户机 `ollama pull`。覆盖升级加 `--skip-models`，不二次推已装模型与 DMG。
+- **受管 Chrome**：`chrome_runtime` 必须经 LaunchServices（`open -na "Google Chrome.app"`）启动；禁止直接 `Popen` Chrome 二进制（Cookie 无法落盘）。出包门禁与 `deploy-remote` 均检查该路径。
 
 ## 必须打进 App
 
-`速影.app/Contents/Resources/runtime/{studio,creative,python}` + `BUNDLE_LAYOUT.txt`。
+`速影.app/Contents/Resources/runtime/{studio,python}` + `BUNDLE_LAYOUT.txt` + `RUNTIME_SOURCE_SHA256` + `RUNTIME_MANIFEST.json{,.sig}`。客户包不得包含 `runtime/creative`、OpenMontage 或 Remotion。
+
+- 私下发布必须使用 Keychain 中的 Ed25519 发布密钥签名 runtime manifest；缺密钥或签名失败即停止打包。
+- runtime manifest 覆盖所有生产 runtime 文件；Rust 在 `engine_start` 前验签、验架构、逐文件验哈希并拒绝未列入文件。
+- 生产 `.app` 固定使用 bundled studio/Python，忽略 `SUYING_ROOT`、`MONTAGE_ROOT`、`SUYING_PYTHON` 等外部代码旁路。
+- `scripts/sign_update_release.py`、`build_runtime_manifest.py`、`build_offline_depot.py` 等运维签发脚本不得进入客户 App。
+
+### 生产引擎模块（不得被 rsync 误排除）
+
+embed 时 **禁止** 使用 `**/publish_*.py` 这类宽排除。只允许排除运维脚本前缀，例如：
+
+- ✅ `--exclude 'scripts/publish_*.py'`（及 `scripts/safari_*.py` / `scripts/chrome_*.py` / `scripts/smoke_*.py` 等）
+- ❌ `--exclude '**/publish_*.py'`（会打丢 `engine/reach/publish_*.py`、`publish_runner` 等相关生产代码）
+
+出包前在 **已 embed 的** `runtime/studio` 内至少确认存在并可 import：
+
+- `engine/reach/publish_runner.py`
+- `engine/reach/chrome_runtime.py`（含接管已开 Chrome / CDP `PUT /json/new`）
+- `engine/ops/automation_loop.py`
+- `engine/api/workspace_routes.py`（及本次 Gate 新增的配套路由/模块）
+
+校验 `import engine` 时必须 `PYTHONPATH=…/runtime/studio`（或等价），勿在错误 cwd 下误判失败。
+
+### 源码指纹
+
+- 指纹权威实现：`scripts/runtime_source_fingerprint.py`，**排除规则必须与 `embed-app-runtime.sh` 的 rsync 一致**（仅 `scripts/` 下一层运维脚本，不是全树 `**/publish_*`）。
+- embed 结束后对 **STUDIO_DST** 实算并写入 `runtime/RUNTIME_SOURCE_SHA256`。
+- `package-product.sh`：源码或 `requirements.txt` 指纹变化 → 强制重新 embed；App 版本 / CPU 架构 / 内嵌 Python 架构不一致 → 完整重打，禁止复用旧 App 壳充数。
 
 ## 禁止打进包
 
-`configs/customers/*`、片库/成片/词池、`~/Suying/data`、`.env`、API Key、Ollama 模型、客户 `projects/` 产出、`.venv` 源仓、`node_modules`、`src-tauri/target`。
+`configs/customers/*`、片库/成片/词池、`~/Suying/data`、`.env`、API Key、**发布私钥**、Ollama 模型、客户 `projects/` 产出、`.venv` 源仓、`node_modules`、`src-tauri/target`、客户工作区 `chrome-profiles/`（登录态永不进包）。
+
+## 覆盖安装硬边界（打完包部署时同样适用）
+
+原子替换 **仅** `速影.app`。下列路径安装/升级脚本 **不得删除、rsync --delete、或用样例整表覆盖**：
+
+| 保留 | 说明 |
+|------|------|
+| 本机 APFS `~/Library/Application Support/com.qr.suying/chrome-profiles` | Cookie / 登录目录；禁止放 ExFAT/SMB/同步工作区，丢了会表现为「每次上传都要验证」 |
+| DB `customers.profile_json` 等业务绑定 | **禁止**用 `profile.sample.json` PATCH/整表替换冲掉 reach 账号↔Chrome 配置绑定 |
+| `montage.db` / 成片 / 片库 / 词池实体 | 只允许安全字段更新（如词池路径 reload） |
+
+发布路径不得因配置名不存在而 `mkdir` 出空壳 Chrome 目录（空壳无 Cookie → 假「未登录」）。客户应选用已有带平台前缀的登录目录。
+
+部署后必须由 App 图形会话启动引擎，禁止以 SSH / `nohup` 引擎作为交付运行方式。若客户已开官方页再点快速发布：包内 runtime 须能 **发现并接管** 同 `user-data-dir` 的受管 Chrome（CDP）；Chrome 120+ 开新标签用 **`PUT /json/new`**，禁止仅 GET（会 405，表现为占用/登录误报）。
 
 ## 交付物 DoD
 
-桌面套件 `~/Desktop/速影-<ver>-macos-<arch>/` 须含：
+交付物拆分，禁止把 App 与内含同一 App 的 DMG 重复塞入同一个 ZIP：
 
-1. `速影.app`（含 `runtime/BUNDLE_LAYOUT.txt`）
-2. `速影-<ver>.dmg`（从 **已 embed** 的 App 生成）
-3. `安装说明` + `SHA256.txt`
+1. 产品/远程 ZIP：`速影-<ver>-product-macos-<arch>-<core|clone>.zip`，内含 `速影 Studio.app`（签名 runtime manifest；不含许可证与发布私钥）+ 安装说明 + SHA256 + bootstrap；**不得含 DMG / offline-models**。覆盖升级部署加 `deploy-remote.sh --skip-models`，不二次推已装模型。
+2. 人工安装：独立 `速影-<ver>-macos-<arch>-<core|clone>.dmg` + 独立 SHA256（从 **已 embed** 的 App 生成）
+3. ad-hoc 签名的 `bootstrap/suying-bootstrap-<arch>`；首次执行仍须由运维按已知 SHA256 核对
 
-冒烟：把 App 复制到另一绝对路径后，内嵌 Python 可 `import encodings,fastapi,uvicorn`；`python -m engine.main` 的 `GET /health=ok`；`Origin: http://tauri.localhost` 的 `OPTIONS /jobs` 预检通过。Ollama/FFmpeg 仍本机，不塞进 App。
+冒烟：
+
+1. 把 App 复制到另一绝对路径后，内嵌 Python 可 `import encodings,fastapi,uvicorn`。
+2. `PYTHONPATH=…/runtime/studio` 下关键生产模块可 import；复制运维机许可证到隔离 smoke HOME 后，`python -m engine.main` 的 `GET /health=ok`。无许可证必须报 `LICENSE_REQUIRED`。
+3. `Origin: http://tauri.localhost` 的 `OPTIONS /jobs` 预检通过。
+4. （覆盖安装场景）确认远端本机 APFS `~/Library/Application Support/com.qr.suying/chrome-profiles` 树与 reach 账号绑定仍在；抽查包内无空壳「短名」配置被安装脚本创建。
+5. 未传 `--smoke-job` 的远程部署只能报 `PARTIAL: SMOKE_NOT_REQUESTED`，不得宣称「部署完成」。
+
+Ollama/FFmpeg 不塞进 App；进入签名离线 CAS 仓，由 bootstrap 按架构和 Install Profile 物化。
+
+## 极空间更新仓库（默认发布目标）
+
+每次正式更新包验收完成后，经**极空间本地 API**（默认）或显式网页暂存上传到当前 T2S 个人空间：
+
+```text
+M.2存储11/速影/更新包/
+├── releases/<版本>/<构建日期>/
+│   ├── 速影-<版本>-product-macos-<arch>-<构建日期>.zip
+│   ├── SHA256.txt
+│   ├── release.json
+│   └── release.json.sig
+├── latest.json
+├── latest.json.sig
+├── depot/
+│   ├── depot.json
+│   ├── depot.json.sig
+│   └── objects/sha256/<digest>
+└── README.md
+```
+
+- 极空间 API 权威路径：`/nvme11/my/data/速影/更新包`（UI：`t2s个人空间-M.2存储11/速影/更新包`）；统一根见 `docs/T2S_PERSONAL_ROOT.md`；不得误写到共享区 `/nvme11/public`。
+- **默认推送通道：极空间本地 API**（`PUBLISH=1`，须客户端会话）；网页暂存（`PUBLISH=0 WEB_STAGE=1`）仅备用。禁止默认 NFS 挂载 `~/QR/dev/T2s/ZSPACE`。规范：`docs/T2S_UPDATE_PUSH.md`。
+- **本机 `~/Suying/releases` 仅暂存**：推送成功并覆盖安装后立即删除套件/ZIP/DMG（默认 `KEEP_LOCAL=0`）；正式真源与历史版本只在 T2S。
+- **T2S 仓**旧版本不得覆盖或删除；同版本按构建日期分目录。
+- 先在本机完成 runtime/release 签名、DMG、SHA256 与冒烟，再上传 ZIP；上传后必须回读并复算 SHA256，不能只看 size。
+- `latest.json` 只是签名指针；ZIP、`release.json{,.sig}` 全部上传并回读复核后，先上传 `latest.json.sig`，最后更新 `latest.json`。
+- `release_seq` 严格递增；禁止 `force` 绕过防降级，同序号不同内容必须拒绝。
+- `package-product.sh` 不得再写无签名 carrier `latest.json`；正式发布用 `publish_update_repo.py`（默认 API；`--stage-dir` 仅备用网页暂存）。
+- 客户配置、Cookie、API Key、数据库、片库不得进入更新仓库。
 
 ## 改打包链路后
 
-同步 `docs/CUSTOMER_INSTALL.md`；跑 `apps/desktop` 的 `npx tsc --noEmit`；必要时 `cargo check`（`src-tauri`）。
+同步 `docs/CUSTOMER_INSTALL.md` 与（若动到安装保留面）`docs/REMOTE_DEPLOY.md`；跑 `apps/desktop` 的 `npx tsc --noEmit`；必要时 `cargo check`（`src-tauri`）。

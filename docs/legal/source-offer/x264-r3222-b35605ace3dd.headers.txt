@@ -1,0 +1,21 @@
+HTTP/2 200 
+server: nginx/1.31.3
+date: Wed, 29 Jul 2026 07:26:55 GMT
+content-type: application/octet-stream
+cache-control: max-age=3600, public, must-revalidate, stale-while-revalidate=60, stale-if-error=300, s-maxage=60
+content-disposition: attachment; filename="x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55.tar.gz"
+content-security-policy: 
+content-transfer-encoding: binary
+etag: "490e88b8285f01466542114bdd5fcc3a"
+nel: {"max_age": 0}
+permissions-policy: interest-cohort=()
+referrer-policy: strict-origin-when-cross-origin
+x-content-type-options: nosniff
+x-frame-options: SAMEORIGIN
+x-gitlab-meta: {"correlation_id":"01KYPC9W4A9PJQX696NPQEQ5QY","version":"1"}
+x-permitted-cross-domain-policies: none
+x-request-id: 01KYPC9W4A9PJQX696NPQEQ5QY
+x-runtime: 0.288372
+x-ua-compatible: IE=edge
+x-xss-protection: 1; mode=block
+

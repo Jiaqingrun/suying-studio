@@ -1,0 +1,35 @@
+---
+description: 速影远程部署、deploy-remote、客户机安装与覆盖升级统一标准
+alwaysApply: false
+---
+
+# 速影 · 统一远程部署
+
+权威路径：[`docs/REMOTE_DEPLOY.md`](../../docs/REMOTE_DEPLOY.md) §0；硬锁：[`docs/HARD_LOCKS.md`](../../docs/HARD_LOCKS.md) L12。后续客户机远程部署只执行该真机成功方案。
+
+## 正式命令
+
+```bash
+./scripts/deploy-remote.sh \
+  --host <SSH别名> \
+  --customer-name "<客户名>" \
+  --customer-config "configs/customers/<客户名>" \
+  --license <客户机许可证> \
+  --offline-tools <已校验离线工具目录>
+```
+
+覆盖升级（客户机已有模型）追加 `--skip-models`：不传模型套件，远程 ZIP 不含 DMG / `offline-models`。
+
+也可用 `--offline-depot` 物化工具；有真实片库素材且要写完整成功回执时才加 `--smoke-job`。无素材不得用 health 代替真实任务验收。
+
+## 强制边界
+
+- 默认完全离线；禁止 brew、pip/curl 下载与客户机 `ollama pull`。`--install-deps` 仅兼容旧路径，不得作为正式交付。
+- 热补客户机 `.py` 不算交付；修复后必须重新 embed、重打产品套件，再走 `deploy-remote.sh`。
+- 许可证只依据 GUI 会话 Keychain 的真实 `device_key_id`；禁止采用 SSH 下漂移的许可请求。
+- 只原子替换 `速影.app`；禁止删除本机 APFS Chrome profile、覆盖 `profile_json` 账号绑定或删除客户数据。
+- `montage.db` 与 Chrome `user-data-dir` 必须位于本机 APFS；Chrome profile 禁止放 ExFAT、SMB 或同步工作区。
+- 受管 Chrome 必须经 LaunchServices `open -na "Google Chrome.app" --args …`；禁止直接 `Popen` Chrome 二进制。
+- 交付运行必须由 App 图形会话启动引擎；禁止以 SSH / `nohup` 引擎作为完成状态。
+
+涉及出包时同时遵守 [`product-package.mdc`](product-package.mdc)。

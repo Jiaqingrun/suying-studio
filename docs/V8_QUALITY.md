@@ -2,6 +2,7 @@
 
 > 执行进度与 Gate 以 [`DEV_LOCK.md`](DEV_LOCK.md) §E 为准。本文只保留冲刺范围说明。
 
+> 冲突时：`DEV_LOCK.md` / `HARD_LOCKS.md` > 本文。权威索引见 [`README.md`](README.md)。
 底座可用约 70–75%；可签字导演质量约 40–50%。  
 **按 [`DEV_LOCK.md`](DEV_LOCK.md) 执行；禁止平行堆 Pack/Reach。**
 
@@ -53,4 +54,4 @@ L0 黄金样片标尺 → Sprint A 有声+字幕+熔断
 
 **2026-07-24 试跑：** `速影工作区/db/completion_trial.json` — 近 20 条 ready 率 95%；硬指标抽检无声/黑场/复用 = 0；G1/G2 已签字落盘。人眼「能发」仍建议再抽 5 条确认。
 
-参见 [`BACKLOG.md`](BACKLOG.md) · [`DEV_LOCK.md`](DEV_LOCK.md)。
+参见 [`BACKLOG.md`](archive/BACKLOG.md) · [`DEV_LOCK.md`](DEV_LOCK.md)。

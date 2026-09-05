@@ -4,6 +4,7 @@
 > **违反本文件 = 不允许进 ready 片库索引 / 不允许向量化 / 不允许进成片候选。**  
 > 总索引：[`HARD_LOCKS.md`](HARD_LOCKS.md) · 配置：`VIDEO_LOCK.quality` · 代码：`engine/ingest/quality.py`（`assert_quality_lock_integrity`）
 
+> 冲突时：`DEV_LOCK.md` / `HARD_LOCKS.md` > 本文。权威索引见 [`README.md`](README.md)。
 ---
 
 ## 1. 硬规则（不可协商）
@@ -11,7 +12,7 @@
 | # | 规则 | 验收 |
 |---|------|------|
 | Q1 | **虚焦/严重发糊切片不得创建为 usable** | `status=rejected_blur`；不写 embedding |
-| Q2 | **虚焦素材整条不得标 ready 向量化** | 入库 `status=rejected_blur`（与横屏 `rejected_landscape` 同级） |
+| Q2 | **虚焦素材整条不得标 ready 向量化** | 入库 `status=rejected_blur`（与 `rejected_orientation` 同级） |
 | Q3 | **向量化入口拒收** | `index_cliplet` / `index_pending` 跳过 rejected_blur 与低分 |
 | Q4 | **语义检索与选片拒收** | `search_cliplets` + planner floor≥`MIN_QUALITY_SCORE` |
 | Q5 | **存量必须筛除** | `purge_blur_from_catalog` 重打分 → SQL NULL 清 embedding → 打标 |
@@ -69,3 +70,4 @@ curl -sS -X POST 'http://127.0.0.1:8766/cliplets/quality/purge-blur?limit=8000&r
 | 2026-07-26 | 用户：「以上规则全部写死」→ VIDEO_LOCK.quality + HARD_LOCKS + 加载钳制 + smoke |
 | 2026-07-27 | 语义理解视觉默认切 `qwen3.5:27b-q4_K_M`；Ollama `format`=完整 JSON Schema + `temperature=0`；画质/语义阈值不放宽 |
 | 2026-07-27 | 分档级联：≤16GB 默认 `qwen3.5:9b`（禁默认 27B）；pro/max 9B→27B 升级；门禁 0.65/0.72 与最多 3 次总尝试不变 |
+| 2026-07-27 | 用户批准低配 Mac 按需模式，替代上条自动级联：全库 VLM 回填默认停用；coarse 可供普通生产；仅 Dry-run 候选 9B 单次验证；strict v1 门禁不冒充、不放宽 |

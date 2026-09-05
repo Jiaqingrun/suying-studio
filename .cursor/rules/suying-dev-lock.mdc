@@ -5,26 +5,25 @@ alwaysApply: true
 
 # 速影 DEV LOCK
 
-开发前必读：`docs/DEV_LOCK.md`、`docs/DEVELOPMENT_STANDARDS.md`。
-
-## 当前只允许
-
-- Gate **G2**（行业包数据化、去默认始峰）
-- Gate **G1** 中标注 **OFFLINE** 的 Sprint C 项
-- 文档纠偏与冒烟
+开发前必读：`docs/README.md`（唯一权威索引）→ `docs/DEV_LOCK.md` → `docs/HARD_LOCKS.md`；工程标准见 `docs/DEVELOPMENT_STANDARDS.md`。  
+当前主线与允许项以 `DEV_LOCK.md` §D/§F 为准（勿沿用过时 Gate 白名单）。
 
 ## 当前禁止
 
-- Gate G0 / 需片库成片复检（`BLOCKED_DISK`）— 用户未插盘
-- Pack / Reach / TTS 口播主开发 / 浏览器发布 / 反检测
+- 未过 Gate 把下一项标 ✅；`docs/archive/**` 当现行需求
 - `if customer.name == "北京始峰伟业"` 或硬编码客户路径
 - 往 `engine/template/hooks.py` 追加客户文案当全局默认
-- 未过 Gate 把下一项标 ✅
+- 反检测卖点 / 未授权矩阵养号 / 自动过验证码
+- 无真实客户片库时把媒体复检项标完成；或把外置盘当作生产硬依赖重新引入
+- **L18**：禁止再改 Local-first 主盘工作区拓扑（`~/Suying/data` + `~/Movies/速影工作区`、`external_required` 默认 false、自动同步主盘、外置仅路径覆盖）；禁止回退外置盘为默认真相（见 `HARD_LOCKS` L18、`V8_STORAGE`）
+- **L17**：无授权改 `LangCombobox` / `.lang-combo*`；禁止回退卡片内 absolute 弹层或靠拆祖先 overflow 修裁切（见 `HARD_LOCKS` L17、`DEVELOPMENT_STANDARDS` §5.2.1）
+- **L19**：无授权改本地 F5 就绪 / 试听链路（`voice_clone`、`POST /voice/packs/preview`、设置页音色试听）；禁止 core 包冒充 clone；见 `HARD_LOCKS` L19、`VOICE_CLONE.md`
+- **L20**：无授权改生活服务旁白合同：黄金底稿 + Ollama 仅节奏润色、倾听用词、服务禁词与 hook 加权；见 `HARD_LOCKS` L20、`docs/SERVICE_NARRATION_LOCK.md`
 
 ## 每项完成
 
 1. 跑 `python3 scripts/smoke_test.py`
-2. 更新 `docs/DEV_LOCK.md` §E 状态
+2. 更新 `docs/DEV_LOCK.md` §E 状态（唯一状态真相源）
 3. 说明对应 Gate ID
 
-冲突时：`DEV_LOCK.md` > 口头 > 临时灵感。
+文档冲突：`docs/README.md` 权威序；`DEV_LOCK` / `HARD_LOCKS` > 分锁 > 口头 / 临时灵感。

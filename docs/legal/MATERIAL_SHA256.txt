@@ -1,0 +1,5 @@
+464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c  docs/legal/source-offer/ffmpeg-8.1.2.tar.xz
+cd71a7515b0e9a012e1ac9b1f8415bebcaf6fc97d4db32286642ac4c0fbe24f9  docs/legal/source-offer/x264-r3222-b35605ace3dd.tar.gz
+40b1ea0453e0309f0eba934e0ddf533f8f6295966679e8894e8f1c1c8d5e1210  docs/legal/source-offer/x265_4.2.tar.gz
+7578af6eebd578b2bd64e468fac4ae1f03670a7e028166e67f855674b9b6aeac  docs/legal/source-offer/lame-3.101.tar.gz
+929a7c18ba662b8927aed4de229ad9ae8ab2b4806dd0f30b90113eb1b4e2195a  docs/legal/source-offer/mpg123-1.33.6.tar.bz2

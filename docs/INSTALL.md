@@ -15,7 +15,7 @@
 - [ ] Rust / Cargo（Tauri 打包）
 
 ## 安装步骤
-1. 克隆或复制 `montage-studio` 到本机
+1. 克隆或复制 `速影` 到 `~/QR/dev/速影`
 2. `python3 -m pip install -r requirements.txt`
 3. `cd apps/desktop && npm install`
 4. 启动引擎：`./scripts/start-engine.sh`
@@ -28,7 +28,7 @@
 ## 路径配置（App → 系统）
 - [ ] 资料库根目录已创建且可写
 - [ ] 输出根目录已创建且可写
-- [ ] 外置盘必选时，勾选「external_required」并确认挂载
+- [ ] （可选）若片库在外置路径，确认路径可写；默认不要求 `external_required`
 
 ## 防中断
 - [ ] 接电源

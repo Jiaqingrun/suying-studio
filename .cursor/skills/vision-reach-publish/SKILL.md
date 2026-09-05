@@ -25,7 +25,7 @@ Cookie **不等于** Safari。用户须在 IDE Browser 登录抖音创作者。
 ### 准备物料
 
 ```bash
-cd ~/QR/dev/montage-studio
+cd ~/QR/dev/速影
 python3 scripts/safari_reach_assist.py --accept-risk --queue-id 1 --no-open --clipboard none --export-json /tmp/reach_payload.json
 ```
 

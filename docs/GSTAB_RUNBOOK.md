@@ -2,6 +2,7 @@
 
 > 权威库唯一；空壳 + 坏 WAL 禁止当生产库。T2S 不承载 db。
 
+> 冲突时：`DEV_LOCK.md` / `HARD_LOCKS.md` > 本文。权威索引见 [`README.md`](README.md)。
 ## 权威库
 
 1. 工作区 `settings.json` 的 `paths.data_root` 指向唯一 `montage.db`。
@@ -33,6 +34,32 @@
 ## 健康报警一句话
 
 `GET /reports/ops` → `health_line` + `db_ok`；总览红灯：片库/成片不可写、db 空壳、音色违规。
+
+## 陈旧生产任务 / clone 空转（运维标准）
+
+假 `running`、旁白熔断、缺 `f5-tts` 时，**不要**在 worker 活跃时手写 SQL `UPDATE jobs`。优先：
+
+```bash
+# 运维机 → 客户机诊断并可选修复
+python3 scripts/diag_fix_stalled_jobs.py --host <ssh-host>
+python3 scripts/diag_fix_stalled_jobs.py --host <ssh-host> --fix --resume-jobs
+
+# 客户机本机
+python3 scripts/diag_fix_stalled_jobs.py --local --fix --resume-jobs
+
+# 引擎活着时：API 回收无持有者的陈旧 running
+curl -fsS -X POST 'http://127.0.0.1:8766/jobs/reap-stale?stale_after_sec=600'
+```
+
+clone 离线权重：
+
+```bash
+python3 scripts/materialize_clone_tts_cache.py --check
+python3 scripts/materialize_clone_tts_cache.py --export /path/to/clone-hf-hub
+# 客户机：--import-from …；~/Suying/runtime/local.env 设 HF_HUB_OFFLINE=1
+```
+
+出包须 `EMBED_CLONE_TTS=1`（默认）并视需要 `SUYING_CLONE_HF_CACHE=` 指向已物化 hub。
 
 ## 路径串用户名（/Users/xlf → 本机）
 

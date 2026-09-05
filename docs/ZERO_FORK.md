@@ -4,6 +4,7 @@
 > **目标：** 新增第二家客户只靠 App/API 配置与目录，**不改引擎业务硬编码**。  
 > **依据：** [`PRODUCT_PLAN.md`](PRODUCT_PLAN.md)「第二个客户零分叉」· [`DEVELOPMENT_STANDARDS.md`](DEVELOPMENT_STANDARDS.md)
 
+> 冲突时：`DEV_LOCK.md` / `HARD_LOCKS.md` > 本文。权威索引见 [`README.md`](README.md)。
 ## 验收清单
 
 | # | 项 | 通过标准 | 状态 |

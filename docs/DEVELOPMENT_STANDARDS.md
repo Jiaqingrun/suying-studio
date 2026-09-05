@@ -1,10 +1,11 @@
 # 速影 · 最终开发标准（通用剪辑发布工作室）
 
-> **状态：2026-07-24 冻结**  
+> **状态：2026-07-24 冻结；2026-07-28 按已授权 Gate 增补系统暂停与安装硬锁**
 > **适用：** 产品、App、引擎、配置、测试、交付全链路。  
 > **前提：** 速影是**多客户通用产品**；「北京始峰伟业」只是**首个样板客户（fixture）**，不是产品本体。  
 > 产品路线见 [`PRODUCT_PLAN.md`](PRODUCT_PLAN.md)；质量冲刺见 [`V8_QUALITY.md`](V8_QUALITY.md)。
 
+> 冲突时：`DEV_LOCK.md` / `HARD_LOCKS.md` > 本文。权威索引见 [`README.md`](README.md)。
 ---
 
 ## 0. 铁律（先背这 8 条）
@@ -17,6 +18,9 @@
 6. **新客户 15 分钟可开工**：向导建客户 → 指路径 → 导入词包/行业包 → 扫库 → dry-run，无需改代码。  
 7. **样板客户可删**：删掉始峰配置与脚本，产品仍完整可装、可测、可卖。  
 8. **不做反检测卖点**：Reach 层人在回路；禁止以绕开平台风控为验收标准。
+9. **自动闭环必须可恢复可审计**：生产、READY_GATE、出包、排期、发布、核验与消息通知以持久化 occurrence 串联；每次窗口随机保存独立 seed，重启不得重抽或重复副作用。
+10. **即时与定时设置隔离、内容共享 ready 池**：即时批次不得改写定时 schedule/trigger/seed/窗口；内容在执行时现挑共享 `ready` 池（无提前预留）；全部账号仍共享机器级单槽。
+11. **日志统一、丰富且脱敏**：关键步骤写 append-only 结构化日志，带客户域和关联 ID；Cookie、token、验证码、完整正文不得入日志。
 
 ---
 
@@ -46,6 +50,9 @@
                            │ REST localhost
 ┌──────────────────────────▼──────────────────────────────┐
 │  engine/api          边界：鉴权无（本机单用户）· 校验 · DTO │
+│    归属（新路由禁止入 app.py 主体）：                         │
+│    job_routes · catalog_routes · reach_* · content_* ·     │
+│    system_routes · maintenance · library_review · …        │
 │  engine/catalog      客户域 · 词包 · 日历 · 向量            │
 │  engine/ingest       扫描 · normalize · proxy · cliplet   │
 │  engine/template     模板引擎（读配置，不读客户名）         │
@@ -185,6 +192,10 @@ configs/
 
 节奏模板（`default-vertical` / `fast-ship` / `stable-product`）属于**产品能力**，可留代码；**主题→模板映射**属于行业包。
 
+### 4.4 正式备份（T2S）
+
+行业包 / 起步种子 / 客户覆写的极空间正式备份见 [`INDUSTRY_PACK_BACKUP_ZSPACE.md`](INDUSTRY_PACK_BACKUP_ZSPACE.md)（目录「速影/行业包备份」；`current` + `releases` 基线；与主仓备份、更新包分离）。统一根见 [`T2S_PERSONAL_ROOT.md`](T2S_PERSONAL_ROOT.md)。编辑仍以本仓库 `configs/` 为真相源。
+
 ---
 
 ## 5. App 开发标准
@@ -194,15 +205,16 @@ configs/
 | Tab | 职责 | 是否客户相关 |
 |-----|------|----------------|
 | 总览 | 今日摘要、产线步骤、异常与下一步 | 当前客户 |
-| 生产 | 素材扫描/语义进度、任务、日历、生产参数 | 当前客户 |
+| 生产 | 素材扫描、横/竖画幅、任务、日历 | 当前客户 |
+| 规则 | 横/竖独立混剪规则、标题、字幕、语言、音色、节奏与质量预览 | 当前客户 |
 | 审片 | 预览、筛选、通过/打回/重渲、批量修复 | 当前客户 |
 | 发布 | 表达设置、物料包、发布台、封面与触达队列 | 当前客户 |
 | 消息 | 多平台本人账号只读摘要、账号巡检状态、跳官方页人工回复 | 当前客户 |
 | 数据中心 | 只读统计：产能/质量/发布/词库/审计 | 当前客户 |
-| 运维 | 引擎服务、Ollama、向量、T2S/同步/更新、路径健康、缓存日志 | 机器级 |
-| 设置 | 客户/品牌/表达/通知/常规路径；**高级区需钥匙串密码** | 客户级 + 高级机器项 |
+| 运维 | 设备服务、Ollama、横/竖向量、备份、T2S/同步/更新、路径健康、缓存、高级功能与日志 | 机器级 |
+| 设置 | 客户/品牌/账号/通知/常规路径/已发布视频保留/外观 | 客户级 |
 
-助手为顶栏全局抽屉（非一级导航）。业务主线：`总览 → 生产 → 审片 → 发布 → 总览`。
+业务主线：`总览 → 生产 → 规则（按需）→ 审片 → 发布 → 总览`。商业离线版不内嵌第三方云代理助手。
 
 顶栏**永久**展示：当前客户名、路径健康、引擎状态。切换客户必须清空列表缓存并重新拉取。
 
@@ -214,6 +226,29 @@ configs/
 - 所有破坏性操作（打回、清缓存、删客户）二次确认。
 - M 系列 MacBook Retina：用密度分档 + 重排提高一屏信息量；禁止整页 `zoom`/`transform: scale()`；紧凑档正文 ≥13px、主按钮高度 ≥32px。
 - 布局密度：自动 / 舒适 / 紧凑；自动档按逻辑视口 `1280` / `1440` / `1680` 跳档。
+
+### 5.2.1 语言下拉浮层（冻结 · 2026-08-07 · HARD_LOCKS L17）
+
+规则页「声音与语言」的旁白/字幕语言选择器（`LangCombobox`）已验收修好，**默认禁止再改动**。
+
+| 写死 | 说明 |
+|------|------|
+| **实现** | `apps/desktop/src/shell/LangCombobox.tsx`：`createPortal` → `document.body` + `position: fixed` 按 trigger 视口定位；视口避让与列表 `max-height` 内滚动。配套 CSS 仅 `.lang-combo*`（`z-index: 1500`）。 |
+| **禁止** | 改回卡片内 `absolute` 弹层；靠去掉 `.rule-card` / `.page-section` 等祖先 `overflow`「治裁切」；无用户明确授权地「优化/重构/重写」本组件及相关 CSS。 |
+| **验收** | 一体包前端嵌在 `appsdesktop` 二进制内。改源码 ≠ 改 `/Applications/速影 Studio.app`。宣称修好须：`npm run build` + 重建/覆盖 App（或 `tauri dev` 热链），并在真机打开语言列表确认不被卡片裁切。仅 `tsc` 通过不算 App 侧交付完成。 |
+
+### 5.2.2 本地克隆旁白与试听（冻结 · 2026-08-07 · HARD_LOCKS L19）
+
+设置页本地克隆 TTS（F5）就绪与「试听一句」已验收，**默认禁止再改动**核心语义。细则权威：[`VOICE_CLONE.md`](VOICE_CLONE.md)。
+
+| 写死 | 说明 |
+|------|------|
+| **就绪** | `clone_available` = 引擎能 `import f5_tts`（**App 外 F5 Kit overlay** 或应急 clone 内嵌）。**交付主路径** = core 包 + `install-f5-runtime-kit`；**禁止** core 无 Kit 冒充 clone。权重与 `clone_runtime_status`（含 `f5_kit_rev`）见 [`VOICE_CLONE.md`](VOICE_CLONE.md)。 |
+| **试听 API** | `POST /voice/packs/preview`：合成后 **单轨 `preview.wav` + 非空 `audio_path`**；macOS **`afplay`** 出声（`playing`）。禁止只读不存在的 `NarrationResult.audio_path` 返回空路径 200。 |
+| **设置页** | 独立「保存旁白音色」写 VIDEO_LOCK。 |
+| **规则页（防误会 · 2026-08-07）** | **引擎真相源唯一**：`声音与语言 · 音色` → `draft.tts_provider`。「音色管理」**不再另选引擎**（`ruleLink`），只管声色包/试听/导入；改包会写回草稿。底部 **「保存并启用」** 同时写客户 VIDEO_LOCK 并对齐 `voice_pack`。禁止再做两套互不同步的引擎下拉。 |
+| **禁止（L19）** | 无授权改就绪核心键/预览汇床/出声合同；禁止常态 merge F5 进 App；禁止忽略 **python_tag** / NumPy≤2.4。 |
+| **运维** | Kit：`package-f5-runtime-kit.sh` / `install-f5-runtime-kit.sh` / `verify_f5_overlay_post_install.sh`；LEGACY 急救：`diag_fix_stalled_jobs.py --fix`（下次 core 仍丢）。 |
 
 ### 5.3 App ↔ Engine 合同
 
@@ -251,6 +286,16 @@ configs/
 - 生产熔断与质量熔断分离计数，但都要写入 job snapshot。  
 - 对外错误信息可给客户看；堆栈只写日志。
 
+### 6.4b 系统事件与长任务门禁（GSystemPause）
+
+- 凡长任务写入口须调用 `assert_runtime_active()`；暂停期间返回 423。
+- 计算任务支持安全检查点与幂等恢复；发布/更新/同步写入中断后转人工确认，禁止自动重放。
+- 自动恢复不得解除人工暂停、质量熔断、验证码停人、路径/硬盘异常。详见 [`SYSTEM_EVENT_PAUSE.md`](SYSTEM_EVENT_PAUSE.md)。
+- 发布全机执行槽必须跨客户原子互斥；质量补偿只能替代原 occurrence、沿用冻结规则和配额，READY_GATE 通过后方可窗口外立即发布。
+- 登录/验证码 human alert 三路独立投递并持久化确认；通知不得包含正文、Cookie、验证码或完整会话。
+- 本人多账号即时发布必须先持久化 occurrence 分配快照；自动平均与手动分配总数必须可重放。登录/验证码可停人，处理后自动探测并续跑；结果不明仍禁止盲目重发。
+- 定时发布到点现挑 ready 成片，禁止建 trigger 时内容预留；不够立刻补产。即时与定时共享待发池，抢片靠执行时发布组/队列占用。
+
 ### 6.5 代码风格
 
 - Python 3.11+；类型注解；SQLAlchemy 2.0。  
@@ -261,10 +306,11 @@ configs/
 
 ## 7. 存储与同步标准
 
-1. `settings.paths.data_root` 指向的库是**唯一权威库**；`~/Suying/data` 仅引导指针副本。  
+1. `settings.paths.data_root` 指向的库是**唯一权威库**；生产默认固定为本机 APFS `~/Suying/data`，禁止把 SQLite/WAL 放入 ExFAT、SMB 或同步目录。
 2. 同步适配器（极空间等）必须插件化：`ops/suying_sync.py` 可换成无同步；产品核心不依赖 NAS 品牌。  
 3. legacy 路径映射（旧「手机相册备份」→ 标准客户树）只存在于**该客户同步配置**，不进引擎取片逻辑。  
 4. 发布 cookies / 浏览器 profile 仅存工作区 `secrets/` 或系统钥匙串，按 `customer_id` 分目录。
+5. 同步下载必须限制在显式目的地沙盒；`data/cache/render/runtime` 为禁写根。不同同步进程仅在目的地无父子/同路径重叠时允许并行。
 
 ---
 
@@ -285,8 +331,8 @@ configs/
 
 | 场景 | 使用 | 避免 |
 |------|------|------|
-| 产品名 | 速影 / Suying | 仅对内说 montage-studio |
-| 代码仓目录 | `montage-studio` 可保留 | 强迫改仓名 |
+| 产品名 | 速影 / Suying | 对外混用旧名 montage-studio |
+| 代码仓目录 | `~/QR/dev/速影` | 指向已废弃的 `montage-studio` 空壳 |
 | 包名/模块 | `engine.*` | `shifeng_*` 进主包 |
 | 脚本 | `scripts/fixtures/bootstrap_sample_customer.py` | 唯一入口叫 `bootstrap_shifeng` |
 | 文档 | 「样板客户：始峰」 | 「系统就是给始峰用的」 |
@@ -355,7 +401,18 @@ configs/
 | [`V8_QUALITY.md`](V8_QUALITY.md) | 当前质量冲刺执行 |
 | [`V8_STORAGE.md`](V8_STORAGE.md) | 存储布局 |
 | [`V8_SUYING_APP.md`](V8_SUYING_APP.md) | App 能力说明 |
-| [`V6.md`](V6.md) | 多客户隔离已实现基线 |
+| [`V6.md`](archive/V6.md) | 多客户隔离已实现基线 |
 | [`configs/samples/`](../configs/samples/) | 通用样例配置 |
 
 **变更本标准：** 需同步改 PRODUCT_PLAN 相关相位，并在 PR/备忘中写明「破坏性：是否要求迁移客户 profile」。
+
+---
+
+## 15. 客户词池与生成文案硬标准
+
+- 每个客户运行时只绑定 `03-词池/keyword-pack.json`；更新稿不得成为长期路径。
+- 新版本以 `meta.revision` 与规范化内容 SHA256 判定，mtime 不参与版本选择；旧版原样进入 `archive/`。
+- Job 创建时冻结 `keyword_pack.id/revision/sha256/schema`，标题、旁白、字幕、sidecar 和发布物料均使用该快照。
+- schema v2 只维护 `facts/taxonomy/copy_components/recipes/compliance`；旧读取结构由编译层派生，禁止双份手工维护。
+- 文案先按最终入选切片生成严格语义内容指纹，再选择 recipe 和组件；文件名、行业常识、外观猜测不得补造事实。
+- 标题、封面、旁白、字幕、正文、hashtags 统一经过声明门禁；高风险、隐私或缺证据内容在 TTS/READY/publish_pack 前 fail-closed。
