@@ -82,6 +82,8 @@ _ZH_BREATH_PHRASES = (
     "精心打理",
     "真实记录",
     "欢迎咨询",
+    "满足您的需求",
+    "细节当面看清楚",
 )
 
 _ZH_SOFT_BREAK = re.compile(r"[，,、；;]")
