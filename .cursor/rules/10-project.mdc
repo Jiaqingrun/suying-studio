@@ -34,6 +34,7 @@ alwaysApply: true
 - 引擎改动后按 `.cursor/rules/app-change-selfcheck.mdc` 自检并必要时重启引擎
 - 远程部署只执行 `docs/REMOTE_DEPLOY.md`（HARD_LOCKS L12）
 - **T2S 个人空间统一根**：`/nvme11/my/data/速影/`（更新包 / 主仓备份 / 行业包备份 / 辅助工具 / 客户暂存 / **离线交付**）；见 `docs/T2S_PERSONAL_ROOT.md`、`docs/T2S_OFFLINE_DEPLOY.md`；路径常量 `engine/ops/t2s_paths.py`；禁止在个人空间根再建并列「速影*」目录
+- **QR 工作区备份（与其它项目相同）**：`qr t2s-backup -p dev/速影` → 极空间 `QR备份/dev/速影/`（`git bundle` + 元数据）；详见 `~/QR/dev/qr/docs/T2S_WORKSPACE_BACKUP.md`；**不含**运维 Keychain（仍走 `速影/主仓备份/`）
 - **T2S App 更新推送**：默认极空间本地 API → `速影/更新包`（`docs/T2S_UPDATE_PUSH.md`）；禁止默认依赖 `~/QR/dev/T2s/ZSPACE` NFS 挂载
 - 禁止：`if customer.name == "北京始峰伟业"`、往 `hooks.py` 堆客户文案、未授权 Gate 主开发、把 archive 当现行需求
 - 默认主盘工作区（`~/Suying/data` + `~/Movies/速影工作区`）；外置盘可选；无真实客户片库时做 OFFLINE/fixture，禁止虚标媒体复检完成

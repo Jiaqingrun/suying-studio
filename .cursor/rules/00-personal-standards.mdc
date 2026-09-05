@@ -38,9 +38,11 @@ alwaysApply: true
 
 ## 三、Git 与开发规范
 - 每个项目第一步 `git init` 并尽早提交，避免无版本控制的"裸代码"。
+- **默认不推远程 Git**（GitHub/GitLab 等）；异地副本走 **极空间 T2S** `QR备份/`（`qr t2s-backup`，详见 `~/QR/dev/qr/docs/T2S_WORKSPACE_BACKUP.md`）。
 - 提交信息写清"为什么"，使用动词开头：add / update / fix / refactor。
 - 每个项目有 `README.md` 说明用途、运行方式、依赖。
 - 密钥、token 绝不写进代码或 dotfile 明文；放入 `~/.config/zsh/secrets.zsh`（权限 600）或项目 `.env`（加入 `.gitignore`）。
+- **T2S 工作区备份**：`qr schedule install` 安装 `com.qr.t2s-backup`（默认每 4 小时）；**全部** `~/QR` 项目含 `dev/速影` 纳入极空间 `QR备份/`；`qr workspace new` 自动创建极空间项目目录；Cursor **执行-** 任务改代码后执行 `qr t2s-backup -p <项目>` 或 `qr t2s-backup --changed`（**不**默认 `git push`）。
 
 ## 四、AI 协作规范
 - 复杂/多文件任务先让 AI 出方案再动手。
@@ -83,6 +85,20 @@ alwaysApply: true
     - **默认视为里程碑决策对话**，不是执行任务；Agent 优先协助梳理 **问题 / 选项 / 结论 / 原因**（可对照 `decision_draft` 模板）。
     - 未经明确要求 **不** 直接改代码/配置；决策清楚且用户要求落地时再切到执行。
     - 对话告一段落时提示 `qr log --type decision` 或 Web 时间线保存；**不** 进入引导语收件箱（与「参考-」类似，只留时间线与决策笔记）。
+
+### 破坏性操作红线（写死 · 绝不可误删）
+
+> 教训：清理项目痕迹时误执行 `defaults delete com.apple.dock persistent-apps`，清空 Dock 应用图标。此后凡「删除 / 清理 / 卸载」任务必须遵守本节。
+
+- **禁止**修改或删除 macOS **系统 UI / 偏好**，除非用户**逐项点名**该偏好域与键。尤其禁止：
+  - `defaults delete com.apple.dock …`（含 `persistent-apps` / `persistent-others` / 整域删除）
+  - `defaults delete` / `defaults write` 作用于 `com.apple.*`、登录项、键盘/触控板/显示/网络等系统域
+  - `killall Dock` / `killall Finder` / `killall SystemUIServer` 作为「清缓存」顺手操作（用户明确要求刷新 Dock 图标时除外）
+- **删除范围白名单**：只删用户**明确列出**或任务目标可直接推导的路径（如某项目目录、该 App bundle、该 App 的 `com.<app>.*` 偏好、声明过的数据根）。**禁止**「清理顺便」扩大到 Dock、Spotlight、其他 App、全局 LaunchAgents、无关同步盘。
+- **命令自检**：执行任何 `rm` / `defaults delete` / 远端删除 API 前，核对路径或域名是否落在白名单；不确定则**停手询问**，不得猜测删除。
+- **项目删除**优先走 `qr workspace delete`（或用户指定的项目卸载脚本）；其保留的时间线/引导语是否再清，须用户另说一句，不得默认扩大。
+- **验收**：破坏性任务结束后，不得留下「顺手改过系统偏好」的副作用；若发现越界，立即停止并如实说明。
+
 
 ### 生成 PDF（交付物 · 写死）
 
