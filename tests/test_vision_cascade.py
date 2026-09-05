@@ -78,7 +78,7 @@ class TierSelectionTests(unittest.TestCase):
             self.assertFalse(policy.cascade)
             self.assertEqual(policy.timeout_sec, 180.0)
 
-    def test_pro_and_max_cascade_9b_to_27b(self) -> None:
+    def test_pro_and_max_recommend_9b_only(self) -> None:
         empty = SimpleNamespace(
             ollama_embed_model="nomic-embed-text",
             ollama_vision_model="",
@@ -90,19 +90,59 @@ class TierSelectionTests(unittest.TestCase):
             rec = recommend_models(host)
             self.assertEqual(rec["tier"], tier)
             self.assertEqual(rec["vision_model"], VISION_FAST)
-            self.assertEqual(rec["escalate_model"], VISION_ESCALATE)
-            self.assertTrue(rec["cascade"])
+            self.assertIsNone(rec["escalate_model"])
+            self.assertFalse(rec["cascade"])
+            self.assertNotIn(VISION_ESCALATE, rec["pull_order"])
             policy = resolve_vision_policy(host=host, settings=empty)
             self.assertEqual(policy.primary_model, VISION_FAST)
-            self.assertEqual(policy.escalate_model, VISION_ESCALATE)
-            self.assertTrue(policy.cascade)
+            self.assertIsNone(policy.escalate_model)
+            self.assertFalse(policy.cascade)
             self.assertEqual(policy.timeout_sec, timeout)
 
-    def test_clamp_primary_blocks_27b_on_standard(self) -> None:
+    def test_clamp_primary_blocks_27b_on_every_tier(self) -> None:
         self.assertEqual(
             clamp_primary_for_tier("standard", VISION_ESCALATE), VISION_FAST
         )
-        self.assertEqual(clamp_primary_for_tier("max", VISION_ESCALATE), VISION_ESCALATE)
+        self.assertEqual(clamp_primary_for_tier("max", VISION_ESCALATE), VISION_FAST)
+
+    def test_lab_cascade_enables_27b_on_pro_max_only(self) -> None:
+        lab_settings = SimpleNamespace(
+            ollama_embed_model="nomic-embed-text",
+            ollama_vision_model=VISION_FAST,
+            ollama_vision_escalate_model=VISION_ESCALATE,
+            ollama_vision_cascade=True,
+        )
+        with patch.dict("os.environ", {"SUYING_ALLOW_VISION_CASCADE": "1"}):
+            for ram, tier in ((32.0, "pro"), (128.0, "max")):
+                host = _fake_host(ram, tier)
+                rec = recommend_models(host)
+                self.assertFalse(rec["cascade"])
+                self.assertIsNone(rec["escalate_model"])
+                self.assertNotIn(VISION_ESCALATE, rec["pull_order"])
+                policy = resolve_vision_policy(host=host, settings=lab_settings)
+                self.assertEqual(policy.primary_model, VISION_FAST)
+                self.assertEqual(policy.escalate_model, VISION_ESCALATE)
+                self.assertTrue(policy.cascade)
+            std = resolve_vision_policy(
+                host=_fake_host(16.0, "standard"), settings=lab_settings
+            )
+            self.assertFalse(std.cascade)
+            self.assertIsNone(std.escalate_model)
+
+    def test_without_lab_env_settings_cascade_is_ignored(self) -> None:
+        settings = SimpleNamespace(
+            ollama_embed_model="nomic-embed-text",
+            ollama_vision_model=VISION_FAST,
+            ollama_vision_escalate_model=VISION_ESCALATE,
+            ollama_vision_cascade=True,
+        )
+        with patch.dict("os.environ", {}, clear=False):
+            import os
+
+            os.environ.pop("SUYING_ALLOW_VISION_CASCADE", None)
+            policy = resolve_vision_policy(host=_fake_host(128.0, "max"), settings=settings)
+            self.assertFalse(policy.cascade)
+            self.assertIsNone(policy.escalate_model)
 
 
 class CascadeGateTests(unittest.TestCase):
@@ -137,7 +177,7 @@ class CascadeGateTests(unittest.TestCase):
             )
         )
 
-    def test_cascade_switches_model_within_three_attempts(self) -> None:
+    def test_on_demand_forces_one_9b_attempt(self) -> None:
         host = _fake_host(128.0, "max")
         policy = resolve_vision_policy(
             host=host,
@@ -154,18 +194,11 @@ class CascadeGateTests(unittest.TestCase):
             stage = kwargs.get("cascade_stage") or "primary"
             attempt = int(kwargs.get("attempt") or 1)
             calls.append({"attempt": attempt, "stage": stage})
-            if stage == "primary":
-                return None, {
-                    "attempt": attempt,
-                    "error": "vision_timeout",
-                    "vision_model": VISION_FAST,
-                    "cascade_stage": "primary",
-                }
             return valid_analysis(), {
                 "attempt": attempt,
                 "model_returned": True,
-                "vision_model": VISION_ESCALATE,
-                "cascade_stage": "escalate",
+                "vision_model": kwargs.get("model"),
+                "cascade_stage": stage,
             }
 
         asset = SimpleNamespace(uuid="u1", source_path="/tmp/x.mp4")
@@ -175,16 +208,22 @@ class CascadeGateTests(unittest.TestCase):
             "engine.ingest.cliplet.analyze_cliplet_semantics", side_effect=fake_analyze
         ):
             data, audit = _analyze_with_gate(
-                asset, 0.0, 4.0, cache_dir=Path(tempfile.mkdtemp()), use_vision=True
+                asset,
+                0.0,
+                4.0,
+                cache_dir=Path(tempfile.mkdtemp()),
+                use_vision=True,
+                max_attempts=1,
+                allow_cascade=False,
+                force_model=VISION_FAST,
             )
         self.assertIsNotNone(data)
         self.assertTrue(audit["passed"])
-        self.assertLessEqual(audit["attempts"], MAX_SEMANTIC_ATTEMPTS)
-        self.assertEqual(audit["attempts"], len(calls))
+        self.assertEqual(audit["attempts"], 1)
+        self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0]["stage"], "primary")
-        self.assertTrue(any(c["stage"] == "escalate" for c in calls))
-        self.assertEqual(audit.get("final_cascade_stage"), "escalate")
-        self.assertEqual(audit.get("final_vision_model"), VISION_ESCALATE)
+        self.assertFalse(audit["cascade"])
+        self.assertEqual(audit.get("final_vision_model"), VISION_FAST)
 
     def test_standard_never_escalates_attempt_budget(self) -> None:
         host = _fake_host(16.0, "standard")

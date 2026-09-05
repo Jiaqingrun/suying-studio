@@ -60,8 +60,9 @@ def main() -> None:
         save_settings(settings)
         init_db(settings)
 
-        assert len(SPECS) == 7
+        assert len(SPECS) == 8, sorted(SPECS)
         assert MESSAGE_SCAN_INTERVAL_SEC == 1800
+        assert all(spec.message_url.startswith("https://") for spec in SPECS.values())
         assert "--headless=new" in chrome_launch_args(
             base / "profile", SPECS["douyin"].message_url, cdp_port=9222, headless=True
         )
@@ -83,11 +84,25 @@ def main() -> None:
 
         # dry_run must not create a process or profile directory.
         dry_profile = base / "chrome-profiles" / "dry-profile"
-        dry = ManagedChrome("dry-profile", SPECS["douyin"].message_url, dry_run=True).start()
+        dry = ManagedChrome(
+            "dry-profile",
+            SPECS["douyin"].message_url,
+            customer_id=1,
+            business_scope="video",
+            dry_run=True,
+        ).start()
         assert dry["started"] is False and dry["pid"] is None
         assert not dry_profile.exists()
 
         with TestClient(app) as client:
+            # Ensure active customer exists; message API creates its own empty profile.
+            session0 = get_session()
+            try:
+                cust_a = get_or_create_customer(session0, "客户A")
+                session0.commit()
+                assert int(cust_a.id) > 0
+            finally:
+                session0.close()
             created = client.post(
                 "/reach/message-accounts",
                 json={"platform": "douyin", "profile_name": "g7-a", "display_name": "本人账号"},
@@ -103,7 +118,8 @@ def main() -> None:
                     "cooldown_sec": 300,
                 },
             )
-            assert unlocked.status_code == 422
+            # 未存在 profile / 或冷却不可改 → 400/422
+            assert unlocked.status_code in (400, 422), unlocked.text
 
             ntfy = client.put(
                 "/reach/notifications/ntfy",
@@ -144,9 +160,9 @@ def main() -> None:
                     "source": "smoke_fixture",
                     "confidence": 1.0,
                 }
-                assert MessageSync._upsert_messages(session, account, [item]) == 1
+                assert len(MessageSync._upsert_messages(session, account, [item])) == 1
                 session.commit()
-                assert MessageSync._upsert_messages(session, account, [item]) == 1
+                assert MessageSync._upsert_messages(session, account, [item]) == []
                 session.commit()
                 count = len(
                     session.scalars(
@@ -207,7 +223,12 @@ def main() -> None:
                 "/reach/message-accounts",
                 json={"platform": "douyin", "profile_name": "g7-a"},
             )
-            assert cross_tenant_profile.status_code == 409
+            # Same display name is valid in another customer's isolated tree.
+            assert cross_tenant_profile.status_code == 200, cross_tenant_profile.text
+            assert (
+                cross_tenant_profile.json()["account"]["customer_id"]
+                != created.json()["account"]["customer_id"]
+            )
             settings.active_customer = "客户A"
             save_settings(settings)
 

@@ -14,7 +14,25 @@ for _bin in /opt/homebrew/bin /usr/local/bin; do
 done
 unset _bin
 
+# 本机 lab 覆盖（不进打包）：~/Suying/runtime/local.env
+# 例：SUYING_ALLOW_VISION_CASCADE=1 恢复 9B→27B 级联（勿与全库回填同时开）。
+_LOCAL_ENV="${SUYING_LOCAL_ENV:-$HOME/Suying/runtime/local.env}"
+if [[ -f "$_LOCAL_ENV" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$_LOCAL_ENV"
+  set +a
+fi
+unset _LOCAL_ENV
+
 # Prefer env / conda / brew over Apple CLT python (often missing deps).
+# Full-library semantic.v1 migration must never share VRAM with 27B cascade.
+# local.env may set CASCADE=1; FULL_BACKFILL wins and clears it.
+if [[ "${SUYING_ALLOW_SEMANTIC_FULL_BACKFILL:-}" == "1" || "${SUYING_ALLOW_SEMANTIC_FULL_BACKFILL:-}" == "true" ]]; then
+  unset SUYING_ALLOW_VISION_CASCADE
+elif [[ "${SUYING_ALLOW_VISION_CASCADE:-}" != "1" && "${SUYING_ALLOW_VISION_CASCADE:-}" != "true" ]]; then
+  unset SUYING_ALLOW_VISION_CASCADE
+fi
 if [[ -n "${SUYING_PYTHON:-${MONTAGE_PYTHON:-}}" ]]; then
   PY="${SUYING_PYTHON:-$MONTAGE_PYTHON}"
 elif [[ -x "$ROOT/.venv/bin/python3" ]]; then

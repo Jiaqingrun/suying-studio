@@ -6,6 +6,7 @@ ACTION="install"
 NAS_USER=""
 NAS_ID=""
 NAS_NAME=""
+UPDATE_REMOTE_ROOT=""
 VOLUME_UUID=""
 ENABLE_MEDIA=0
 PURGE_CONFIG=0
@@ -18,6 +19,7 @@ usage() {
 
 可选:
   --volume-uuid UUID       记录客户外置盘 UUID
+  --update-remote-root PATH 发布者个人空间中的签名更新仓库绝对路径
   --enable-media-sync      显式启用媒体同步；默认仅同步 T2S 载体
 EOF
 }
@@ -28,6 +30,7 @@ while [[ $# -gt 0 ]]; do
     --nas-user) NAS_USER="${2:-}"; shift 2 ;;
     --nas-id) NAS_ID="${2:-}"; shift 2 ;;
     --nas-name) NAS_NAME="${2:-}"; shift 2 ;;
+    --update-remote-root) UPDATE_REMOTE_ROOT="${2:-}"; shift 2 ;;
     --volume-uuid) VOLUME_UUID="${2:-}"; shift 2 ;;
     --enable-media-sync) ENABLE_MEDIA=1; shift ;;
     --purge-config) PURGE_CONFIG=1; shift ;;
@@ -82,21 +85,32 @@ if [[ -z "$PYTHON" || ! -d "${STUDIO_ROOT}/engine" ]]; then
 fi
 
 export PYTHONPATH="${STUDIO_ROOT}"
-"$PYTHON" - "$NAS_USER" "$NAS_ID" "$NAS_NAME" "$VOLUME_UUID" "$ENABLE_MEDIA" <<'PY'
+"$PYTHON" - "$NAS_USER" "$NAS_ID" "$NAS_NAME" "$VOLUME_UUID" "$ENABLE_MEDIA" "$UPDATE_REMOTE_ROOT" <<'PY'
 import sys
 from pathlib import Path
 
 from engine.ops.suying_sync import bind_zspace_account, install_service, load_config, save_config
 
-nas_user, nas_id, nas_name, volume_uuid, media = sys.argv[1:]
+nas_user, nas_id, nas_name, volume_uuid, media, update_remote_root = sys.argv[1:]
 cfg = load_config()
 cfg["volume_uuid"] = volume_uuid
 cfg["sync_mode"] = "media" if media == "1" else "carrier_only"
 cfg["media_sync_enabled"] = media == "1"
-cfg["volume_relpath"] = "极空间团队文件同步"
+# 媒体默认同机 Movies 工作区；外置盘 volume_* 仅在显式 --volume-uuid 时使用。
+cfg["volume_relpath"] = "极空间团队文件同步" if volume_uuid else ""
 cfg["carrier_mirror"] = str(Path.home() / "Suying" / "carrier")
-cfg["local_root"] = str(Path.home() / "Suying" / "sync")
-cfg["work_root"] = str(Path.home() / "Suying")
+# Keep carrier mirror on the team/public carrier path. The publisher personal
+# update repo is optional and NAS-specific; never overwrite carrier_remote_root
+# with it on machines bound to a different nas_id.
+if update_remote_root and media != "1":
+    cfg["update_remote_root"] = update_remote_root
+# Only set carrier_remote_root when explicitly empty and no public relpath works;
+# prefer leaving it blank so sync falls back to /public/<carrier_relpath>.
+if not str(cfg.get("carrier_remote_root") or "").strip():
+    cfg["carrier_remote_root"] = ""
+_media = Path.home() / "Movies" / "速影工作区"
+cfg["local_root"] = str(_media)
+cfg["work_root"] = str(_media)
 
 # v1/v2 back-compat migration:
 # When enabling media sync, promote legacy customers[].aliases into v3 media_sources.

@@ -11,25 +11,31 @@ ROOT="${SUYING_ROOT:-${MONTAGE_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}}"
 cd "$ROOT"
 OLLAMA_ONLY="${OLLAMA_ONLY:-0}"
 
-RAM_BYTES="$(sysctl -n hw.memsize 2>/dev/null || echo 0)"
-RAM_GB=$(( RAM_BYTES / 1024 / 1024 / 1024 ))
-ARCH="$(uname -m)"
-CHIP="$(sysctl -n machdep.cpu.brand_string 2>/dev/null || true)"
-if [[ -z "$CHIP" ]]; then
-  CHIP="$(system_profiler SPHardwareDataType 2>/dev/null | awk -F': ' '/Chip:/{print $2; exit}')"
-fi
-CHIP="${CHIP:-$ARCH}"
-
-if (( RAM_GB >= 64 )); then
-  TIER="max"; VISION="qwen3.5:27b-q4_K_M"
-elif (( RAM_GB >= 32 )); then
-  TIER="pro"; VISION="qwen2.5vl:7b"
-elif (( RAM_GB >= 16 )); then
-  TIER="standard"; VISION="llava:7b"
-else
-  TIER="lite"; VISION="moondream"
-fi
-EMBED="nomic-embed-text"
+PROFILE_PY="${SUYING_PYTHON:-${MONTAGE_PYTHON:-python3}}"
+command -v "$PROFILE_PY" >/dev/null 2>&1 ||
+  { echo "❌ 无法生成 Install Profile：未找到 ${PROFILE_PY}" >&2; exit 1; }
+PROFILE_LINE="$(
+  PYTHONPATH="$ROOT" "$PROFILE_PY" -c '
+from engine.catalog.host_profile import (
+    install_vision_by_default,
+    probe_host,
+    recommend_models,
+)
+h = probe_host()
+r = recommend_models(h)
+embed = str(r["embed_model"])
+vision = str(r["vision_model"]) if install_vision_by_default(h.tier) else ""
+print("|".join([
+    str(h.tier),
+    embed,
+    vision,
+    str(int(round(float(h.ram_gb or 0)))),
+    str(h.chip or h.arch or ""),
+    str(h.arch or ""),
+]))
+'
+)"
+IFS='|' read -r TIER EMBED VISION RAM_GB CHIP ARCH <<< "$PROFILE_LINE"
 
 echo "══════════════════════════════════════"
 echo " 速影 · 运行时安装向导"
@@ -37,7 +43,11 @@ echo "════════════════════════�
 echo "本机：${CHIP} · 约 ${RAM_GB}GB 内存 · ${ARCH}"
 echo "推荐档位：${TIER}"
 echo "  向量模型：${EMBED}（必选，约 0.3GB）"
-echo "  视觉模型：${VISION}（建议）"
+if [[ -n "$VISION" ]]; then
+  echo "  视觉模型：${VISION}（候选按需验证）"
+else
+  echo "  视觉模型：轻量档默认不安装（可稍后按需补装）"
+fi
 echo ""
 
 if [[ "${OLLAMA_ONLY}" == "1" ]]; then
@@ -77,6 +87,33 @@ if [[ "$PY_MAJOR" != "3" || "$PY_MINOR" -lt 11 ]]; then
 fi
 echo "✓ Python：${PY} (${PY_VER})"
 
+RUNTIME_SOURCE_SHA="$(
+  ROOT="$ROOT" "$PY" - <<'PY'
+import hashlib
+import os
+from pathlib import Path
+root = Path(os.environ["ROOT"])
+digest = hashlib.sha256()
+paths = [root / "requirements.txt", root / "pyproject.toml"]
+for tree in (root / "engine", root / "scripts"):
+    paths.extend(path for path in tree.rglob("*") if path.is_file())
+for path in sorted(paths, key=lambda item: item.relative_to(root).as_posix()):
+    relative = path.relative_to(root)
+    if "__pycache__" in relative.parts or path.suffix in {".pyc", ".pyo"}:
+        continue
+    digest.update(relative.as_posix().encode())
+    digest.update(b"\0")
+    digest.update(path.read_bytes())
+    digest.update(b"\0")
+print(digest.hexdigest())
+PY
+)"
+VENV_STAMP=".venv/.suying-runtime-fingerprint"
+EXPECTED_STAMP="${PY_VER}|${ARCH}|${RUNTIME_SOURCE_SHA}"
+if [[ -d .venv && "$(cat "$VENV_STAMP" 2>/dev/null || true)" != "$EXPECTED_STAMP" ]]; then
+  echo "→ Python 版本、架构或源码/requirements 已变化，完整重建 .venv"
+  rm -rf .venv
+fi
 if [[ ! -d .venv ]]; then
   echo "→ 创建虚拟环境 .venv"
   "$PY" -m venv .venv
@@ -86,6 +123,9 @@ source .venv/bin/activate
 python -m pip install -U pip wheel >/dev/null
 echo "→ 安装引擎依赖（requirements.txt）"
 pip install -r requirements.txt
+python -m pip check
+PYTHONPATH="$ROOT" python -c 'import encodings,fastapi,uvicorn,edge_tts,numpy,engine.main'
+printf '%s\n' "$EXPECTED_STAMP" > "$VENV_STAMP"
 echo "✓ Python 环境就绪：$(command -v python)"
 fi
 
@@ -131,8 +171,10 @@ sleep 2
 
 echo "→ 拉取向量模型 ${EMBED}"
 ollama pull "$EMBED"
-echo "→ 拉取视觉模型 ${VISION}（按本机 ${TIER} 档）"
-ollama pull "$VISION"
+if [[ -n "$VISION" ]]; then
+  echo "→ 拉取视觉模型 ${VISION}（按本机 ${TIER} 档，仅候选按需使用）"
+  ollama pull "$VISION"
+fi
 
 # Persist hint for engine settings (best-effort if data dir exists)
 DATA="${SUYING_DATA_ROOT:-$HOME/Suying/data}"
@@ -164,7 +206,9 @@ path = data / "settings.json"
 raw = json.loads(path.read_text())
 raw["ollama_embed_model"] = hint["ollama_embed_model"]
 raw["ollama_vision_model"] = hint["ollama_vision_model"]
-path.write_text(json.dumps(raw, indent=2, ensure_ascii=False), encoding="utf-8")
+tmp = path.with_suffix(".json.tmp")
+tmp.write_text(json.dumps(raw, indent=2, ensure_ascii=False), encoding="utf-8")
+tmp.replace(path)
 print("✓ 已写入 settings.json 模型字段")
 PY
 fi

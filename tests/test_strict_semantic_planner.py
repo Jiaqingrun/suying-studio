@@ -10,13 +10,18 @@ from sqlalchemy.orm import Session
 
 from engine.catalog.db import Asset, Base, Cliplet, Customer
 from engine.catalog.vector_index import search_cliplets
-from engine.ingest.semantic_gate import SEMANTIC_SCHEMA_VERSION
+from engine.ingest.semantic_gate import (
+    SEMANTIC_SCHEMA_VERSION,
+    STRICT_EMBEDDING_MODEL,
+    STRICT_EMBEDDING_SCHEMA_VERSION,
+)
 from engine.qc.ready_gate import _check_semantic_source
 from engine.template.engine import (
     ClipPlan,
     SlotDefinition,
     TemplateDefinition,
     _assemble_clips,
+    _pick_from_cliplets,
     build_plan,
 )
 from tests.test_semantic_ingest import valid_analysis
@@ -180,6 +185,9 @@ class StrictSemanticPlannerTests(unittest.TestCase):
                 semantic_json=data,
                 semantic_gate_json={"passed": True, "attempts": 1},
                 embedding_json=[1.0, 0.0],
+                embedding_backend="ollama",
+                embedding_model=STRICT_EMBEDDING_MODEL,
+                embedding_schema_version=STRICT_EMBEDDING_SCHEMA_VERSION,
             )
             legacy = Cliplet(
                 asset_id=asset.id,
@@ -194,7 +202,10 @@ class StrictSemanticPlannerTests(unittest.TestCase):
             )
             session.add_all([passed, legacy])
             session.commit()
-            with patch("engine.catalog.vector_index.embed_text", return_value=([1.0, 0.0], "test")):
+            with patch(
+                "engine.catalog.vector_index.embed_text",
+                return_value=([1.0, 0.0], "ollama"),
+            ):
                 rows = search_cliplets(
                     session,
                     "仓库",
@@ -222,6 +233,95 @@ class StrictSemanticPlannerTests(unittest.TestCase):
             }
         ]
         self.assertEqual(_check_semantic_source(sidecar), [])
+
+
+class StyleHardPreferTests(unittest.TestCase):
+    def test_hard_prefer_sql_fill_ignores_unscoped_semantic_hits(self) -> None:
+        engine = create_engine("sqlite://")
+        Base.metadata.create_all(engine)
+        with Session(engine) as session:
+            customer = Customer(name="风格硬切测试", profile_json={})
+            session.add(customer)
+            session.flush()
+            warehouse = Asset(
+                customer_id=customer.id,
+                uuid="asset-warehouse",
+                source_path="/tmp/wh.mp4",
+                storage_path="/tmp/wh.mp4",
+                category="default",
+                status="ready",
+                duration_sec=10.0,
+                metadata_json={},
+            )
+            loading = Asset(
+                customer_id=customer.id,
+                uuid="asset-loading",
+                source_path="/tmp/ld.mp4",
+                storage_path="/tmp/ld.mp4",
+                category="default",
+                status="ready",
+                duration_sec=10.0,
+                metadata_json={},
+            )
+            session.add_all([warehouse, loading])
+            session.flush()
+            wh_clip = Cliplet(
+                asset_id=warehouse.id,
+                asset_uuid=warehouse.uuid,
+                start_sec=0,
+                end_sec=8,
+                duration_sec=8,
+                description="室内货架",
+                scene="warehouse",
+                score=0.9,
+                status="usable",
+            )
+            ld_clip = Cliplet(
+                asset_id=loading.id,
+                asset_uuid=loading.uuid,
+                start_sec=0,
+                end_sec=8,
+                duration_sec=8,
+                description="卡车装车",
+                scene="loading",
+                score=0.9,
+                status="usable",
+            )
+            session.add_all([wh_clip, ld_clip])
+            session.commit()
+            template = TemplateDefinition(
+                name="style-lock",
+                slots=[SlotDefinition(name="hook", min_duration=2.0, max_duration=4.0, role="hook")],
+                min_assets_per_category=1,
+                use_semantic=True,
+                min_semantic_score=0.08,
+                min_cliplet_quality=0.35,
+            )
+            with patch(
+                "engine.template.engine.search_cliplets",
+                return_value=[(wh_clip, 0.99)],
+            ), patch(
+                "engine.ingest.quality.is_usable_quality",
+                return_value=True,
+            ):
+                picked = _pick_from_cliplets(
+                    random.Random(1),
+                    session,
+                    template.slots[0],
+                    "装车配送",
+                    "default",
+                    set(),
+                    set(),
+                    set(),
+                    template,
+                    customer_id=customer.id,
+                    prefer_scenes=["loading", "transport"],
+                    hard_prefer_scenes=True,
+                )
+        engine.dispose()
+        self.assertIsNotNone(picked)
+        self.assertEqual(picked.scene, "loading")
+        self.assertEqual(picked.asset_uuid, "asset-loading")
 
 
 if __name__ == "__main__":

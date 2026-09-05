@@ -82,7 +82,7 @@ def main() -> None:
             template_name="default-vertical",
             theme="test",
             category="default",
-            title="发货快｜工地五金批发促销特价清仓大甩卖",
+            title="发货快\n本地批发",
             clips=[
                 ClipPlan("hook", "a", str(src_a), 0.0, 2.0),
                 ClipPlan("body1", "b", str(src_b), 0.0, 2.0),
@@ -92,12 +92,17 @@ def main() -> None:
             block_reasons=[],
             title_style={
                 "position": "top",
-                "font_size": 96,
-                "color": "#FFFFFF",
+                "font_size": 92,
+                "color": "#FFE600",
+                "stroke_color": "#000000",
+                "stroke_width": 6,
                 "bar_color": "#111827",
-                "bar_opacity": 0.65,
-                "max_chars": 12,
+                "bar_opacity": 0.0,
+                "max_chars": 10,
                 "max_lines": 2,
+                "font_size_min": 72,
+                "glyph_top_px": 220,
+                "layout": "dual_chip",
             },
         )
         out = base / "out.mp4"
@@ -126,7 +131,10 @@ def main() -> None:
         )
         assert ok2 and out2.exists(), "narration+bgm render failed"
         assert meta.get("narration_path"), meta
-        assert float(meta.get("bgm_gain_effective") or 1) <= float(settings.bgm_gain)
+        assert float(meta.get("bgm_gain_effective") or 1) <= 1.0
+        assert float(meta.get("bgm_gain_effective") or 0) > 0
+        # 旁白压床时有效增益不得显著高于设置（允许内部下限微调）
+        assert float(meta.get("bgm_gain_effective") or 1) <= float(settings.bgm_gain) + 0.05
         qc2 = run_qc(out2, plan, require_audio=True, min_width=720, min_height=1280, min_duration=3.0)
         assert qc2.passed and qc2.metrics.get("has_audio") is True, qc2.reasons
 

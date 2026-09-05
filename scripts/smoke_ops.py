@@ -46,24 +46,29 @@ def main() -> int:
     try:
         ops = get("/reports/ops")
         for key in (
-            "ready_rate",
+            "generated_at",
+            "timezone",
+            "source",
+            "ready_available",
+            "production_passed",
             "failure_rate",
-            "voice_coverage",
+            "quality_pass_rate",
+            "published",
+            "retired",
+            "reconciliation",
             "health_line",
-            "missing_voice",
-            "tts_noncompliant",
-            "tts_lock_hard_fail",
-            "quota",
+            # daily production/publish quotas intentionally removed (DEV_LOCK);
+            # do not require a "quota" field on /reports/ops.
         ):
             if key not in ops:
                 errors.append(f"reports/ops missing {key}")
         print(
             "ops",
             ops.get("customer_name"),
-            "voice_cov",
-            ops.get("voice_coverage"),
-            "tts_bad",
-            ops.get("tts_noncompliant"),
+            "quality_pass",
+            ops.get("quality_pass_rate"),
+            "ready_available",
+            ops.get("ready_available"),
             "health",
             ops.get("health_line"),
         )

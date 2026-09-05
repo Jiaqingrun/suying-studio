@@ -8,18 +8,15 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-
-from engine.api.app import app  # noqa: E402
-from engine.catalog.db import init_db, reset_engine  # noqa: E402
-from engine.config.settings import AppSettings, PathConfig, save_settings  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-
 
 FORBIDDEN_PATH_MARKERS = ("始峰", "QR-Volume", "徐玲飞", "车凯盛")
 
@@ -30,9 +27,66 @@ def _assert_no_customer_disk(payload: object) -> None:
         assert m not in blob, f"smoke leaked customer-disk marker {m!r}: {blob[:400]}"
 
 
+def _bootstrap_active_production_rule(client, customer_name: str) -> int:
+    from engine.catalog.db import get_session
+    from engine.config.settings import load_settings, save_settings
+    from sqlalchemy import select
+
+    from engine.catalog.db import Customer
+
+    settings = load_settings()
+    settings.active_customer = customer_name
+    save_settings(settings)
+    session = get_session()
+    try:
+        row = session.scalar(select(Customer).where(Customer.name == customer_name))
+        if row is None:
+            raise RuntimeError(f"smoke: customer not found: {customer_name}")
+    finally:
+        session.close()
+    created = client.post(
+        "/production-rules",
+        json={
+            "name": "冒烟启用规则",
+            "content_category": "default",
+            "orientation": "portrait",
+            "rules": {"pace": "normal"},
+        },
+    )
+    assert created.status_code == 200, created.text
+    rid = int(created.json()["rule"]["id"])
+    assert client.post(
+        f"/production-rules/{rid}/approve", json={"approved_by": "smoke"}
+    ).status_code == 200
+    assert client.post(f"/production-rules/{rid}/activate").status_code == 200
+    return rid
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         base = Path(tmp)
+        home = base / "home"
+        boot = base / "bootstrap"
+        runtime = base / "runtime"
+        install_root = base / "install"
+        for p in (home, boot, runtime, install_root):
+            p.mkdir(parents=True, exist_ok=True)
+
+        # Isolation must be established before importing any engine module:
+        # settings imports the process-wide pause coordinator, which otherwise
+        # reads the real machine runtime and may leak a persisted paused state.
+        os.environ["HOME"] = str(home)
+        os.environ["SUYING_DATA_ROOT"] = str(boot)
+        os.environ["MONTAGE_DATA_ROOT"] = str(boot)
+        os.environ["SUYING_APP_RUNTIME_DIR"] = str(runtime)
+        os.environ["SUYING_INSTALL_ROOT"] = str(install_root)
+        os.environ["SUYING_SYSTEM_TOKEN_OPTIONAL"] = "1"
+
+        from engine.api.app import app
+        from engine.catalog.db import init_db, reset_engine
+        from engine.config.settings import AppSettings, PathConfig, save_settings
+        from fastapi.testclient import TestClient
+
         settings = AppSettings(
             paths=PathConfig(
                 library_root=base / "library",
@@ -42,7 +96,7 @@ def main() -> None:
                 external_required=False,
             ),
             active_customer="演示客户",
-            onboarded=True,
+            onboarded=False,
         )
         for p in (
             settings.paths.library_root,
@@ -71,22 +125,60 @@ def main() -> None:
                 for row in conn.execute(
                     text(
                         "SELECT name FROM sqlite_master "
-                        "WHERE type='trigger' AND name LIKE 'trg_daily_usage_cap_%'"
+                        "WHERE type='trigger' AND name LIKE 'trg_%usage%'"
                     )
                 ).fetchall()
             }
-            assert triggers == {
-                "trg_daily_usage_cap_insert",
-                "trg_daily_usage_cap_update",
-            }, triggers
+            assert "trg_daily_usage_cap_insert" not in triggers
+            assert "trg_daily_usage_cap_update" not in triggers
+            assert "trg_weekly_usage_cap_insert" not in triggers
+            assert {
+                "trg_daily_usage_nonneg_insert",
+                "trg_daily_usage_nonneg_update",
+                "trg_weekly_usage_nonneg_insert",
+                "trg_weekly_usage_nonneg_update",
+            }.issubset(triggers), triggers
 
         client = TestClient(app)
-        health = client.get("/health")
-        assert health.status_code == 200, health.text
-        hbody = health.json()
+        _bootstrap_active_production_rule(client, "演示客户")
+        hbody = None
+        for _ in range(60):
+            health = client.get("/health")
+            assert health.status_code == 200, health.text
+            hbody = health.json()
+            if hbody.get("status") != "starting":
+                break
+            time.sleep(0.1)
+        assert hbody is not None
+        assert hbody["status"] in ("ok", "degraded", "blocked"), hbody
+        if hbody["status"] == "blocked":
+            # control-plane-only env is acceptable for some probes; full smoke needs ready
+            raise AssertionError(f"workspace blocked in smoke temp dir: {hbody.get('workspace_state')}")
         assert hbody["status"] in ("ok", "degraded")
+        assert hbody["onboarded"] is False, "GET /health must not complete onboarding"
         _assert_no_customer_disk(hbody.get("paths") or {})
         assert str(hbody.get("paths", {}).get("data_root", "")).startswith(str(base))
+        install_plan = client.get("/setup/install-plan")
+        assert install_plan.status_code == 200, install_plan.text
+        install_body = install_plan.json()
+        assert install_body["schema_version"] == "suying.install.plan.v1"
+        assert install_body["profile"]["full_library_vision"] is False
+        assert all("27b" not in model.lower() for model in install_body["selected_models"])
+        stale_plan = client.post(
+            "/setup/install-plan",
+            json={"plan_id": "stale", "include_narration": False},
+        )
+        assert stale_plan.status_code == 409, stale_plan.text
+        approved_plan = client.post(
+            "/setup/install-plan",
+            json={
+                "plan_id": install_body["plan_id"],
+                "include_narration": False,
+            },
+        )
+        assert approved_plan.status_code == 200, approved_plan.text
+        assert approved_plan.json()["plan_id"] == install_body["plan_id"]
+        assert approved_plan.json()["approved_at"]
 
         # Industry packs must load from repo samples (no customer disk)
         from engine.catalog.industry_pack import load_industry_pack, pack_id_for_customer
@@ -100,11 +192,25 @@ def main() -> None:
 
         sample = ROOT / "configs" / "samples" / "sample-customer.json"
         if sample.exists():
+            sample_root = base / "customers" / "sample"
+            for subdir in ("01-片库", "02-成片", "03-词池"):
+                (sample_root / subdir).mkdir(parents=True, exist_ok=True)
+            created = client.post(
+                "/customers",
+                json={
+                    "name": "sample",
+                    "library_root": str(settings.paths.library_root),
+                    "output_root": str(settings.paths.output_root),
+                    "keyword_pack_path": str(sample_root / "03-词池" / "keyword-pack.json"),
+                },
+            )
+            assert created.status_code == 200, created.text
             imp = client.post(
                 "/keywords/import",
                 params={"customer_name": "sample", "path": str(sample)},
             )
             assert imp.status_code == 200, imp.text
+            _bootstrap_active_production_rule(client, "sample")
 
         dry = client.post(
             "/dry-run",
@@ -137,19 +243,24 @@ def main() -> None:
                 "customer_name": "sample",
                 "theme": "default",
                 "category": "default",
+                "use_active_rule": True,
             },
         )
         assert job.status_code == 200, job.text
         job_id = int(job.json()["id"])
 
-        # E1.C2: reject + one-click re-render queues a count=1 job excluding source clips
+        # E1.C2: reject deletes deliverable media and does NOT auto-queue re-render
         from engine.catalog.db import RenderOutput, get_session
 
         session = get_session()
         try:
+            fake_dir = base / "failed" / "reject-smoke"
+            fake_dir.mkdir(parents=True, exist_ok=True)
+            fake_mp4 = fake_dir / "smoke_reject.mp4"
+            fake_mp4.write_bytes(b"\x00\x00fake")
             out = RenderOutput(
                 job_id=job_id,
-                output_path=str(base / "fake.mp4"),
+                output_path=str(fake_mp4),
                 state="ready",
                 seed=1,
                 sidecar_path=None,
@@ -178,8 +289,15 @@ def main() -> None:
         assert rejected.status_code == 200, rejected.text
         rej = rejected.json()
         assert rej.get("reason") == "dark_blur"
-        assert rej.get("rerender_job") and rej["rerender_job"].get("id"), rej
-        rr_job_id = int(rej["rerender_job"]["id"])
+        assert not rej.get("rerender_job"), rej
+        assert rej.get("state") == "failed", rej
+        purge = rej.get("purge") or {}
+        assert purge.get("ok") is True, purge
+        assert not fake_mp4.exists(), "rejected output media must be deleted"
+        # Explicit ops re-render endpoint still works when asked
+        again = client.post(f"/review/{output_id}/rerender", params={"reason": "reuse"})
+        assert again.status_code == 200, again.text
+        rr_job_id = int(again.json()["job"]["id"])
 
         session = get_session()
         try:
@@ -190,13 +308,9 @@ def main() -> None:
             assert rr.target_count == 1
             snap = rr.config_snapshot_json or {}
             assert snap.get("rerender_of_output_id") == output_id
-            assert snap.get("reject_reason") == "dark_blur"
+            assert snap.get("reject_reason") == "reuse"
         finally:
             session.close()
-
-        again = client.post(f"/review/{output_id}/rerender", params={"reason": "reuse"})
-        assert again.status_code == 200, again.text
-        assert again.json()["job"]["id"]
 
         # E1.C1: logo resolve is optional; missing file must not crash
         from engine.render.logo import (
@@ -231,8 +345,33 @@ def main() -> None:
         # reject arbitrary filesystem paths even in isolated smoke mode.
         fake_mp4 = settings.paths.output_root / "ready" / "demo.mp4"
         fake_mp4.parent.mkdir(parents=True, exist_ok=True)
-        # minimal valid-enough file for copy (not a real mp4 decode)
-        fake_mp4.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 64)
+        # Real upload-contract fixture: MP4/H.264/AAC/yuv420p/1080x1920.
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:s=1080x1920:r=25:d=0.2",
+                "-f",
+                "lavfi",
+                "-i",
+                "anullsrc=r=44100:cl=stereo",
+                "-shortest",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-movflags",
+                "+faststart",
+                str(fake_mp4),
+            ],
+            check=True,
+            capture_output=True,
+        )
         side = {
             "title": "仓配一体｜工地一站配齐",
             "theme": "仓配",
@@ -259,6 +398,16 @@ def main() -> None:
         assert (pack_dir / "compliance.json").is_file()
         assert (pack_dir / "manifest.json").is_file()
         assert man.get("compliance_passed") is True
+        assert set(man.get("platforms") or []) == {"douyin", "channels", "xhs", "kuaishou"}
+        assert all(
+            (pack_dir / "platforms" / platform / "manifest.json").is_file()
+            and (pack_dir / "platforms" / platform / "compliance.json").is_file()
+            for platform in man["platforms"]
+        )
+        zh_copy = json.loads((pack_dir / "copy.zh.json").read_text(encoding="utf-8"))
+        kuaishou_copy = (zh_copy.get("platforms") or {}).get("kuaishou") or {}
+        assert len(kuaishou_copy.get("hashtags") or []) <= 4, kuaishou_copy
+        assert str(kuaishou_copy.get("body") or "").count("#") <= 4, kuaishou_copy
         # G4.33 English variant: subtitle + copy + voiceover
         assert (pack_dir / "subtitle.en.srt").is_file()
         assert (pack_dir / "copy.en.json").is_file()
@@ -266,6 +415,46 @@ def main() -> None:
         assert "en" in (man.get("variants") or {})
         en_body = (pack_dir / "subtitle.en.srt").read_text(encoding="utf-8")
         assert any("a" <= c.lower() <= "z" for c in en_body), en_body[:200]
+
+        # Publication isolation requires an explicit output_id bound to the
+        # current pack. Use separate outputs for the raw queue and multi-target
+        # from-pack contracts so their frozen publication groups cannot merge.
+        second_pack_dir = pack_dir.parent / f"{pack_dir.name}-second"
+        shutil.copytree(pack_dir, second_pack_dir)
+        from engine.catalog.db import ReviewItem
+
+        session = get_session()
+        try:
+            publish_output_ids: list[int] = []
+            for current_pack in (pack_dir, second_pack_dir):
+                publish_out = RenderOutput(
+                    job_id=job_id,
+                    output_path=str(fake_mp4),
+                    state="ready",
+                    seed=2 + len(publish_output_ids),
+                    sidecar_path=str(fake_mp4.with_suffix(".json")),
+                    qc_json={"ready_gate": {"ok": True}},
+                    pack_status="ready",
+                    pack_dir=str(current_pack),
+                    pack_error="",
+                    pack_version="smoke",
+                    platform_asset_status={},
+                )
+                session.add(publish_out)
+                session.flush()
+                session.add(
+                    ReviewItem(
+                        render_output_id=publish_out.id,
+                        status="approved",
+                        is_current=True,
+                        decision_source="smoke",
+                        evidence_json={"ready_gate": True},
+                    )
+                )
+                publish_output_ids.append(publish_out.id)
+            session.commit()
+        finally:
+            session.close()
 
         # G4.34: narration preview API (mock TTS)
         prev = client.post(
@@ -292,7 +481,9 @@ def main() -> None:
                 "platform": "douyin",
                 "title": "仓配一体",
                 "body": "本地发货",
-                "video_path": str(base / "fake.mp4"),
+                "video_path": str(pack_dir / "video.mp4"),
+                "pack_dir": str(pack_dir),
+                "output_id": publish_output_ids[0],
                 "note": "human_in_loop",
             },
         )
@@ -316,7 +507,11 @@ def main() -> None:
         # G5.41: prefill from publish_pack
         from_pack = client.post(
             "/reach/queue/from-pack",
-            json={"pack_dir": str(pack_dir), "platforms": ["douyin", "xhs"]},
+            json={
+                "pack_dir": str(second_pack_dir),
+                "platforms": ["douyin", "xhs"],
+                "output_id": publish_output_ids[1],
+            },
         )
         assert from_pack.status_code == 200, from_pack.text
         fp = from_pack.json()
@@ -326,16 +521,9 @@ def main() -> None:
         assert all(i.get("video_path") for i in fp["items"])
         assert all(i.get("title") for i in fp["items"])
 
-        # G5.42: quota + circuit
-        q = client.get("/reach/quota")
-        assert q.status_code == 200, q.text
-        qj = q.json()
-        assert qj.get("ok") is True
-        assert "daily_quota" in qj and "used_today" in qj
-        assert qj.get("auto_publish") is False
+        # G5.42: consecutive-failure circuit (daily quotas intentionally removed)
         from engine.catalog.db import get_session as _gs
-        from engine.reach.limits import assert_can_enqueue, record_failure
-        from engine.reach.queue import enqueue as _enq
+        from engine.reach.circuit import assert_circuit_closed, record_failure
         from engine.reach.queue import get_item as _gi
 
         sess = _gs()
@@ -345,13 +533,14 @@ def main() -> None:
                 row = _gi(sess, int(it["id"]), customer_id=cid)
                 if row:
                     record_failure(sess, row, error="smoke_fail")
-            extra = _enq(sess, customer_id=cid, platform="douyin", title="circuit")
+            extra = _gi(sess, rid, customer_id=cid)
+            assert extra is not None
             record_failure(sess, extra, error="smoke_fail")
             blocked = False
             try:
-                assert_can_enqueue(sess, customer_id=cid, fail_threshold=3)
+                assert_circuit_closed(sess, customer_id=cid, fail_threshold=3)
             except ValueError as e:
-                blocked = "熔断" in str(e) or "失败" in str(e)
+                blocked = "暂停" in str(e) or "失败" in str(e)
             assert blocked, "circuit should block enqueue"
         finally:
             sess.close()
@@ -362,28 +551,17 @@ def main() -> None:
         assert plats.status_code == 200, plats.text
         pj = plats.json()
         plat_list = pj.get("platforms") or []
-        assert len(plat_list) >= 7
         plat_ids = {p["id"] for p in plat_list}
-        for need in ("douyin", "channels", "xhs", "kuaishou", "baijiahao", "toutiao", "zhihu"):
-            assert need in plat_ids, need
-        assert "haokan" not in plat_ids
-        assert "wechat_mp" not in plat_ids
-        assert "xigua" not in plat_ids
+        assert plat_ids == {"douyin", "channels", "xhs", "kuaishou"}
         assert all(p.get("short") for p in plat_list)
         specs = pj.get("slot_specs") or {}
-        assert len(specs.get("douyin") or []) == 2
+        assert len(specs.get("douyin") or []) == 1
         assert (specs.get("douyin") or [])[0].get("aspect") == "9:16"
-        assert (specs.get("douyin") or [])[1].get("aspect") == "16:9"
-        assert len(specs.get("channels") or []) == 2
+        assert len(specs.get("channels") or []) == 1
         assert (specs.get("channels") or [])[0].get("aspect") == "6:7"
         assert len(specs.get("xhs") or []) == 1
         assert (specs.get("xhs") or [])[0].get("aspect") == "3:4"
-        assert len(specs.get("zhihu") or []) == 2
-        assert len(specs.get("toutiao") or []) == 1
-        assert len(specs.get("baijiahao") or []) == 1
-        assert "haokan" not in specs
-        assert "wechat_mp" not in specs
-        assert "xigua" not in specs
+        assert set(specs) == {"douyin", "channels", "xhs", "kuaishou"}
         # circuit may block new enqueue; use an existing id or create via direct DB bypass for open test
         # reset one failed → queued then open dry_run
         from engine.reach.queue import set_status as _ss
@@ -405,10 +583,27 @@ def main() -> None:
         assert Path(oj.get("paste_card") or "").is_file()
 
         # G5.43b: Chrome local profiles (list/create/open; no real browser launch)
+        # Layout: <root>/customer-<id>/video/<profile> (video scope only)
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            (root / "smoke01").mkdir()
-            (root / "accounts.txt").write_text("smoke01\n", encoding="utf-8")
+            from engine.catalog.db import Customer, get_session as _gs2
+            from sqlalchemy import select as _sel
+
+            _sess = _gs2()
+            try:
+                _cust = _sess.scalar(_sel(Customer).where(Customer.name == settings.active_customer))
+                assert _cust is not None
+                cid = int(_cust.id)
+            finally:
+                _sess.close()
+            scoped = root / f"customer-{cid}" / "video"
+            scoped.mkdir(parents=True)
+            (scoped / "smoke01").mkdir()
+            (scoped / "accounts.txt").write_text("smoke01\n", encoding="utf-8")
+            (scoped / "accounts.json").write_text(
+                '{"smoke01": {"platform": "douyin", "label": "抖音创作者中心"}}\n',
+                encoding="utf-8",
+            )
             old_env = __import__("os").environ.get("SUYING_CHROME_PROFILES")
             __import__("os").environ["SUYING_CHROME_PROFILES"] = str(root)
             try:
@@ -417,10 +612,14 @@ def main() -> None:
                 cpj = cps.json()
                 assert cpj.get("ok") is True
                 assert cpj.get("auto_publish") is False
+                assert cpj.get("business_scope") == "video"
                 assert any(p["name"] == "smoke01" for p in (cpj.get("profiles") or []))
                 plat_ids = {p["id"] for p in (cpj.get("platforms") or [])}
                 assert "kuaishou" in plat_ids and "channels" in plat_ids and "xhs" in plat_ids
-                assert "toutiao" in plat_ids and "baijiahao" in plat_ids and "zhihu" in plat_ids
+                assert "douyin" in plat_ids
+                # Soft-article platforms must not appear in video chrome catalog
+                assert "toutiao" not in plat_ids and "baijiahao" not in plat_ids
+                assert "zhihu" not in plat_ids and "wechat_mp" not in plat_ids
 
                 created = client.post(
                     "/reach/chrome-profiles/create",
@@ -431,9 +630,10 @@ def main() -> None:
                 assert cj.get("count") == 2
                 assert cj.get("selected")
                 assert all(c["platform"] == "xhs" for c in (cj.get("created") or []))
-                assert (root / "accounts.json").is_file()
+                assert (scoped / "accounts.json").is_file()
                 # create must not require launching Chrome
                 assert Path(cj["created"][0]["path"]).is_dir()
+                assert f"customer-{cid}/video" in str(cj["created"][0]["path"]).replace("\\", "/")
 
                 cps2 = client.get("/reach/chrome-profiles")
                 names = {p["name"] for p in (cps2.json().get("profiles") or [])}
@@ -450,9 +650,15 @@ def main() -> None:
                 assert cop.json().get("platform") == "xhs"
                 assert "xiaohongshu" in (cop.json().get("open") or {}).get("url", "")
 
+                channels_created = client.post(
+                    "/reach/chrome-profiles/create",
+                    json={"platform": "channels", "count": 1},
+                )
+                assert channels_created.status_code == 200, channels_created.text
+                channels_name = channels_created.json()["selected"]
                 ch = client.post(
                     "/reach/chrome-profiles/open",
-                    json={"name": "smoke01", "platform": "channels", "dry_run": True},
+                    json={"name": channels_name, "platform": "channels", "dry_run": True},
                 )
                 assert ch.status_code == 200, ch.text
                 assert ch.json().get("platform") == "channels"
@@ -515,20 +721,153 @@ def main() -> None:
         assert isinstance(ib.get("notices"), list)
         assert "unread_count" in ib
 
+        # GContent: SEO/GEO sources → generate → approve → dry-run publish
+        from sqlalchemy import select as sa_select
+
+        from engine.catalog.db import Customer, get_session as _gs
+
+        _sess = _gs()
+        try:
+            crow = _sess.scalar(sa_select(Customer).where(Customer.name == settings.active_customer))
+            if crow is None:
+                crow = _sess.scalars(sa_select(Customer)).first()
+            assert crow is not None
+            prof = dict(crow.profile_json or {})
+            brand = dict(prof.get("brand") or {})
+            brand["display_name"] = brand.get("display_name") or crow.name or "演示品牌"
+            prof["brand"] = brand
+            crow.profile_json = prof
+            _sess.commit()
+        finally:
+            _sess.close()
+
+        for i in range(1, 4):
+            src = client.post(
+                "/content/sources",
+                json={
+                    "title": f"smoke-fact-{i}",
+                    "body": f"冒烟已确认事实{i}：本地可核验服务说明条目。",
+                    "source_url": f"https://example.com/f{i}",
+                    "verified": True,
+                    "verified_by": "smoke",
+                },
+            )
+            assert src.status_code == 200, src.text
+            client.post(f"/content/sources/{src.json()['source']['id']}/verify")
+        site = client.post(
+            "/content/sites",
+            json={
+                "domain": "smoke.example.com",
+                "sitemap_url": "https://smoke.example.com/sitemap.xml",
+            },
+        )
+        assert site.status_code == 200, site.text
+        comp = client.get("/content/completeness")
+        assert comp.status_code == 200, comp.text
+        cj = comp.json()
+        assert cj.get("can_publish") is True, cj
+        plats = client.get("/content/platforms")
+        assert plats.status_code == 200, plats.text
+        assert any(p.get("id") == "baijiahao" for p in plats.json().get("platforms") or [])
+        gen = client.post(
+            "/content/articles/generate",
+            json={"topic": "冒烟配送说明", "platforms": ["website", "baijiahao"]},
+        )
+        assert gen.status_code == 200, gen.text
+        article_id = gen.json()["article"]["id"]
+        variant_id = gen.json()["variants"][0]["id"]
+        appr = client.post(
+            f"/content/articles/{article_id}/approve",
+            json={"approved_by": "smoke"},
+        )
+        assert appr.status_code == 200, appr.text
+        job = client.post("/content/jobs", json={"variant_id": variant_id})
+        assert job.status_code == 200, job.text
+        jid = job.json()["job"]["id"]
+        run = client.post(f"/content/jobs/{jid}/run", json={"dry_run": True})
+        assert run.status_code == 200, run.text
+        assert run.json().get("ok") is True
+        assert run.json().get("validated") is True
+        assert run.json()["job"]["status"] == "validated"
+        # idempotent re-enqueue returns same key job
+        job2 = client.post("/content/jobs", json={"variant_id": variant_id})
+        assert job2.status_code == 200, job2.text
+        assert job2.json()["job"]["id"] == jid
+
+        # GVideoRules · schema / draft / approve / activate / dry-run freeze
+        schema = client.get("/production-rules/schema")
+        assert schema.status_code == 200, schema.text
+        assert schema.json().get("ok") is True
+        assert schema.json().get("hard_locks")
+        rec_cats = schema.json().get("recommended_content_categories") or []
+        assert "scene_tour" in rec_cats, "schema must recommend scene_tour (跟镜精品)"
+
+        # 跟镜精品 · labels / hot-inbox / coverage / dry-run（无规则时中文拒片）
+        st_labels = client.get("/scene-tour/labels")
+        assert st_labels.status_code == 200, st_labels.text
+        assert st_labels.json()["categories"]["scene_tour"] == "跟镜精品"
+        assert "生成跟镜精品" in str(st_labels.json().get("ui") or {})
+        hot = client.get("/scene-tour/hot-inbox")
+        assert hot.status_code == 200, hot.text
+        assert hot.json().get("enabled") is False
+        assert "第二版" in str(hot.json().get("message") or "")
+        cov = client.get("/scene-tour/coverage")
+        assert cov.status_code == 200, cov.text
+        dry_st = client.post("/scene-tour/dry-run")
+        assert dry_st.status_code == 200, dry_st.text
+        dry_body = dry_st.json()
+        assert dry_body.get("blocked") is True or dry_body.get("ok") is False
+        reasons_blob = " ".join(str(x) for x in (dry_body.get("reasons") or []))
+        assert reasons_blob, "跟镜试规划拒片须有中文原因"
+        assert "scene_tour" not in reasons_blob
+        assert "fail-closed" not in reasons_blob.lower()
+
+        created_rule = client.post(
+            "/production-rules",
+            json={
+                "name": "smoke-rule",
+                "source_text": "节奏快一点，多拍产品细节，旁白朴实",
+                "rules": {
+                    "pace": "fast",
+                    "narration_tone": "plain",
+                    "prefer_semantic_labels": ["product_closeup"],
+                    "skip_ready_gate": True,
+                    "min_cliplet_quality": 0.1,
+                },
+            },
+        )
+        assert created_rule.status_code == 200, created_rule.text
+        rule = created_rule.json()["rule"]
+        assert rule["status"] == "draft"
+        assert any("skip_ready_gate" in str(x) for x in rule.get("rejected") or [])
+        assert any("min_cliplet_quality" in str(x) for x in rule.get("rejected") or [])
+        rid = rule["id"]
+        assert client.post(f"/production-rules/{rid}/approve", json={"approved_by": "smoke"}).status_code == 200
+        assert client.post(f"/production-rules/{rid}/activate").status_code == 200
+        active_rule = client.get("/production-rules/active")
+        assert active_rule.status_code == 200
+        assert active_rule.json()["rule"]["id"] == rid
+        dry_rule = client.post(
+            "/dry-run",
+            json={
+                "theme": "default",
+                "category": "default",
+                "use_active_rule": True,
+                "rule_rotation": False,
+            },
+        )
+        assert dry_rule.status_code == 200, dry_rule.text
+        assert dry_rule.json().get("production_rules", {}).get("active", {}).get("rule_profile_id") == rid
+
         # G5.V cover templates + publish hard gate (copy + cover slots)
         from engine.reach.publish_assets import PublishAssetsError, require_publish_assets
 
         data_root = settings.paths.data_root
         # missing body → gate fails
-        empty_pack = base / "empty_pack"
-        empty_pack.mkdir()
-        (empty_pack / "video.mp4").write_bytes(b"\x00\x00")
-        (empty_pack / "cover.jpg").write_bytes(b"fakejpg")
-        (empty_pack / "cover_2.jpg").write_bytes(b"fakejpg2")
         try:
             require_publish_assets(
                 platform="douyin",
-                pack_dir=empty_pack,
+                pack_dir=pack_dir,
                 data_root=data_root,
                 title="t",
                 body="",
@@ -537,23 +876,8 @@ def main() -> None:
         except PublishAssetsError as e:
             assert "文案" in str(e)
 
-        # channels needs 2 covers by default — only 1 → fail when no template
-        one_cover = base / "one_cover_pack"
-        one_cover.mkdir()
-        (one_cover / "video.mp4").write_bytes(b"\x00")
-        (one_cover / "cover.jpg").write_bytes(b"j")
-        (one_cover / "copy.zh.json").write_text(
-            json.dumps(
-                {
-                    "platforms": {
-                        "channels": {"title": "短标题", "body": "视频号描述正文"},
-                        "douyin": {"title": "抖音标题", "body": "抖音正文足够长"},
-                    }
-                },
-                ensure_ascii=False,
-            ),
-            encoding="utf-8",
-        )
+        # Publishing never falls back to pack covers when App has no selected template.
+        one_cover = pack_dir
         try:
             require_publish_assets(
                 platform="channels",
@@ -571,41 +895,36 @@ def main() -> None:
         ctl = client.get("/reach/cover-templates")
         assert ctl.status_code == 200, ctl.text
         ctlj = ctl.json()
-        assert ctlj.get("slot_counts", {}).get("douyin") == 2
-        assert ctlj.get("slot_counts", {}).get("kuaishou") == 2
-        assert len((ctlj.get("slot_specs") or {}).get("douyin") or []) == 2
+        assert ctlj.get("slot_counts", {}).get("douyin") == 1
+        assert ctlj.get("slot_counts", {}).get("kuaishou") == 1
+        assert len((ctlj.get("slot_specs") or {}).get("douyin") or []) == 1
         assert (ctlj.get("slot_specs") or {}).get("channels", [{}])[0].get("aspect") == "6:7"
         sel = client.post("/reach/cover-templates/select", json={"template_id": tid})
         assert sel.status_code == 200, sel.text
         assert sel.json().get("selected_id") == tid
+        from PIL import Image
+
         img = base / "slot.jpg"
-        img.write_bytes(b"jpgdata")
+        Image.new("RGB", (90, 160), color=(20, 40, 80)).save(img)
         slot = client.post(
             f"/reach/cover-templates/{tid}/slot",
             json={"platform": "douyin", "slot_index": 0, "source_path": str(img)},
         )
         assert slot.status_code == 200, slot.text
-        assert slot.json()["template"]["complete"]["douyin"] is False  # needs 2 slots
+        assert slot.json()["template"]["complete"]["douyin"] is True
         img_h = base / "slot_h.jpg"
-        img_h.write_bytes(b"jpgdataH")
-        slot2 = client.post(
+        Image.new("RGB", (160, 90), color=(80, 40, 20)).save(img_h)
+        rejected_horizontal = client.post(
             f"/reach/cover-templates/{tid}/slot",
-            json={"platform": "douyin", "slot_index": 1, "source_path": str(img_h)},
+            json={"platform": "douyin", "slot_index": 0, "source_path": str(img_h)},
         )
-        assert slot2.status_code == 200, slot2.text
-        assert slot2.json()["template"]["complete"]["douyin"] is True
-        dy0 = (slot2.json()["template"]["slots_detail"]["douyin"] or [])[0]
+        assert rejected_horizontal.status_code == 400, rejected_horizontal.text
+        dy0 = (slot.json()["template"]["slots_detail"]["douyin"] or [])[0]
         assert dy0.get("label") == "竖封面" and dy0.get("aspect") == "9:16"
-        # second cover for channels
-        img2 = base / "slot2.jpg"
-        img2.write_bytes(b"jpgdata2")
+        # Channels also has exactly one vertical App cover.
         client.post(
             f"/reach/cover-templates/{tid}/slot",
             json={"platform": "channels", "slot_index": 0, "source_path": str(img)},
-        )
-        client.post(
-            f"/reach/cover-templates/{tid}/slot",
-            json={"platform": "channels", "slot_index": 1, "source_path": str(img2)},
         )
         # now channels gate passes with template
         ok_assets = require_publish_assets(
@@ -615,8 +934,8 @@ def main() -> None:
             template_id=tid,
         )
         assert ok_assets["ok"] is True
-        assert len(ok_assets["covers"]) == 2
-        # douyin with only pack cover.jpg (1 file) should fail gate needing 2
+        assert len(ok_assets["covers"]) == 1
+        # An explicit template that differs from App selection is rejected.
         try:
             require_publish_assets(
                 platform="douyin",
@@ -624,7 +943,7 @@ def main() -> None:
                 data_root=data_root,
                 template_id="__no_such_template__",
             )
-            raise AssertionError("expected PublishAssetsError for douyin missing second cover")
+            raise AssertionError("expected PublishAssetsError for mismatched App template")
         except PublishAssetsError as e:
             assert "封面" in str(e) or "槽" in str(e)
         resolved = client.post(
@@ -634,7 +953,7 @@ def main() -> None:
         assert resolved.status_code == 200, resolved.text
         assert resolved.json()["resolve"]["ok"] is True
         assert resolved.json()["gate"]["ok"] is True
-        assert len(resolved.json()["resolve"]["covers"]) == 2
+        assert len(resolved.json()["resolve"]["covers"]) == 1
 
         # G4.30: TTS adapter — script → segment WAVs + real durations
         from engine.pack.tts import estimate_duration_sec, split_script, synthesize_script

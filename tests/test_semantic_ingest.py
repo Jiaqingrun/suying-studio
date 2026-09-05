@@ -33,6 +33,9 @@ from engine.ingest.vision_caption import (
     _normalize_semantic_response,
     _parse_json_response,
     analyze_cliplet_semantics,
+    apply_global_vision_prose_filters,
+    build_vision_semantic_prompt,
+    sanitize_vision_prose,
     vision_semantic_analysis,
 )
 
@@ -268,26 +271,21 @@ class SemanticGateTests(unittest.TestCase):
 
     def test_vision_client_bypasses_proxy_and_uses_long_timeout(self) -> None:
         captured: dict = {}
+        from engine.catalog import ollama_runtime as ollama_rt
 
-        class FakeResponse:
-            status_code = 200
+        # Contract: gateway worker disables env proxy; vision pins long timeout + options.
+        self.assertIn("trust_env=False", getattr(ollama_rt, "_WORKER_SNIPPET", "") + open(
+            ollama_rt.__file__, encoding="utf-8"
+        ).read())
 
-            def json(self):
-                return {"message": {"content": __import__("json").dumps(valid_analysis())}}
-
-        class FakeClient:
-            def __init__(self, **kwargs):
-                captured.update(kwargs)
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return None
-
-            def post(self, _url, *, json):
-                captured["payload"] = json
-                return FakeResponse()
+        def fake_heavy(**kwargs):
+            captured.update(kwargs)
+            return {
+                "ok": True,
+                "body": {
+                    "message": {"content": __import__("json").dumps(valid_analysis())}
+                },
+            }
 
         with tempfile.TemporaryDirectory() as tmp:
             paths = []
@@ -295,19 +293,25 @@ class SemanticGateTests(unittest.TestCase):
                 path = Path(tmp) / f"f{index}.jpg"
                 path.write_bytes(b"image")
                 paths.append((f"f{index}", timestamp, path))
-            with patch("engine.ingest.vision_caption.httpx.Client", FakeClient):
+            with patch(
+                "engine.ingest.vision_caption.heavy_request", side_effect=fake_heavy
+            ):
                 result = vision_semantic_analysis(paths, model="test-model")
         self.assertIsNotNone(result)
-        self.assertIs(captured.get("trust_env"), False)
-        self.assertEqual(captured.get("timeout"), VISION_SEMANTIC_TIMEOUT)
+        self.assertEqual(captured.get("timeout_sec"), VISION_SEMANTIC_TIMEOUT)
         self.assertGreaterEqual(VISION_SEMANTIC_TIMEOUT, 300.0)
-        self.assertEqual(captured["payload"].get("options"), {"temperature": 0})
+        self.assertEqual(
+            (captured.get("payload") or {}).get("options"),
+            {"temperature": 0, "num_ctx": 8192},
+        )
 
     def test_vision_timeout_is_audited_not_schema_not_object(self) -> None:
+        from engine.ingest.vision_caption import VisionTimeoutError
+
         asset = SimpleNamespace(uuid="asset-timeout", id=1)
 
         def boom(*_args, **_kwargs):
-            raise httpx.TimeoutException("timed out")
+            raise VisionTimeoutError("timed out")
 
         with tempfile.TemporaryDirectory() as tmp, patch(
             "engine.ingest.vision_caption.vision_semantic_analysis", side_effect=boom
@@ -344,25 +348,14 @@ class SemanticGateTests(unittest.TestCase):
     def test_vision_prompt_locks_actual_ids_and_fact_boundaries(self) -> None:
         captured: dict = {}
 
-        class FakeResponse:
-            status_code = 200
-
-            def json(self):
-                return {"message": {"content": __import__("json").dumps(valid_analysis())}}
-
-        class FakeClient:
-            def __init__(self, **_kwargs):
-                pass
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return None
-
-            def post(self, _url, *, json):
-                captured.update(json)
-                return FakeResponse()
+        def fake_heavy(**kwargs):
+            captured.update(kwargs.get("payload") or {})
+            return {
+                "ok": True,
+                "body": {
+                    "message": {"content": __import__("json").dumps(valid_analysis())}
+                },
+            }
 
         with tempfile.TemporaryDirectory() as tmp:
             paths = []
@@ -370,7 +363,9 @@ class SemanticGateTests(unittest.TestCase):
                 path = Path(tmp) / f"f{index}.jpg"
                 path.write_bytes(b"image")
                 paths.append((f"f{index}", timestamp, path))
-            with patch("engine.ingest.vision_caption.httpx.Client", FakeClient):
+            with patch(
+                "engine.ingest.vision_caption.heavy_request", side_effect=fake_heavy
+            ):
                 result = vision_semantic_analysis(paths, model="test-model")
         self.assertIsNotNone(result)
         prompt = captured["messages"][0]["content"]
@@ -384,8 +379,12 @@ class SemanticGateTests(unittest.TestCase):
             "person_visible_unclassified",
             '["unknown"]',
             "不得为过门禁虚报",
+            "禁止用“画面展示了/画面显示/视频展示了/视频记录了”开头",
+            "禁止出现抽帧编号",
+            "不要写“无人可见”",
         ):
             self.assertIn(expected, prompt)
+        self.assertNotIn("靓仔", prompt)
         fmt = captured.get("format")
         self.assertIsInstance(fmt, dict)
         self.assertEqual(fmt.get("type"), "object")
@@ -394,7 +393,81 @@ class SemanticGateTests(unittest.TestCase):
             SEMANTIC_SCHEMA_VERSION,
         )
         self.assertNotEqual(fmt, "json")
-        self.assertEqual(captured.get("options"), {"temperature": 0})
+        self.assertEqual(
+            captured.get("options"),
+            {"temperature": 0, "num_ctx": 8192},
+        )
+
+    def test_industry_vision_notes_appended_only_when_provided(self) -> None:
+        captured: dict = {}
+
+        def fake_heavy(**kwargs):
+            captured["prompt"] = ((kwargs.get("payload") or {}).get("messages") or [{}])[0].get(
+                "content"
+            )
+            return {
+                "ok": True,
+                "body": {"message": {"content": json.dumps(valid_analysis())}},
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for index, timestamp in enumerate((1.2, 2.5, 3.8), 1):
+                path = Path(tmp) / f"f{index}.jpg"
+                path.write_bytes(b"image")
+                paths.append((f"f{index}", timestamp, path))
+            with patch(
+                "engine.ingest.vision_caption.heavy_request", side_effect=fake_heavy
+            ):
+                vision_semantic_analysis(
+                    paths,
+                    model="test-model",
+                    extra_notes=["能判断为成年男性时称「靓仔」。"],
+                )
+        prompt = captured["prompt"]
+        self.assertIn("行业附加", prompt)
+        self.assertIn("靓仔", prompt)
+
+    def test_building_supply_notes_not_in_blank_or_life_service(self) -> None:
+        from engine.catalog.industry_pack import (
+            clear_pack_cache,
+            semantic_vision_notes_for_pack,
+        )
+
+        clear_pack_cache()
+        building = semantic_vision_notes_for_pack("building-supply")
+        self.assertTrue(any("靓仔" in n for n in building))
+        self.assertTrue(any("地面" in n for n in building))
+        self.assertEqual(semantic_vision_notes_for_pack("_blank"), [])
+        self.assertEqual(semantic_vision_notes_for_pack("life-service"), [])
+        prompt = build_vision_semantic_prompt(
+            [{"frame_id": "f1", "timestamp_sec": 0.2}],
+            ["f1"],
+            extra_notes=building,
+        )
+        self.assertIn("靓仔", prompt)
+        self.assertIn("禁止用“画面展示了/画面显示/视频展示了/视频记录了”开头", prompt)
+
+    def test_global_vision_prose_filter_strips_opener_and_frame_ids(self) -> None:
+        text = sanitize_vision_prose(
+            "画面显示一处室外场地，f1帧中可见砖块。地面散落木条。"
+        )
+        self.assertFalse(text.startswith("画面"))
+        self.assertNotIn("f1", text)
+        self.assertIn("地面", text)
+        self.assertNotIn("靓仔", text)
+        payload = apply_global_vision_prose_filters(
+            {
+                "description": "视频展示了仓库，第2帧中无人可见。",
+                "frames": [{"visible_facts": ["f2 帧可见纸箱", "地面为水泥地"]}],
+                "people": {"appearance": "无人可见", "clothing": "无人可见"},
+            }
+        )
+        self.assertNotIn("视频展示", payload["description"])
+        self.assertNotIn("第2帧", payload["description"])
+        self.assertEqual(payload["people"]["appearance"], "")
+        self.assertEqual(payload["frames"][0]["visible_facts"][0], "可见纸箱")
+        self.assertIn("水泥地", payload["frames"][0]["visible_facts"][1])
 
     def test_retry_exhaustion_is_bounded_and_audited(self) -> None:
         calls: list[int] = []
@@ -503,7 +576,7 @@ class SemanticGateTests(unittest.TestCase):
             )
             session.add(accepted)
             session.commit()
-            with patch("engine.catalog.vector_index.embed_text", return_value=([0.6, 0.8], "test")):
+            with patch("engine.catalog.vector_index.embed_text", return_value=([0.6, 0.8], "ollama")):
                 index_cliplet(session, accepted)
             self.assertEqual(accepted.status, "usable")
             self.assertEqual(accepted.embedding_json, [0.6, 0.8])
@@ -601,7 +674,7 @@ class SemanticGateTests(unittest.TestCase):
                 return_value=(data, audit),
             ), patch(
                 "engine.catalog.vector_index.embed_text",
-                return_value=([0.6, 0.8], "test"),
+                return_value=([0.6, 0.8], "ollama"),
             ):
                 page1 = recaption_existing_cliplets(
                     session, customer_id=customer.id, limit=1
@@ -668,7 +741,7 @@ class SemanticGateTests(unittest.TestCase):
                 self.assertNotEqual(claim1[0].id, claim2[0].id)
             engine.dispose()
 
-    def test_backfill_rejection_physically_clears_legacy_vector(self) -> None:
+    def test_backfill_rejection_preserves_coarse_vector(self) -> None:
         engine = create_engine("sqlite://")
         Base.metadata.create_all(engine)
         with Session(engine) as session:
@@ -712,10 +785,14 @@ class SemanticGateTests(unittest.TestCase):
                     session, customer_id=customer.id, limit=1
                 )
             self.assertEqual(result["rejected"], 1)
-            self.assertEqual(cliplet.status, "rejected_semantic")
+            session.refresh(cliplet)
+            self.assertEqual(cliplet.status, "usable")
+            self.assertTrue(
+                (cliplet.semantic_gate_json or {}).get("strict_verification_terminal")
+            )
             self.assertEqual(
                 session.scalar(
-                    text("SELECT embedding_json IS NULL FROM cliplets WHERE id=:id"),
+                    text("SELECT embedding_json IS NOT NULL FROM cliplets WHERE id=:id"),
                     {"id": cliplet.id},
                 ),
                 1,

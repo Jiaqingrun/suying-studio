@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assert READY_GATE + 黄字黑描边 title lock are intact."""
+"""Assert READY_GATE + dual-orientation frozen style safety are intact."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ def main() -> int:
         DEFAULT_LOCK,
         LOCKED_TITLE_COLOR,
         LOCKED_TITLE_OFFSET_Y_PX,
+        LOCKED_TITLE_TOP_PX,
         LOCKED_TITLE_STROKE_COLOR,
         apply_lock_to_title_style,
         load_video_lock,
@@ -24,17 +25,19 @@ def main() -> int:
 
     assert LOCKED_TITLE_COLOR == "#FFE600"
     assert LOCKED_TITLE_STROKE_COLOR == "#000000"
-    assert LOCKED_TITLE_OFFSET_Y_PX == 120
+    assert LOCKED_TITLE_OFFSET_Y_PX == 0
+    assert LOCKED_TITLE_TOP_PX == 220
     assert (DEFAULT_LOCK.get("title") or {}).get("color") == "#FFE600"
     assert (DEFAULT_LOCK.get("title") or {}).get("stroke_color") == "#000000"
-    assert int((DEFAULT_LOCK.get("title") or {}).get("offset_y_px") or 0) == 120
+    assert int((DEFAULT_LOCK.get("title") or {}).get("offset_y_px") or 0) == 0
+    assert int((DEFAULT_LOCK.get("title") or {}).get("glyph_top_px") or 0) == 220
 
     lock = load_video_lock("北京始峰伟业")
     assert lock["title"]["color"] == "#FFE600"
     assert lock["title"]["stroke_color"] == "#000000"
-    assert int(lock["title"]["offset_y_px"]) == 120
+    assert int(lock["title"]["offset_y_px"]) == 0
 
-    # Attempt to restore forbidden red+yellow / zero offset via profile — must clamp
+    # User-approved custom style is preserved; geometry remains absolute/safe.
     soft = load_video_lock(
         "北京始峰伟业",
         profile={
@@ -43,14 +46,15 @@ def main() -> int:
             }
         },
     )
-    assert soft["title"]["color"] == "#FFE600", soft["title"]
-    assert soft["title"]["stroke_color"] == "#000000", soft["title"]
-    assert int(soft["title"]["offset_y_px"]) == 120
+    assert soft["title"]["color"] == "#E10600", soft["title"]
+    assert soft["title"]["stroke_color"] == "#FFE600", soft["title"]
+    assert int(soft["title"]["offset_y_px"]) == 0
 
     styled = apply_lock_to_title_style({"color": "#E10600", "stroke_color": "#FFE600", "offset_y_px": 0}, soft)
-    assert styled["color"] == "#FFE600"
-    assert styled["stroke_color"] == "#000000"
-    assert int(styled["offset_y_px"]) == 120
+    assert styled["color"] == "#E10600"
+    assert styled["stroke_color"] == "#FFE600"
+    assert int(styled["offset_y_px"]) == 0
+    assert int(styled["glyph_top_px"]) == 220
 
     assert DEFAULT_TEMPLATE.title_color == "#FFE600"
     assert DEFAULT_TEMPLATE.title_stroke_color == "#000000"
@@ -58,6 +62,7 @@ def main() -> int:
     for name in GATE_CHECKS:
         assert name  # non-empty ids
     assert "title" in GATE_CHECKS and "blur" in GATE_CHECKS
+    assert "duration" in GATE_CHECKS
 
     # Missing file → not ok
     r = evaluate_ready_gate(Path("/tmp/__no_such_montage__.mp4"), require_ollama=False)
@@ -81,6 +86,7 @@ def main() -> int:
                 "narration_path": "/x.wav",
                 "voice_lang": "zh",
                 "tts_provider": "edge",
+                "tts_rate": "-8%",
                 "tts_pitch": "+35Hz",
                 "tts_volume": "+12%",
             }

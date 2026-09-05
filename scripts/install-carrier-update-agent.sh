@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install LaunchAgent that only checks T2S carrier mirror for app/latest.json.
+# Install LaunchAgent that verifies the signed T2S update chain.
 # Does NOT sync media library. Relies on 极空间 client to keep ~/Suying/carrier fresh.
 set -euo pipefail
 
@@ -13,23 +13,47 @@ cat > "${TOOLS}/suying-carrier-update-check.sh" << 'EOS'
 set -euo pipefail
 CARRIER="${SUYING_CARRIER:-$HOME/Suying/carrier}"
 MANIFEST="${CARRIER}/app/latest.json"
+SIGNATURE="${MANIFEST}.sig"
 STATE="${HOME}/.qr/suying-carrier-update-state.json"
 LOG="${HOME}/.qr/logs/suying-carrier-update.log"
 mkdir -p "$(dirname "$STATE")" "$(dirname "$LOG")"
 ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-if [[ ! -f "$MANIFEST" ]]; then
+if [[ ! -f "$MANIFEST" || ! -f "$SIGNATURE" ]]; then
   echo "{\"checked_at\":\"$ts\",\"ok\":false,\"reason\":\"manifest_missing\",\"carrier\":\"$CARRIER\"}" > "$STATE"
-  echo "$ts missing $MANIFEST" >> "$LOG"
+  echo "$ts missing signed manifest $MANIFEST" >> "$LOG"
   exit 0
 fi
-# Prefer engine API if up; else just record manifest version
+# Prefer engine API if up; otherwise use the same bundled verifier.
 if curl -sf "http://127.0.0.1:8766/ops/app-update" -o /tmp/suying-app-update.json 2>/dev/null; then
   cp /tmp/suying-app-update.json "$STATE"
   echo "$ts api_ok" >> "$LOG"
 else
-  ver="$(python3 -c "import json;print(json.load(open('$MANIFEST')).get('version',''))" 2>/dev/null || echo "")
-  echo "{\"checked_at\":\"$ts\",\"ok\":true,\"remote_version\":\"$ver\",\"via\":\"file\"}" > "$STATE"
-  echo "$ts file_ok ver=$ver" >> "$LOG"
+  APP="/Applications/速影 Studio.app"
+  [[ -d "$APP" ]] || APP="${HOME}/Applications/速影 Studio.app"
+  [[ -d "$APP" ]] || APP="/Applications/速影.app"
+  [[ -d "$APP" ]] || APP="${HOME}/Applications/速影.app"
+  PY="${APP}/Contents/Resources/runtime/python/bin/python3"
+  STUDIO="${APP}/Contents/Resources/runtime/studio"
+  if [[ ! -x "$PY" || ! -d "$STUDIO/engine" ]]; then
+    echo "{\"checked_at\":\"$ts\",\"ok\":false,\"reason\":\"verifier_missing\"}" > "$STATE"
+    echo "$ts verifier_missing" >> "$LOG"
+    exit 0
+  fi
+  if SUYING_CARRIER_ROOT="$CARRIER" PYTHONPATH="$STUDIO" "$PY" - "$STATE" <<'PY'
+import json
+import sys
+from pathlib import Path
+from engine.ops.app_update import check_update
+
+result = check_update()
+Path(sys.argv[1]).write_text(json.dumps(result, ensure_ascii=False) + "\n", encoding="utf-8")
+raise SystemExit(0 if result.get("ok") else 1)
+PY
+  then
+    echo "$ts bundled_verifier_ok" >> "$LOG"
+  else
+    echo "$ts signature_verify_failed" >> "$LOG"
+  fi
 fi
 EOS
 chmod +x "${TOOLS}/suying-carrier-update-check.sh"
