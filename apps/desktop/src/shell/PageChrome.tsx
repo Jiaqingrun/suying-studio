@@ -137,11 +137,46 @@ type EmptyProps = {
   body?: string;
   actionLabel?: string;
   onAction?: () => void;
+  tone?: "neutral" | "warn" | "danger";
 };
 
-export function EmptyState({ title, body, actionLabel, onAction }: EmptyProps) {
+export function EmptyState({ title, body, actionLabel, onAction, tone = "neutral" }: EmptyProps) {
   return (
-    <div className="empty-state">
+    <div className={`empty-state empty-state--${tone}`} role="status">
+      <span className="empty-state-mark" aria-hidden="true" />
+      <strong>{title}</strong>
+      {body ? <p className="hint">{body}</p> : null}
+      {actionLabel && onAction ? (
+        <button type="button" className="primary" onClick={onAction}>
+          {actionLabel}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+export function LoadingState({ label = "正在加载…" }: { label?: string }) {
+  return (
+    <div className="loading-state" role="status" aria-busy="true" aria-live="polite">
+      <span className="loading-bar" aria-hidden="true" />
+      <p>{label}</p>
+    </div>
+  );
+}
+
+export function ErrorState({
+  title = "出了点问题",
+  body,
+  actionLabel,
+  onAction,
+}: {
+  title?: string;
+  body?: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <div className="error-state" role="alert">
       <strong>{title}</strong>
       {body ? <p className="hint">{body}</p> : null}
       {actionLabel && onAction ? (

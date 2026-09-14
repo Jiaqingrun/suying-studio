@@ -36,11 +36,16 @@ export function AppShell({
         <div className="brand">
           {brandSlot ?? (
             <div className="brand-mark">
-              <h1 className="brand-name">速影 Studio</h1>
-              <span className="brand-ver">SUYING</span>
+              <span className="brand-glyph" aria-hidden="true">
+                速
+              </span>
+              <div className="brand-copy">
+                <h1 className="brand-name">速影</h1>
+                <span className="brand-ver">Studio · SUYING</span>
+              </div>
             </div>
           )}
-          <p className="brand-tag">本地日更工作室</p>
+          <p className="brand-tag">本地日更工作室 · 实拍成片到触达</p>
         </div>
         <nav className="nav">
           {TABS.map(([t, label, idx]) => {
@@ -53,6 +58,7 @@ export function AppShell({
                 className={`nav-btn${tab === t ? " active" : ""}`}
                 onClick={() => onSetTab(t)}
                 title={`${label} · ${TAB_BLURB[t]}`}
+                aria-current={tab === t ? "page" : undefined}
               >
                 <span className="nav-idx">{idx}</span>
                 {Icon ? <Icon className="nav-icon" size={16} aria-hidden /> : null}
@@ -66,9 +72,7 @@ export function AppShell({
       </aside>
 
       <header className="topbar">
-        <div className="topbar-title">
-          {topbarTitle}
-        </div>
+        <div className="topbar-title">{topbarTitle}</div>
         <div className="topbar-actions">{topbarActions}</div>
       </header>
 

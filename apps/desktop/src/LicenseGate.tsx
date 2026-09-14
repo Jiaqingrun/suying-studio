@@ -52,6 +52,33 @@ function LicenseBrand({ compact = false }: { compact?: boolean }) {
   );
 }
 
+function LicenseStage({
+  children,
+  checking = false,
+}: {
+  children: ReactNode;
+  checking?: boolean;
+}) {
+  return (
+    <main
+      className={`license-gate${checking ? " license-gate--checking" : ""}`}
+      aria-busy={checking || undefined}
+      aria-label={checking ? "正在校验授权" : undefined}
+    >
+      <div className="license-hero" aria-hidden="true">
+        <img
+          className="license-hero-img"
+          src="/hero-stone-ink.jpg"
+          alt=""
+          decoding="async"
+        />
+        <div className="license-hero-veil" />
+      </div>
+      <div className="license-stage">{children}</div>
+    </main>
+  );
+}
+
 export function LicenseGate({ children }: Props) {
   const [status, setStatus] = useState<LicenseStatus | null>(null);
   const [request, setRequest] = useState<LicenseRequest | null>(null);
@@ -132,12 +159,14 @@ export function LicenseGate({ children }: Props) {
   // GCustomerUX: while checking, show neutral splash — never flash the unauthorized card.
   if (status === null) {
     return (
-      <main className="license-gate license-gate--checking" aria-busy="true" aria-label="正在校验授权">
+      <LicenseStage checking>
         <section className="license-splash">
           <LicenseBrand compact />
-          <p className="muted">正在启动…</p>
+          <h1 className="license-hero-title">速影</h1>
+          <p className="license-hero-support">本地智能混剪 · 正在启动工作室</p>
+          <span className="loading-bar" aria-hidden="true" />
         </section>
-      </main>
+      </LicenseStage>
     );
   }
 
@@ -153,7 +182,7 @@ export function LicenseGate({ children }: Props) {
       .filter(Boolean)
       .join(" · ");
     return (
-      <main className="license-gate">
+      <LicenseStage>
         <section className="license-card">
           <LicenseBrand />
           <p className="eyebrow">授权状态</p>
@@ -164,7 +193,7 @@ export function LicenseGate({ children }: Props) {
             <p className="license-reason">{sanitizePublicText(status.reason)}</p>
           ) : null}
         </section>
-      </main>
+      </LicenseStage>
     );
   }
 
@@ -190,7 +219,7 @@ export function LicenseGate({ children }: Props) {
 
   if (status.license_kind === "trial" && status.ops_unlock_allowed) {
     return (
-      <main className="license-gate">
+      <LicenseStage>
         <section className="license-card">
           <LicenseBrand />
           <p className="eyebrow">体验期已结束</p>
@@ -216,7 +245,7 @@ export function LicenseGate({ children }: Props) {
             </button>
           </div>
         </section>
-      </main>
+      </LicenseStage>
     );
   }
 
@@ -251,7 +280,7 @@ export function LicenseGate({ children }: Props) {
   }
 
   return (
-    <main className="license-gate">
+    <LicenseStage>
       <section className="license-card">
         <LicenseBrand />
         <p className="eyebrow">单机授权</p>
@@ -270,11 +299,11 @@ export function LicenseGate({ children }: Props) {
           <button type="button" className="secondary" onClick={() => void copyRequest()} disabled={!request}>
             复制请求
           </button>
-          <button type="button" onClick={() => void chooseLicense()} disabled={busy}>
+          <button type="button" className="primary" onClick={() => void chooseLicense()} disabled={busy}>
             {busy ? "正在验证…" : "导入许可证"}
           </button>
         </div>
       </section>
-    </main>
+    </LicenseStage>
   );
 }

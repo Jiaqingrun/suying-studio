@@ -2977,8 +2977,13 @@ function App() {
       }}
       brandSlot={
         <div className="brand-mark">
-          <h1 className="brand-name">速影 Studio</h1>
-          <span className="brand-ver">SUYING</span>
+          <span className="brand-glyph" aria-hidden="true">
+            速
+          </span>
+          <div className="brand-copy">
+            <h1 className="brand-name">速影</h1>
+            <span className="brand-ver">Studio · SUYING</span>
+          </div>
         </div>
       }
       railFoot={
