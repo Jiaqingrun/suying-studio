@@ -144,7 +144,7 @@ function SoundBedMuteControl({ notify }: { notify: NotifyFn }) {
 
   return (
     <>
-      <h3 className="section-title">沉浸声效（SoundBed）</h3>
+      <h3 className="section-title">氛围声效（SoundBed · 水彩柔音）</h3>
       <p className="hint" style={{ marginBottom: 10 }}>
         切页、成功/失败提示与消息到达的界面音。默认开启。静音不影响设置页「试听一句」真 wav（L19）。
       </p>
@@ -155,7 +155,7 @@ function SoundBedMuteControl({ notify }: { notify: NotifyFn }) {
           onClick={() => {
             setSoundBedMuted(false);
             setMuted(false);
-            notify("沉浸声效已开启", "ok");
+            notify("氛围声效已开启", "ok");
           }}
         >
           开启声效
@@ -166,7 +166,7 @@ function SoundBedMuteControl({ notify }: { notify: NotifyFn }) {
           onClick={() => {
             setSoundBedMuted(true);
             setMuted(true);
-            notify("沉浸声效已静音", "info");
+            notify("氛围声效已静音", "info");
           }}
         >
           一键静音

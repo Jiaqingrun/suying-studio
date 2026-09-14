@@ -135,7 +135,7 @@ export function LicenseGate({ children }: Props) {
       <main className="license-gate license-gate--checking license-gate--immersive" aria-busy="true" aria-label="正在校验授权">
         <section className="license-splash">
           <LicenseBrand compact />
-          <p className="muted">正在启动深空指挥台…</p>
+          <p className="muted">正在铺开水彩工作台…</p>
         </section>
       </main>
     );

@@ -1,57 +1,57 @@
-/* 速影 · 高科技立体沉浸（深空 HUD · M 系列 Retina）
- * 完全替换暖宣纸 / 石青墨纸视觉权威。兼容既有 var(--*) 消费点。
+/* 速影 · AV 水彩底（水彩洗色 + 毛玻璃卡片）
+ * 完全替换深空 HUD / 暖宣纸视觉权威。兼容既有 var(--*) 消费点。
  */
 :root {
-  /* Deep space layers */
-  --bg-0: #070b14;
-  --bg-1: #0c1220;
-  --bg-2: #121a2c;
-  --bg-3: #1a2438;
-  --surface-0: #0e1626;
-  --surface-1: rgba(18, 28, 48, 0.88);
-  --surface-2: rgba(28, 42, 68, 0.55);
-  --line: rgba(140, 180, 255, 0.12);
-  --line-strong: rgba(160, 200, 255, 0.28);
-  --text: #e8eef8;
-  --text-dim: #9aadc8;
-  --text-mute: #6b7f9c;
+  /* Watercolor wash layers — lavender / cream paper */
+  --bg-0: #e8e2ec;
+  --bg-1: #f4f0f5;
+  --bg-2: #faf7fb;
+  --bg-3: #ffffff;
+  --surface-0: rgba(255, 252, 255, 0.55);
+  --surface-1: rgba(255, 255, 255, 0.62);
+  --surface-2: rgba(255, 255, 255, 0.78);
+  --line: rgba(90, 70, 110, 0.12);
+  --line-strong: rgba(90, 70, 110, 0.22);
+  --text: #2c2834;
+  --text-dim: #5c5568;
+  --text-mute: #8a8296;
 
-  /* Precision accent — cyan-teal HUD, not purple candy */
-  --accent: #2ec9c0;
-  --accent-strong: #1aa89f;
-  --accent-ink: #041018;
-  --accent-dim: rgba(46, 201, 192, 0.14);
-  --accent-line: rgba(46, 201, 192, 0.45);
-  --accent-glow: rgba(46, 201, 192, 0.35);
+  /* Soft ink accent — dusty plum, not neon HUD cyan */
+  --accent: #7a6b8a;
+  --accent-strong: #5f526d;
+  --accent-ink: #faf7fb;
+  --accent-dim: rgba(122, 107, 138, 0.14);
+  --accent-line: rgba(122, 107, 138, 0.4);
+  --accent-glow: rgba(160, 140, 180, 0.28);
 
-  /* Secondary readouts */
-  --hud-amber: #f0a030;
-  --hud-blue: #4da3ff;
-  --hud-mag: #e85d8a;
+  /* Secondary readouts (soft) */
+  --hud-amber: #c4924a;
+  --hud-blue: #6a8caf;
+  --hud-mag: #a86b88;
 
-  /* Status */
-  --warn: #e0a020;
-  --warn-dim: rgba(224, 160, 32, 0.14);
-  --danger: #ff4d6a;
-  --danger-dim: rgba(255, 77, 106, 0.14);
-  --ok: #3dd68c;
-  --ok-dim: rgba(61, 214, 140, 0.14);
-  --info: #4da3ff;
-  --info-dim: rgba(77, 163, 255, 0.14);
-  --amber: #e0a020;
+  /* Status — muted watercolor pigments */
+  --warn: #c4924a;
+  --warn-dim: rgba(196, 146, 74, 0.16);
+  --danger: #c45a6a;
+  --danger-dim: rgba(196, 90, 106, 0.14);
+  --ok: #5a9a78;
+  --ok-dim: rgba(90, 154, 120, 0.14);
+  --info: #6a8caf;
+  --info-dim: rgba(106, 140, 175, 0.14);
+  --amber: #c4924a;
 
   /* Brand (video lock overlays — unchanged product colors) */
   --brand-red: #e10600;
   --brand-yellow: #ffe600;
 
-  /* Type — expressive, Chinese-first, no Inter/Roboto/Arial */
-  --font-display: "SF Pro Display", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
-  --font-sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "SF Pro Text", sans-serif;
+  /* Type — 真中文：宋体标题 + 苹方/黑体正文，禁止乱码假字体栈 */
+  --font-display: "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", serif;
+  --font-sans: "PingFang SC", "Hiragino Sans GB", "Heiti SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
   --font-mono: "SF Mono", "Menlo", "Consolas", ui-monospace, monospace;
 
   /* Density */
-  --radius: 10px;
-  --radius-sm: 6px;
+  --radius: 18px;
+  --radius-sm: 12px;
   --header-h: 56px;
   --rail-w: 232px;
   --space-1: 4px;
@@ -66,15 +66,15 @@
   --btn-h: 34px;
   --hit-min: 36px;
   --card-pad: 18px;
-  --shadow-soft: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  --shadow-soft: 0 1px 0 rgba(255, 255, 255, 0.65) inset;
   --shadow-card:
-    0 0 0 1px rgba(140, 180, 255, 0.08),
-    0 12px 40px rgba(0, 0, 0, 0.45),
-    0 2px 8px rgba(0, 0, 0, 0.35);
+    0 0 0 1px rgba(255, 255, 255, 0.55),
+    0 10px 36px rgba(70, 50, 90, 0.08),
+    0 2px 8px rgba(70, 50, 90, 0.04);
   --shadow-float:
-    0 0 0 1px rgba(46, 201, 192, 0.2),
-    0 20px 60px rgba(0, 0, 0, 0.55),
-    0 0 40px rgba(46, 201, 192, 0.08);
+    0 0 0 1px rgba(255, 255, 255, 0.7),
+    0 18px 48px rgba(70, 50, 90, 0.12),
+    0 4px 12px rgba(70, 50, 90, 0.05);
   --content-max: 1400px;
 
   /* Depth / glass */
@@ -82,16 +82,22 @@
   --z-topbar: 30;
   --z-float: 40;
   --z-modal: 100;
-  --glass: blur(18px) saturate(1.25);
-  --vol-light: radial-gradient(ellipse 80% 50% at 20% 0%, rgba(46, 201, 192, 0.12), transparent 55%),
-    radial-gradient(ellipse 60% 40% at 90% 10%, rgba(77, 163, 255, 0.1), transparent 50%),
-    radial-gradient(ellipse 50% 60% at 50% 100%, rgba(232, 93, 138, 0.05), transparent 45%);
+  --glass: blur(22px) saturate(1.15);
+  --vol-light:
+    radial-gradient(ellipse 70% 55% at 8% 12%, rgba(170, 150, 195, 0.35), transparent 55%),
+    radial-gradient(ellipse 55% 45% at 92% 8%, rgba(130, 110, 160, 0.28), transparent 50%),
+    radial-gradient(ellipse 60% 50% at 50% 100%, rgba(210, 195, 185, 0.22), transparent 55%),
+    radial-gradient(ellipse 40% 35% at 70% 60%, rgba(255, 255, 255, 0.45), transparent 60%);
 
-  /* Motion */
-  --motion-duration: 280ms;
+  /* Wash image (public/) */
+  --wash-image: url("/watercolor-wash.jpg");
+  --wash-image-sm: url("/watercolor-wash-sm.jpg");
+
+  /* Motion — 克制优雅 */
+  --motion-duration: 320ms;
   --motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --motion-slow: 560ms;
-  --parallax: 6px;
+  --motion-slow: 720ms;
+  --parallax: 4px;
 }
 
 :root[data-density="compact"],
@@ -108,7 +114,7 @@
   --btn-h: 32px;
   --hit-min: 36px;
   --card-pad: 12px;
-  --radius: 8px;
+  --radius: 14px;
 }
 
 :root[data-density="wide"],
@@ -125,15 +131,15 @@
 }
 
 @theme {
-  --color-deck-bg: #070b14;
-  --color-deck-panel: #0c1220;
-  --color-deck-ink: #e8eef8;
-  --color-deck-muted: #9aadc8;
-  --color-deck-accent: #2ec9c0;
-  --color-deck-danger: #ff4d6a;
-  --color-deck-warn: #e0a020;
-  --color-deck-ok: #3dd68c;
-  --font-sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
+  --color-deck-bg: #e8e2ec;
+  --color-deck-panel: #faf7fb;
+  --color-deck-ink: #2c2834;
+  --color-deck-muted: #5c5568;
+  --color-deck-accent: #7a6b8a;
+  --color-deck-danger: #c45a6a;
+  --color-deck-warn: #c4924a;
+  --color-deck-ok: #5a9a78;
+  --font-sans: "PingFang SC", "Hiragino Sans GB", "Heiti SC", "Noto Sans SC", sans-serif;
   --font-mono: "SF Mono", "Menlo", ui-monospace, monospace;
 }
 

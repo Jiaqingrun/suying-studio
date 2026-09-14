@@ -34,7 +34,7 @@ export function playReachMessageSound(): boolean {
   return playAlertSound("mario");
 }
 
-/** Super Mario coin–style blip via Web Audio (no copyrighted samples). */
+/** Soft watercolor chime (gentle sine stack; no copyrighted samples). */
 function playMarioCoin(context: AudioContext, now: number): void {
   const master = context.createGain();
   master.connect(context.destination);
@@ -43,22 +43,22 @@ function playMarioCoin(context: AudioContext, now: number): void {
   const blip = (freq: number, start: number, dur: number, peak: number) => {
     const osc = context.createOscillator();
     const g = context.createGain();
-    osc.type = "square";
+    osc.type = "sine";
     osc.frequency.setValueAtTime(freq, start);
     osc.connect(g);
     g.connect(master);
     g.gain.setValueAtTime(0.0001, start);
-    g.gain.exponentialRampToValueAtTime(peak, start + 0.012);
+    g.gain.exponentialRampToValueAtTime(peak, start + 0.03);
     g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
     osc.start(start);
-    osc.stop(start + dur + 0.02);
+    osc.stop(start + dur + 0.04);
   };
 
-  // Classic coin-ish jump: B5 → E6
-  blip(987.77, now, 0.09, 0.14);
-  blip(1318.51, now + 0.08, 0.22, 0.12);
-  master.gain.exponentialRampToValueAtTime(0.2, now + 0.02);
-  master.gain.exponentialRampToValueAtTime(0.0001, now + 0.38);
+  // Soft rising chime: A5 → C#6
+  blip(880, now, 0.16, 0.07);
+  blip(1108.73, now + 0.1, 0.28, 0.055);
+  master.gain.exponentialRampToValueAtTime(0.12, now + 0.03);
+  master.gain.exponentialRampToValueAtTime(0.0001, now + 0.48);
 }
 
 /** App 内提示音：跟随系统音量；优先短促双音 / Mario 币音，失败则静默。
@@ -100,13 +100,13 @@ export function playAlertSound(kind: AlertSoundKind = "ok"): boolean {
     };
 
     if (kind === "alert") {
-      beep(520, now, 0.16, 0.18);
-      beep(380, now + 0.18, 0.22, 0.16);
+      beep(480, now, 0.18, 0.1);
+      beep(360, now + 0.2, 0.26, 0.08);
     } else if (kind === "message") {
-      beep(740, now, 0.28, 0.16);
+      beep(620, now, 0.32, 0.08);
     } else {
-      beep(660, now, 0.12, 0.14);
-      beep(880, now + 0.14, 0.18, 0.12);
+      beep(560, now, 0.14, 0.07);
+      beep(740, now + 0.16, 0.22, 0.06);
     }
 
     window.setTimeout(() => void context.close(), 800);

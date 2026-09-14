@@ -1,4 +1,4 @@
-/* 速影 — 高科技立体沉浸指挥台（深空 HUD） */
+/* 速影 — AV 水彩底工作室（水彩洗色 + 毛玻璃） */
 
 @import "tailwindcss" source(none);
 @source "./";
@@ -7,7 +7,7 @@
 
 :root {
   /* tokens.css 已定义主色；此处保留兼容旧选择器的别名 */
-  --radius: 10px;
+  --radius: 18px;
   --header-h: 56px;
   --rail-w: 232px;
 }
@@ -94,7 +94,7 @@ textarea {
 }
 
 .brand-name {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-weight: 600;
   font-size: 1.25rem;
   letter-spacing: 0.12em;

@@ -1,12 +1,17 @@
-/* 速影 · 高科技立体沉浸层（叠在 tokens + App.css 之上；不改 .lang-combo* 行为） */
+/* 速影 · AV 水彩底沉浸层（叠在 tokens + App.css 之上；不改 .lang-combo* 行为） */
 /* tokens 已由 App.css 先导入 */
 
-/* —— Volume light stage —— */
+/* —— Global watercolor stage —— */
 .app.app--immersive,
 .app--gui.app--immersive {
-  background:
+  background-color: var(--bg-0);
+  background-image:
     var(--vol-light),
-    linear-gradient(165deg, #050810 0%, var(--bg-0) 38%, #0a1020 100%);
+    var(--wash-image);
+  background-size: cover, cover;
+  background-position: center, center;
+  background-attachment: fixed, fixed;
+  background-repeat: no-repeat;
   color: var(--text);
 }
 
@@ -16,10 +21,22 @@
   position: fixed;
   inset: 0;
   z-index: 0;
+  opacity: 0.35;
+  background-image:
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+  mix-blend-mode: soft-light;
+  animation: wash-breathe var(--motion-slow) var(--motion-ease) infinite alternate;
+}
+
+.app.app--immersive::after {
+  content: "";
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
   background:
-    radial-gradient(ellipse 70% 40% at 12% 8%, rgba(46, 201, 192, 0.09), transparent 50%),
-    radial-gradient(ellipse 50% 35% at 88% 0%, rgba(77, 163, 255, 0.08), transparent 48%);
-  animation: hud-breathe var(--motion-slow) var(--motion-ease) infinite alternate;
+    radial-gradient(ellipse 50% 40% at 50% 45%, rgba(255, 255, 255, 0.28), transparent 70%);
 }
 
 .app.app--immersive > * {
@@ -27,36 +44,40 @@
   z-index: 1;
 }
 
-@keyframes hud-breathe {
-  from { opacity: 0.7; }
-  to { opacity: 1; }
+@keyframes wash-breathe {
+  from { opacity: 0.28; }
+  to { opacity: 0.4; }
+}
+
+@media (max-width: 1100px) {
+  .app.app--immersive,
+  .app--gui.app--immersive {
+    background-image:
+      var(--vol-light),
+      var(--wash-image-sm);
+  }
 }
 
 /* —— Rail glass —— */
 .app--immersive .rail {
   z-index: var(--z-rail);
-  background:
-    linear-gradient(180deg, rgba(14, 22, 38, 0.96), rgba(8, 12, 22, 0.98)),
-    repeating-linear-gradient(
-      0deg,
-      transparent,
-      transparent 31px,
-      rgba(140, 180, 255, 0.03) 31px,
-      rgba(140, 180, 255, 0.03) 32px
-    );
-  border-right: 1px solid var(--line);
-  box-shadow: 8px 0 40px rgba(0, 0, 0, 0.35), var(--shadow-soft);
+  background: rgba(255, 255, 255, 0.42);
+  border-right: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow: 8px 0 40px rgba(70, 50, 90, 0.06), var(--shadow-soft);
   backdrop-filter: var(--glass);
+  -webkit-backdrop-filter: var(--glass);
 }
 
 .app--immersive .rail-foot {
-  background: linear-gradient(180deg, transparent 0%, rgba(8, 12, 22, 0.95) 12px);
+  background: linear-gradient(180deg, transparent 0%, rgba(255, 255, 255, 0.55) 12px);
 }
 
 .app--immersive .brand-name {
   font-family: var(--font-display);
-  letter-spacing: 0.18em;
-  text-shadow: 0 0 24px rgba(46, 201, 192, 0.25);
+  letter-spacing: 0.12em;
+  font-weight: 600;
+  color: var(--text);
+  text-shadow: none;
 }
 
 .app--immersive .brand-tag {
@@ -72,7 +93,7 @@
 .app--immersive .nav-group {
   margin-bottom: 10px;
   padding-bottom: 6px;
-  border-bottom: 1px solid rgba(140, 180, 255, 0.06);
+  border-bottom: 1px solid rgba(90, 70, 110, 0.08);
 }
 
 .app--immersive .nav-group:last-child {
@@ -81,17 +102,18 @@
 }
 
 .app--immersive .nav-group-label {
-  font-family: var(--font-mono);
-  font-size: 0.62rem;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  font-family: var(--font-sans);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: none;
   color: var(--text-mute);
   padding: 6px 12px 4px;
-  opacity: 0.85;
+  opacity: 0.95;
 }
 
 .app--immersive .nav-btn {
-  border-radius: 8px;
+  border-radius: 12px;
+  color: var(--text-dim);
   transition:
     color var(--motion-duration) var(--motion-ease),
     background var(--motion-duration) var(--motion-ease),
@@ -101,31 +123,32 @@
 }
 
 .app--immersive .nav-btn:hover {
-  background: rgba(46, 201, 192, 0.08);
-  border-color: rgba(46, 201, 192, 0.22);
-  transform: translateX(2px);
+  background: rgba(255, 255, 255, 0.55);
+  border-color: rgba(122, 107, 138, 0.18);
+  color: var(--text);
+  transform: translateX(1px);
 }
 
 .app--immersive .nav-btn.active {
-  background:
-    linear-gradient(90deg, rgba(46, 201, 192, 0.22), rgba(46, 201, 192, 0.06));
-  border-color: var(--accent-line);
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(122, 107, 138, 0.22);
+  color: var(--text);
   box-shadow:
     inset 3px 0 0 var(--accent),
-    0 0 24px rgba(46, 201, 192, 0.12);
+    0 4px 16px rgba(70, 50, 90, 0.06);
 }
 
 .app--immersive .topbar {
   z-index: var(--z-topbar);
-  background: rgba(10, 16, 28, 0.78);
-  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.48);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.55);
   backdrop-filter: var(--glass);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  -webkit-backdrop-filter: var(--glass);
+  box-shadow: 0 8px 28px rgba(70, 50, 90, 0.05);
 }
 
 .app--immersive .workspace {
-  background:
-    linear-gradient(180deg, rgba(7, 11, 20, 0.2), transparent 120px);
+  background: transparent;
 }
 
 /* —— Surfaces / panels —— */
@@ -140,14 +163,17 @@
 .app--immersive .app-dialog,
 .app--immersive .cmdk-panel {
   background: var(--surface-1);
-  border: 1px solid var(--line);
+  border: 1px solid rgba(255, 255, 255, 0.65);
   box-shadow: var(--shadow-card);
   border-radius: var(--radius);
+  backdrop-filter: var(--glass);
+  -webkit-backdrop-filter: var(--glass);
 }
 
 .app--immersive .stat {
   position: relative;
   overflow: hidden;
+  background: rgba(255, 255, 255, 0.58);
 }
 
 .app--immersive .stat::after {
@@ -156,21 +182,24 @@
   inset: 0 auto 0 0;
   width: 2px;
   background: linear-gradient(180deg, var(--accent), transparent);
-  opacity: 0.7;
+  opacity: 0.55;
 }
 
 .app--immersive .stat-value {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
-  text-shadow: 0 0 18px rgba(46, 201, 192, 0.15);
+  color: var(--text);
+  text-shadow: none;
 }
 
 .app--immersive .page-header h2,
 .app--immersive .panel-head h2,
 .app--immersive .section-title {
   font-family: var(--font-display);
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+  color: var(--text);
 }
 
 .app--immersive .page-blurb {
@@ -181,7 +210,8 @@
 .app--immersive button {
   border-radius: var(--radius-sm);
   border: 1px solid var(--line);
-  background: rgba(20, 30, 48, 0.9);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--text);
   transition:
     background var(--motion-duration) var(--motion-ease),
     border-color var(--motion-duration) var(--motion-ease),
@@ -191,34 +221,65 @@
 
 .app--immersive button:hover:not(:disabled) {
   border-color: var(--line-strong);
-  background: rgba(28, 42, 68, 0.95);
+  background: rgba(255, 255, 255, 0.92);
 }
 
 .app--immersive button.primary {
-  background: linear-gradient(180deg, #36d6cd, var(--accent-strong));
+  background: linear-gradient(180deg, #8a7b9a, var(--accent-strong));
   color: var(--accent-ink);
-  border-color: rgba(46, 201, 192, 0.55);
+  border-color: rgba(122, 107, 138, 0.45);
   font-weight: 600;
-  box-shadow: 0 0 20px rgba(46, 201, 192, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  box-shadow: 0 6px 18px rgba(95, 82, 109, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
 
 .app--immersive button.primary:hover:not(:disabled) {
-  filter: brightness(1.06);
-  box-shadow: 0 0 28px rgba(46, 201, 192, 0.35);
+  filter: brightness(1.04);
+  box-shadow: 0 8px 22px rgba(95, 82, 109, 0.28);
 }
 
 .app--immersive .segment-nav {
-  background: rgba(10, 16, 28, 0.65);
-  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.6);
   border-radius: 999px;
   padding: 3px;
   gap: 2px;
+  backdrop-filter: blur(12px);
 }
 
 .app--immersive .segment-btn.active {
-  background: rgba(46, 201, 192, 0.18);
+  background: rgba(122, 107, 138, 0.14);
   color: var(--text);
   box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+
+/* —— Status pills (soft watercolor) —— */
+.app--immersive .pill,
+.app--immersive .tag,
+.app--immersive .badge,
+.app--immersive .status-pill {
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.app--immersive .pill.ok,
+.app--immersive .tag.ok,
+.app--immersive .badge.ok {
+  background: var(--ok-dim);
+  color: #2f6b4c;
+}
+
+.app--immersive .pill.warn,
+.app--immersive .tag.warn,
+.app--immersive .badge.warn {
+  background: var(--warn-dim);
+  color: #8a6230;
+}
+
+.app--immersive .pill.info,
+.app--immersive .tag.info,
+.app--immersive .badge.info {
+  background: var(--info-dim);
+  color: #3f5f7a;
 }
 
 /* —— Overview hero density —— */
@@ -240,17 +301,22 @@
 .app--immersive .pipeline-board,
 .app--immersive .overview-pipeline {
   box-shadow: var(--shadow-float);
-  border: 1px solid rgba(46, 201, 192, 0.18);
-  background:
-    linear-gradient(145deg, rgba(18, 32, 52, 0.95), rgba(10, 16, 28, 0.9));
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.58);
+  backdrop-filter: var(--glass);
+  -webkit-backdrop-filter: var(--glass);
 }
 
 /* —— License / Gate —— */
 .app--immersive .license-gate,
-.license-gate {
-  background:
+.license-gate,
+.license-gate--immersive {
+  background-color: var(--bg-0);
+  background-image:
     var(--vol-light),
-    linear-gradient(160deg, #050810, #0c1528 55%, #070b14);
+    var(--wash-image);
+  background-size: cover, cover;
+  background-position: center, center;
   color: var(--text);
   min-height: 100%;
 }
@@ -263,26 +329,29 @@
 .license-splash .license-brand-name,
 .license-card .license-brand-name {
   font-family: var(--font-display);
-  letter-spacing: 0.2em;
+  letter-spacing: 0.14em;
+  color: var(--text);
 }
 
 .license-card {
-  background: rgba(14, 22, 38, 0.92) !important;
-  border: 1px solid var(--line) !important;
+  background: rgba(255, 255, 255, 0.68) !important;
+  border: 1px solid rgba(255, 255, 255, 0.75) !important;
   box-shadow: var(--shadow-float) !important;
   color: var(--text);
+  backdrop-filter: var(--glass);
+  -webkit-backdrop-filter: var(--glass);
 }
 
 .license-card textarea,
 .license-card input {
-  background: rgba(8, 12, 22, 0.9) !important;
+  background: rgba(255, 255, 255, 0.85) !important;
   border: 1px solid var(--line) !important;
   color: var(--text) !important;
 }
 
 .license-mark {
-  background: linear-gradient(145deg, rgba(46, 201, 192, 0.35), rgba(77, 163, 255, 0.2)) !important;
-  box-shadow: 0 0 32px rgba(46, 201, 192, 0.35);
+  background: linear-gradient(145deg, rgba(170, 150, 195, 0.55), rgba(210, 195, 185, 0.35)) !important;
+  box-shadow: 0 8px 28px rgba(90, 70, 110, 0.18);
 }
 
 /* —— Notify / celebrate —— */
@@ -290,17 +359,20 @@
 .app--immersive .notify-banner,
 .app--immersive .celebrate {
   backdrop-filter: var(--glass);
-  border: 1px solid var(--line-strong);
+  -webkit-backdrop-filter: var(--glass);
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.8);
   box-shadow: var(--shadow-float);
+  color: var(--text);
 }
 
 .app--immersive .celebrate {
-  animation: celebrate-immersive var(--motion-slow) var(--motion-ease);
+  animation: celebrate-wash var(--motion-slow) var(--motion-ease);
 }
 
-@keyframes celebrate-immersive {
-  0% { opacity: 0; transform: translateY(-8px) scale(0.98); filter: blur(4px); }
-  40% { opacity: 1; transform: translateY(0) scale(1.02); filter: blur(0); }
+@keyframes celebrate-wash {
+  0% { opacity: 0; transform: translateY(-6px) scale(0.99); filter: blur(3px); }
+  45% { opacity: 1; transform: translateY(0) scale(1.01); filter: blur(0); }
   100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 
@@ -324,7 +396,7 @@
 .app--immersive input,
 .app--immersive select,
 .app--immersive textarea {
-  background: rgba(8, 12, 22, 0.85);
+  background: rgba(255, 255, 255, 0.72);
   border: 1px solid var(--line);
   color: var(--text);
   border-radius: var(--radius-sm);
@@ -336,9 +408,10 @@
   outline: none;
   border-color: var(--accent-line);
   box-shadow: 0 0 0 3px var(--accent-dim);
+  background: rgba(255, 255, 255, 0.92);
 }
 
-/* —— Banner tones on dark —— */
+/* —— Banner tones on light wash —— */
 .app--immersive .banner,
 .app--immersive .banner.error,
 .app--immersive .banner-ok {
@@ -347,12 +420,12 @@
 
 .app--immersive .banner.error {
   background: var(--danger-dim) !important;
-  color: #ffc0cb;
+  color: #8a3040;
 }
 
 .app--immersive .banner-ok {
   background: var(--ok-dim) !important;
-  color: #b8f5d4;
+  color: #2f6b4c;
 }
 
 /* —— Ops segment cards —— */
@@ -360,12 +433,19 @@
   min-height: 52px;
   text-align: left;
   padding: 10px 12px;
-  background: rgba(14, 22, 38, 0.9);
+  background: rgba(255, 255, 255, 0.62);
   box-shadow: var(--shadow-soft);
 }
 
 .app--immersive .ops-grid > button.primary {
   box-shadow: var(--shadow-float);
+}
+
+/* —— Dialog overlay —— */
+.app--immersive .app-dialog-overlay,
+.app--immersive .cmdk-overlay {
+  background: rgba(70, 50, 90, 0.22);
+  backdrop-filter: blur(8px);
 }
 
 /* —— Hard freeze: do not restyle LangCombobox layout/positioning semantics ——

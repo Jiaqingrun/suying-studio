@@ -1,6 +1,7 @@
 /**
- * SoundBed — UI 沉浸提示音（切页 / 成功失败 / 消息 / 产线跃迁）。
- * 默认开启；设置可静音。不拦截 L19 真 wav 试听（那条走 preview API，不经本模块）。
+ * SoundBed — UI 氛围提示音（切页 / 成功失败 / 消息 / 产线跃迁）。
+ * 水彩语汇下音色偏柔；默认开启；设置可静音。
+ * 不拦截 L19 真 wav 试听（那条走 preview API，不经本模块）。
  */
 import { playAlertSound, type AlertSoundKind } from "./notifications";
 
