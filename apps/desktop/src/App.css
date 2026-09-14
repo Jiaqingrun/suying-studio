@@ -1,14 +1,15 @@
-/* 速影 — Bright Control Deck（亮色指挥舱） */
+/* 速影 — 高科技立体沉浸指挥台（深空 HUD） */
 
 @import "tailwindcss" source(none);
 @source "./";
 @import "./styles/tokens.css";
+@import "./styles/immersive.css";
 
 :root {
   /* tokens.css 已定义主色；此处保留兼容旧选择器的别名 */
   --radius: 10px;
   --header-h: 56px;
-  --rail-w: 248px;
+  --rail-w: 232px;
 }
 
 * {
@@ -45,17 +46,7 @@ textarea {
   display: grid;
   grid-template-columns: var(--rail-w) 1fr;
   grid-template-rows: var(--header-h) minmax(0, 1fr);
-  background:
-    radial-gradient(1000px 500px at 0% -10%, rgba(184, 69, 50, 0.055), transparent 55%),
-    radial-gradient(800px 400px at 100% 0%, rgba(196, 122, 20, 0.045), transparent 50%),
-    linear-gradient(180deg, #faf6f0 0%, var(--bg-0) 42%, #eee7dd 100%),
-    repeating-linear-gradient(
-      0deg,
-      transparent,
-      transparent 23px,
-      rgba(15, 23, 42, 0.015) 23px,
-      rgba(15, 23, 42, 0.015) 24px
-    );
+  background: var(--bg-0);
 }
 
 .app[data-density="compact"] .panel,
@@ -74,15 +65,7 @@ textarea {
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--line);
-  background:
-    linear-gradient(180deg, rgba(255, 252, 247, 0.97), rgba(238, 231, 221, 0.98)),
-    repeating-linear-gradient(
-      0deg,
-      transparent,
-      transparent 23px,
-      rgba(15, 23, 42, 0.02) 23px,
-      rgba(15, 23, 42, 0.02) 24px
-    );
+  background: var(--surface-0);
   padding: 0 0 16px;
   min-height: 0;
 }

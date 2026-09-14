@@ -16,6 +16,7 @@ import { PublishedCleanupControl } from "../PublishedCleanupControl";
 import type { LayoutDensityPref, OpsSection, SettingsSection, Tab } from "../types";
 import type { AskConfirmFn, NotifyFn, TitlePoolSummary } from "./pageTypes";
 import { settingsPasswordChange } from "../settingsLock";
+import { isSoundBedMuted, setSoundBedMuted } from "../soundBed";
 
 function localPreviewAudioSrc(path: string): string {
   const p = (path || "").trim();
@@ -129,6 +130,49 @@ export function SystemEventControlPanel({ notify }: { notify: NotifyFn }) {
         />
       </label>
     </div>
+  );
+}
+
+function SoundBedMuteControl({ notify }: { notify: NotifyFn }) {
+  const [muted, setMuted] = useState(() => isSoundBedMuted());
+
+  useEffect(() => {
+    const onChange = () => setMuted(isSoundBedMuted());
+    window.addEventListener("suying:soundbed", onChange);
+    return () => window.removeEventListener("suying:soundbed", onChange);
+  }, []);
+
+  return (
+    <>
+      <h3 className="section-title">沉浸声效（SoundBed）</h3>
+      <p className="hint" style={{ marginBottom: 10 }}>
+        切页、成功/失败提示与消息到达的界面音。默认开启。静音不影响设置页「试听一句」真 wav（L19）。
+      </p>
+      <div className="actions">
+        <button
+          type="button"
+          className={!muted ? "primary" : undefined}
+          onClick={() => {
+            setSoundBedMuted(false);
+            setMuted(false);
+            notify("沉浸声效已开启", "ok");
+          }}
+        >
+          开启声效
+        </button>
+        <button
+          type="button"
+          className={muted ? "primary" : undefined}
+          onClick={() => {
+            setSoundBedMuted(true);
+            setMuted(true);
+            notify("沉浸声效已静音", "info");
+          }}
+        >
+          一键静音
+        </button>
+      </div>
+    </>
   );
 }
 
@@ -874,7 +918,7 @@ export function SettingsPage({
     <section className="page-stack settings-page">
       <PageHeader
         title="设置"
-        blurb="客户、品牌、旁白音色、偏好与路径"
+        blurb="客户与盘 · 客户级配置、偏好、路径与音色（L19 试听不受界面静音影响）"
         actions={
           <button type="button" onClick={() => void refreshAll()}>
             刷新
@@ -1215,6 +1259,8 @@ export function SettingsPage({
                   </button>
                 ))}
               </div>
+
+              <SoundBedMuteControl notify={notify} />
 
               <h3 className="section-title">审片决策策略</h3>
               <p className="hint" style={{ marginBottom: 10 }}>

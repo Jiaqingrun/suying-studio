@@ -152,7 +152,12 @@ function App() {
   const goTab = useCallback((t: Tab, opts?: { produce?: ProduceWorkspace; publish?: PublishWorkspace; settings?: SettingsSection; ops?: OpsSection; section?: string; guideTarget?: string }) => {
     startTransition(() => {
       setMountedTabs((tabs) => (tabs.includes(t) ? tabs : [...tabs, t]));
-      setTab(t);
+      setTab((prev) => {
+        if (prev !== t) {
+          void import("./soundBed").then(({ playSoundBed }) => playSoundBed("tab"));
+        }
+        return t;
+      });
       if (opts?.produce) setProduceWorkspace(opts.produce);
       if (opts?.publish) setPublishWorkspace(opts.publish);
       if (opts?.settings) setSettingsSection(opts.settings);

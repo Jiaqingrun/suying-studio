@@ -258,7 +258,7 @@ export function ReviewPage({
     <section className="page-stack review-page">
       <PageHeader
         title="成片抽检"
-        blurb="只处理证据冲突或无法自动判定的成片"
+        blurb="过片子 · 影院抽检；只处理证据冲突或无法自动判定的成片"
         actions={<span className="count">{pendingCount} 条待人工</span>}
       />
       <p className="hint">

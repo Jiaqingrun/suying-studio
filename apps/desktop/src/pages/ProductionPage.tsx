@@ -371,14 +371,14 @@ export function ProductionPage({
     <section className="page-stack production-page">
       <PageHeader
         title="生产"
-        blurb="主按钮「生成跟镜精品」走画面跟述；日常日更仍可用次要入口。门禁通过后自动过审出包"
+        blurb="做片子 · 任务队列与素材库；主按钮「生成跟镜精品」走画面跟述"
       />
       <SegmentNav
         ariaLabel="生产分区"
         value={workspace}
         onChange={onWorkspaceChange}
         items={[
-          { id: "tasks", label: "任务" },
+          { id: "tasks", label: "任务队列" },
           { id: "assets", label: "素材库", badge: assets.length },
         ]}
       />

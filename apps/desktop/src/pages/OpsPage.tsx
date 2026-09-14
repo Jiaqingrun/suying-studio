@@ -20,12 +20,12 @@ import { SystemEventControlPanel } from "./SettingsPage";
 
 const OPS_SEGMENTS: Array<{ id: OpsSection; label: string }> = [
   { id: "ai", label: "本地 AI" },
-  { id: "services", label: "服务" },
+  { id: "services", label: "引擎服务" },
   { id: "backup", label: "数据保护" },
   { id: "carrier", label: "T2S 载体" },
-  { id: "logs", label: "日志" },
-  { id: "health", label: "健康" },
-  { id: "advanced", label: "高级" },
+  { id: "logs", label: "运行日志" },
+  { id: "health", label: "路径健康" },
+  { id: "advanced", label: "高级运维" },
 ];
 
 export interface OpsPageProps {
@@ -203,7 +203,7 @@ export function OpsPage({
     <section className="page-stack ops-page">
       <PageHeader
         title="运维"
-        blurb="本机服务、本地 AI 与载体同步。首装路径与危险配置请到「设置 · 高级」。"
+        blurb="养机器 · 引擎、本地 AI、载体与健康。客户级配置请到「设置」。"
         actions={
           <>
             <button type="button" onClick={() => onSectionChange("logs")}>查看日志</button>

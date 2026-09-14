@@ -135,7 +135,7 @@ export function PublishPage({
 
   return (
     <section className="page-stack publish-page">
-      <PageHeader title="发布" blurb="物料、发布台与触达" />
+      <PageHeader title="发布" blurb="发出去 · 准备视频、快速发布、手动台与软文" />
       <SegmentNav
         ariaLabel="发布业务域"
         value={domain}

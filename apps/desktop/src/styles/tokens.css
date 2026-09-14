@@ -1,50 +1,59 @@
-/* 速影 · 暖宣纸主题（M 系列 Retina · 密度分档） */
+/* 速影 · 高科技立体沉浸（深空 HUD · M 系列 Retina）
+ * 完全替换暖宣纸 / 石青墨纸视觉权威。兼容既有 var(--*) 消费点。
+ */
 :root {
-  /* Paper / ink */
-  --bg-0: #f3eee6;
-  --bg-1: #ebe4da;
-  --bg-2: #e2d8cc;
-  --bg-3: #d6caba;
-  --surface-0: #f7f2ea;
-  --surface-1: rgba(255, 252, 247, 0.92);
-  --surface-2: rgba(255, 255, 255, 0.78);
-  --line: rgba(46, 36, 28, 0.1);
-  --line-strong: rgba(46, 36, 28, 0.18);
-  --text: #2a211a;
-  --text-dim: #5a4c40;
-  --text-mute: #8a7a6a;
+  /* Deep space layers */
+  --bg-0: #070b14;
+  --bg-1: #0c1220;
+  --bg-2: #121a2c;
+  --bg-3: #1a2438;
+  --surface-0: #0e1626;
+  --surface-1: rgba(18, 28, 48, 0.88);
+  --surface-2: rgba(28, 42, 68, 0.55);
+  --line: rgba(140, 180, 255, 0.12);
+  --line-strong: rgba(160, 200, 255, 0.28);
+  --text: #e8eef8;
+  --text-dim: #9aadc8;
+  --text-mute: #6b7f9c;
 
-  /* Cinnabar accent */
-  --accent: #b84532;
-  --accent-strong: #9e3929;
-  --accent-ink: #ffffff;
-  --accent-dim: rgba(184, 69, 50, 0.12);
-  --accent-line: rgba(184, 69, 50, 0.42);
+  /* Precision accent — cyan-teal HUD, not purple candy */
+  --accent: #2ec9c0;
+  --accent-strong: #1aa89f;
+  --accent-ink: #041018;
+  --accent-dim: rgba(46, 201, 192, 0.14);
+  --accent-line: rgba(46, 201, 192, 0.45);
+  --accent-glow: rgba(46, 201, 192, 0.35);
+
+  /* Secondary readouts */
+  --hud-amber: #f0a030;
+  --hud-blue: #4da3ff;
+  --hud-mag: #e85d8a;
 
   /* Status */
-  --warn: #c47a14;
-  --warn-dim: rgba(196, 122, 20, 0.12);
-  --danger: #c62828;
-  --danger-dim: rgba(198, 40, 40, 0.12);
-  --ok: #2f7a4f;
-  --ok-dim: rgba(47, 122, 79, 0.12);
-  --info: #3d6b8a;
-  --info-dim: rgba(61, 107, 138, 0.12);
-  --amber: #c47a14;
+  --warn: #e0a020;
+  --warn-dim: rgba(224, 160, 32, 0.14);
+  --danger: #ff4d6a;
+  --danger-dim: rgba(255, 77, 106, 0.14);
+  --ok: #3dd68c;
+  --ok-dim: rgba(61, 214, 140, 0.14);
+  --info: #4da3ff;
+  --info-dim: rgba(77, 163, 255, 0.14);
+  --amber: #e0a020;
 
-  /* Brand (video lock) */
+  /* Brand (video lock overlays — unchanged product colors) */
   --brand-red: #e10600;
   --brand-yellow: #ffe600;
 
-  /* Type */
-  --font-sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "SF Pro Text", "Segoe UI", sans-serif;
+  /* Type — expressive, Chinese-first, no Inter/Roboto/Arial */
+  --font-display: "SF Pro Display", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
+  --font-sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "SF Pro Text", sans-serif;
   --font-mono: "SF Mono", "Menlo", "Consolas", ui-monospace, monospace;
 
-  /* Density tokens — standard default; overridden by [data-density] */
-  --radius: 12px;
-  --radius-sm: 8px;
+  /* Density */
+  --radius: 10px;
+  --radius-sm: 6px;
   --header-h: 56px;
-  --rail-w: 220px;
+  --rail-w: 232px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -57,14 +66,37 @@
   --btn-h: 34px;
   --hit-min: 36px;
   --card-pad: 18px;
-  --shadow-card: 0 2px 10px rgba(42, 33, 26, 0.06);
+  --shadow-soft: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  --shadow-card:
+    0 0 0 1px rgba(140, 180, 255, 0.08),
+    0 12px 40px rgba(0, 0, 0, 0.45),
+    0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-float:
+    0 0 0 1px rgba(46, 201, 192, 0.2),
+    0 20px 60px rgba(0, 0, 0, 0.55),
+    0 0 40px rgba(46, 201, 192, 0.08);
   --content-max: 1400px;
+
+  /* Depth / glass */
+  --z-rail: 20;
+  --z-topbar: 30;
+  --z-float: 40;
+  --z-modal: 100;
+  --glass: blur(18px) saturate(1.25);
+  --vol-light: radial-gradient(ellipse 80% 50% at 20% 0%, rgba(46, 201, 192, 0.12), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 90% 10%, rgba(77, 163, 255, 0.1), transparent 50%),
+    radial-gradient(ellipse 50% 60% at 50% 100%, rgba(232, 93, 138, 0.05), transparent 45%);
+
+  /* Motion */
+  --motion-duration: 280ms;
+  --motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-slow: 560ms;
+  --parallax: 6px;
 }
 
-/* Compact: more content, readable floor */
 :root[data-density="compact"],
 .app[data-density="compact"] {
-  --rail-w: 176px;
+  --rail-w: 188px;
   --header-h: 48px;
   --space-3: 8px;
   --space-4: 10px;
@@ -76,13 +108,12 @@
   --btn-h: 32px;
   --hit-min: 36px;
   --card-pad: 12px;
-  --radius: 10px;
+  --radius: 8px;
 }
 
-/* Wide: more columns / breathing room without giant type */
 :root[data-density="wide"],
 .app[data-density="wide"] {
-  --rail-w: 248px;
+  --rail-w: 252px;
   --header-h: 58px;
   --space-4: 18px;
   --space-5: 28px;
@@ -94,14 +125,14 @@
 }
 
 @theme {
-  --color-deck-bg: #f3eee6;
-  --color-deck-panel: #ebe4da;
-  --color-deck-ink: #2a211a;
-  --color-deck-muted: #5a4c40;
-  --color-deck-accent: #b84532;
-  --color-deck-danger: #c62828;
-  --color-deck-warn: #c47a14;
-  --color-deck-ok: #2f7a4f;
+  --color-deck-bg: #070b14;
+  --color-deck-panel: #0c1220;
+  --color-deck-ink: #e8eef8;
+  --color-deck-muted: #9aadc8;
+  --color-deck-accent: #2ec9c0;
+  --color-deck-danger: #ff4d6a;
+  --color-deck-warn: #e0a020;
+  --color-deck-ok: #3dd68c;
   --font-sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
   --font-mono: "SF Mono", "Menlo", ui-monospace, monospace;
 }
@@ -109,5 +140,7 @@
 @media (prefers-reduced-motion: reduce) {
   :root {
     --motion-duration: 0ms;
+    --motion-slow: 0ms;
+    --parallax: 0px;
   }
 }

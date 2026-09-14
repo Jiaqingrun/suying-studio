@@ -1,0 +1,384 @@
+/* 速影 · 高科技立体沉浸层（叠在 tokens + App.css 之上；不改 .lang-combo* 行为） */
+/* tokens 已由 App.css 先导入 */
+
+/* —— Volume light stage —— */
+.app.app--immersive,
+.app--gui.app--immersive {
+  background:
+    var(--vol-light),
+    linear-gradient(165deg, #050810 0%, var(--bg-0) 38%, #0a1020 100%);
+  color: var(--text);
+}
+
+.app.app--immersive::before {
+  content: "";
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 70% 40% at 12% 8%, rgba(46, 201, 192, 0.09), transparent 50%),
+    radial-gradient(ellipse 50% 35% at 88% 0%, rgba(77, 163, 255, 0.08), transparent 48%);
+  animation: hud-breathe var(--motion-slow) var(--motion-ease) infinite alternate;
+}
+
+.app.app--immersive > * {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes hud-breathe {
+  from { opacity: 0.7; }
+  to { opacity: 1; }
+}
+
+/* —— Rail glass —— */
+.app--immersive .rail {
+  z-index: var(--z-rail);
+  background:
+    linear-gradient(180deg, rgba(14, 22, 38, 0.96), rgba(8, 12, 22, 0.98)),
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 31px,
+      rgba(140, 180, 255, 0.03) 31px,
+      rgba(140, 180, 255, 0.03) 32px
+    );
+  border-right: 1px solid var(--line);
+  box-shadow: 8px 0 40px rgba(0, 0, 0, 0.35), var(--shadow-soft);
+  backdrop-filter: var(--glass);
+}
+
+.app--immersive .rail-foot {
+  background: linear-gradient(180deg, transparent 0%, rgba(8, 12, 22, 0.95) 12px);
+}
+
+.app--immersive .brand-name {
+  font-family: var(--font-display);
+  letter-spacing: 0.18em;
+  text-shadow: 0 0 24px rgba(46, 201, 192, 0.25);
+}
+
+.app--immersive .brand-tag {
+  color: var(--text-mute);
+  letter-spacing: 0.04em;
+}
+
+.app--immersive .nav {
+  gap: 0;
+  padding: 10px 8px 14px;
+}
+
+.app--immersive .nav-group {
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(140, 180, 255, 0.06);
+}
+
+.app--immersive .nav-group:last-child {
+  border-bottom: 0;
+  margin-bottom: 0;
+}
+
+.app--immersive .nav-group-label {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  padding: 6px 12px 4px;
+  opacity: 0.85;
+}
+
+.app--immersive .nav-btn {
+  border-radius: 8px;
+  transition:
+    color var(--motion-duration) var(--motion-ease),
+    background var(--motion-duration) var(--motion-ease),
+    border-color var(--motion-duration) var(--motion-ease),
+    box-shadow var(--motion-duration) var(--motion-ease),
+    transform var(--motion-duration) var(--motion-ease);
+}
+
+.app--immersive .nav-btn:hover {
+  background: rgba(46, 201, 192, 0.08);
+  border-color: rgba(46, 201, 192, 0.22);
+  transform: translateX(2px);
+}
+
+.app--immersive .nav-btn.active {
+  background:
+    linear-gradient(90deg, rgba(46, 201, 192, 0.22), rgba(46, 201, 192, 0.06));
+  border-color: var(--accent-line);
+  box-shadow:
+    inset 3px 0 0 var(--accent),
+    0 0 24px rgba(46, 201, 192, 0.12);
+}
+
+.app--immersive .topbar {
+  z-index: var(--z-topbar);
+  background: rgba(10, 16, 28, 0.78);
+  border-bottom: 1px solid var(--line);
+  backdrop-filter: var(--glass);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+}
+
+.app--immersive .workspace {
+  background:
+    linear-gradient(180deg, rgba(7, 11, 20, 0.2), transparent 120px);
+}
+
+/* —— Surfaces / panels —— */
+.app--immersive .panel,
+.app--immersive .page-section,
+.app--immersive .review-card,
+.app--immersive .just-done-card,
+.app--immersive .human-alert-card,
+.app--immersive .stat,
+.app--immersive .ops-panel,
+.app--immersive .empty-state,
+.app--immersive .app-dialog,
+.app--immersive .cmdk-panel {
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-card);
+  border-radius: var(--radius);
+}
+
+.app--immersive .stat {
+  position: relative;
+  overflow: hidden;
+}
+
+.app--immersive .stat::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: linear-gradient(180deg, var(--accent), transparent);
+  opacity: 0.7;
+}
+
+.app--immersive .stat-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  text-shadow: 0 0 18px rgba(46, 201, 192, 0.15);
+}
+
+.app--immersive .page-header h2,
+.app--immersive .panel-head h2,
+.app--immersive .section-title {
+  font-family: var(--font-display);
+  letter-spacing: 0.04em;
+}
+
+.app--immersive .page-blurb {
+  color: var(--text-dim);
+}
+
+/* —— Buttons —— */
+.app--immersive button {
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: rgba(20, 30, 48, 0.9);
+  transition:
+    background var(--motion-duration) var(--motion-ease),
+    border-color var(--motion-duration) var(--motion-ease),
+    box-shadow var(--motion-duration) var(--motion-ease),
+    transform var(--motion-duration) var(--motion-ease);
+}
+
+.app--immersive button:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  background: rgba(28, 42, 68, 0.95);
+}
+
+.app--immersive button.primary {
+  background: linear-gradient(180deg, #36d6cd, var(--accent-strong));
+  color: var(--accent-ink);
+  border-color: rgba(46, 201, 192, 0.55);
+  font-weight: 600;
+  box-shadow: 0 0 20px rgba(46, 201, 192, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.app--immersive button.primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+  box-shadow: 0 0 28px rgba(46, 201, 192, 0.35);
+}
+
+.app--immersive .segment-nav {
+  background: rgba(10, 16, 28, 0.65);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.app--immersive .segment-btn.active {
+  background: rgba(46, 201, 192, 0.18);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+
+/* —— Overview hero density —— */
+.app--immersive .overview-page {
+  gap: 14px;
+}
+
+.app--immersive .overview-command {
+  display: grid;
+  gap: 12px;
+}
+
+.app--immersive .overview-kpi-strip .status-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.app--immersive .pipeline-board,
+.app--immersive .overview-pipeline {
+  box-shadow: var(--shadow-float);
+  border: 1px solid rgba(46, 201, 192, 0.18);
+  background:
+    linear-gradient(145deg, rgba(18, 32, 52, 0.95), rgba(10, 16, 28, 0.9));
+}
+
+/* —— License / Gate —— */
+.app--immersive .license-gate,
+.license-gate {
+  background:
+    var(--vol-light),
+    linear-gradient(160deg, #050810, #0c1528 55%, #070b14);
+  color: var(--text);
+  min-height: 100%;
+}
+
+.license-splash {
+  text-align: center;
+  padding: 48px 24px;
+}
+
+.license-splash .license-brand-name,
+.license-card .license-brand-name {
+  font-family: var(--font-display);
+  letter-spacing: 0.2em;
+}
+
+.license-card {
+  background: rgba(14, 22, 38, 0.92) !important;
+  border: 1px solid var(--line) !important;
+  box-shadow: var(--shadow-float) !important;
+  color: var(--text);
+}
+
+.license-card textarea,
+.license-card input {
+  background: rgba(8, 12, 22, 0.9) !important;
+  border: 1px solid var(--line) !important;
+  color: var(--text) !important;
+}
+
+.license-mark {
+  background: linear-gradient(145deg, rgba(46, 201, 192, 0.35), rgba(77, 163, 255, 0.2)) !important;
+  box-shadow: 0 0 32px rgba(46, 201, 192, 0.35);
+}
+
+/* —— Notify / celebrate —— */
+.app--immersive .notify-toast,
+.app--immersive .notify-banner,
+.app--immersive .celebrate {
+  backdrop-filter: var(--glass);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-float);
+}
+
+.app--immersive .celebrate {
+  animation: celebrate-immersive var(--motion-slow) var(--motion-ease);
+}
+
+@keyframes celebrate-immersive {
+  0% { opacity: 0; transform: translateY(-8px) scale(0.98); filter: blur(4px); }
+  40% { opacity: 1; transform: translateY(0) scale(1.02); filter: blur(0); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* —— Tab pane enter —— */
+.app--immersive .tab-pane:not([hidden]) {
+  animation: pane-rise var(--motion-duration) var(--motion-ease);
+}
+
+@keyframes pane-rise {
+  from {
+    opacity: 0;
+    transform: translateY(var(--parallax)) translateZ(0);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* —— Inputs —— */
+.app--immersive input,
+.app--immersive select,
+.app--immersive textarea {
+  background: rgba(8, 12, 22, 0.85);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+}
+
+.app--immersive input:focus,
+.app--immersive select:focus,
+.app--immersive textarea:focus {
+  outline: none;
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+/* —— Banner tones on dark —— */
+.app--immersive .banner,
+.app--immersive .banner.error,
+.app--immersive .banner-ok {
+  border: 1px solid var(--line);
+}
+
+.app--immersive .banner.error {
+  background: var(--danger-dim) !important;
+  color: #ffc0cb;
+}
+
+.app--immersive .banner-ok {
+  background: var(--ok-dim) !important;
+  color: #b8f5d4;
+}
+
+/* —— Ops segment cards —— */
+.app--immersive .ops-grid > button {
+  min-height: 52px;
+  text-align: left;
+  padding: 10px 12px;
+  background: rgba(14, 22, 38, 0.9);
+  box-shadow: var(--shadow-soft);
+}
+
+.app--immersive .ops-grid > button.primary {
+  box-shadow: var(--shadow-float);
+}
+
+/* —— Hard freeze: do not restyle LangCombobox layout/positioning semantics ——
+ * Color inheritance via tokens is OK; positioning/portal rules stay in App.css .lang-combo*
+ */
+
+@media (prefers-reduced-motion: reduce) {
+  .app.app--immersive::before,
+  .app--immersive .tab-pane:not([hidden]),
+  .app--immersive .celebrate,
+  .app--immersive .nav-btn {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}

@@ -5,7 +5,13 @@ import { outputDisplayLabel } from "../displayId";
 import { openMediaTarget } from "../openMediaTarget";
 import { ActivityTicker, type ActivityItem } from "../shell/ActivityTicker";
 import { OverviewPipeline } from "../shell/OverviewPipeline";
-import { EmptyState, PageHeader, PageSection, StepFooter } from "../shell/PageChrome";
+import {
+  EmptyState,
+  PageHeader,
+  PageSection,
+  StatusStrip,
+  StepFooter,
+} from "../shell/PageChrome";
 import type { HumanAlert, PublishWorkspace, Tab } from "../types";
 import { WorkspaceSyncControl } from "../WorkspaceSyncControl";
 import type { WorkspaceProbeView, WorkspaceSyncPrefs } from "../workspaceSync";
@@ -84,8 +90,11 @@ export function OverviewPage({
     api
       .humanAlerts()
       .then((result) => setHumanAlerts(result.alerts || []))
-      .catch(() => null);
-  }, []);
+      .catch((e: unknown) => {
+        setHumanAlerts([]);
+        notify(`人工告警拉取失败：${String(e)}`, "warn");
+      });
+  }, [notify]);
 
   // Dynamic task board: refresh counts while overview is visible.
   useEffect(() => {
@@ -109,11 +118,18 @@ export function OverviewPage({
       .slice(0, 5);
   }, [recentOutputs]);
 
+  const failureRate =
+    opsReport?.failure_rate != null
+      ? `${(opsReport.failure_rate * 100).toFixed(1)}%`
+      : report?.failure_rate != null
+        ? `${(report.failure_rate * 100).toFixed(1)}%`
+        : "—";
+
   return (
     <section className="page-stack overview-page">
       <PageHeader
         title="总览"
-        blurb="先看动态与泳道：有日历则开跑，无计划去生产填日历"
+        blurb="开工台 · 一眼看清泳道、告警与下一步；数字只来自引擎真源"
         actions={
           <WorkspaceSyncControl
             phase={workspacePhase}
@@ -128,10 +144,151 @@ export function OverviewPage({
           />
         }
       />
+
+      <div className="overview-command">
+        {health && !health.path_health.ok ? (
+          <div className="banner error">
+            路径异常，禁止生产：{(health.path_health.errors || []).join("；") || "请检查片库/成片目录"}
+          </div>
+        ) : null}
+
+        {todayPlan ? (
+          <div className="banner-ok">
+            今日计划 {String(todayPlan.day)} · {productionThemeLabel(String(todayPlan.theme || ""))} · 配额{" "}
+            {String(todayPlan.quota)}
+            {" · "}
+            自动 {autoDaily ? `${autoHour}:00` : "关"}
+          </div>
+        ) : (
+          <div className="banner error">今日无日历计划 — 去生产填日历</div>
+        )}
+
+        <OverviewPipeline nodes={pipelineNodes} onJump={setTab} pathBlocked={pathBlocked} />
+
+        <div className="overview-kpi-strip">
+          <StatusStrip
+            items={[
+              {
+                label: "可用成片",
+                value: opsReport?.ready_available ?? report?.ready_available ?? "—",
+                tone: "ok",
+              },
+              {
+                label: "今日通过/新发",
+                value: opsReport
+                  ? `${opsReport.production_passed_today} / ${opsReport.published_today}`
+                  : "—",
+              },
+              {
+                label: "待人工",
+                value: opsReport?.uncertain_open ?? "—",
+                tone: Number(opsReport?.uncertain_open ?? 0) > 0 ? "warn" : "neutral",
+              },
+              {
+                label: "失败率",
+                value: failureRate,
+                tone: failureRate !== "—" && failureRate !== "0.0%" ? "warn" : "neutral",
+              },
+              {
+                label: "设备",
+                value: opsReport?.health_line
+                  ? "见运维"
+                  : health
+                    ? `${health.path_health.free_disk_gb.toFixed(0)} GB`
+                    : "—",
+                tone:
+                  opsReport &&
+                  (!opsReport.library_ok || !opsReport.output_ok || opsReport.db_ok === false)
+                    ? "danger"
+                    : "ok",
+              },
+            ]}
+          />
+          <p className="hint" style={{ marginTop: 6 }}>
+            {opsReport?.health_line ||
+              (health
+                ? `设备可用 · 剩余空间 ${health.path_health.free_disk_gb.toFixed(0)} GB`
+                : "正在读取设备状态")}
+            {" · "}
+            来源 {opsReport?.source === "database" ? "数据库" : "—"}
+            {" · "}
+            {opsReport?.generated_at
+              ? new Date(opsReport.generated_at).toLocaleString("zh-CN")
+              : "—"}
+          </p>
+        </div>
+
+        <div className="actions">
+          <button
+            type="button"
+            className={`primary${actionBusy === "calJob" ? " is-busy" : ""}`}
+            disabled={actionBusy === "calJob" || (health ? !health.path_health.ok : false)}
+            onClick={() => {
+              setActionBusy("calJob");
+              api
+                .createJobFromCalendar()
+                .then(() => {
+                  notify("已按今日日历创建生产任务", "ok");
+                  return refreshAll();
+                })
+                .catch((e: unknown) => notify(String(e), "err"))
+                .finally(() => setActionBusy(null));
+            }}
+          >
+            {actionBusy === "calJob" ? "创建中…" : "按今日日历开跑"}
+          </button>
+          <button type="button" onClick={() => setTab("produce")}>
+            去生产
+          </button>
+          <button type="button" onClick={() => setTab("publish")}>
+            去发布
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowWizard(false);
+              setTab("settings");
+            }}
+          >
+            修改路径
+          </button>
+        </div>
+      </div>
+
+      <PageSection
+        id="human-work"
+        title="待人工"
+        description="仅规则确认、登录/验证码、结果不明、熔断与错过窗口。"
+        status={humanAlerts.length ? `${humanAlerts.length} 项` : "已清空"}
+        tone={humanAlerts.length ? "attention" : "success"}
+      >
+        {humanAlerts.map((alert) => (
+          <article key={alert.id} className="human-alert-card">
+            <strong>{alert.summary}</strong>
+            <div className="actions-inline">
+              <button type="button" className="primary" onClick={() => setTab("publish")}>
+                去处理
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  void api.acknowledgeHumanAlert(alert.id).then(() =>
+                    setHumanAlerts((current) => current.filter((item) => item.id !== alert.id)),
+                  )
+                }
+              >
+                我已知晓
+              </button>
+            </div>
+          </article>
+        ))}
+        {!humanAlerts.length ? <EmptyState title="当前没有必须人工处理的事项" /> : null}
+      </PageSection>
+
       <PageSection
         id="just-done"
         title="刚完成"
-        description="最近成片（唯一编号）。可打开文件位置或跳转下一步。"
+        description="最近成片（唯一编号）。"
         status={justDone.length ? `${justDone.length} 条` : "暂无"}
       >
         {justDone.length ? (
@@ -187,170 +344,8 @@ export function OverviewPage({
           <EmptyState title="还没有刚完成的成片" actionLabel="去生产" onAction={() => setTab("produce")} />
         )}
       </PageSection>
-      <PageSection
-        id="human-work"
-        title="唯一待人工队列"
-        description="自动步骤不会出现在这里；只汇总规则确认、登录/验证码、结果不明、熔断和错过窗口。"
-        status={humanAlerts.length ? `${humanAlerts.length} 项` : "已清空"}
-        tone={humanAlerts.length ? "attention" : "success"}
-      >
-        {humanAlerts.map((alert) => (
-          <article key={alert.id} className="human-alert-card">
-            <strong>{alert.summary}</strong>
-            <div className="actions-inline">
-              <button type="button" className="primary" onClick={() => setTab("publish")}>
-                去处理
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  void api.acknowledgeHumanAlert(alert.id).then(() =>
-                    setHumanAlerts((current) => current.filter((item) => item.id !== alert.id)),
-                  )
-                }
-              >
-                我已知晓
-              </button>
-            </div>
-          </article>
-        ))}
-        {!humanAlerts.length ? <EmptyState title="当前没有必须人工处理的事项" /> : null}
-      </PageSection>
+
       <ActivityTicker items={activityItems} onJump={setTab} />
-      <OverviewPipeline nodes={pipelineNodes} onJump={setTab} pathBlocked={pathBlocked} />
-      <div className="stat-grid">
-        <div className="stat">
-          <div className="stat-label">素材</div>
-          <div className="stat-value">{report?.assets ?? "—"}</div>
-        </div>
-        <div className="stat">
-          <div className="stat-label">可用片段</div>
-          <div className="stat-value">
-            {report ? `${report.cliplets_indexed}/${report.cliplets}` : "—"}
-          </div>
-        </div>
-        <div className="stat">
-          <div className="stat-label">可用成片</div>
-          <div className="stat-value">
-            {opsReport?.ready_available ?? report?.ready_available ?? "—"}
-          </div>
-        </div>
-        <div className="stat">
-          <div className="stat-label">已发布 / 已退役</div>
-          <div className="stat-value">
-            {opsReport
-              ? `${opsReport.published} / ${opsReport.retired}`
-              : report
-                ? `${report.published} / ${report.retired}`
-                : "—"}
-          </div>
-        </div>
-        <div className="stat">
-          <div className="stat-label">今日生产通过 / 新发</div>
-          <div className="stat-value" style={{ fontSize: "1rem" }}>
-            {opsReport ? `${opsReport.production_passed_today} / ${opsReport.published_today}` : "—"}
-          </div>
-        </div>
-        <div className="stat">
-          <div className="stat-label">失败率</div>
-          <div className="stat-value">
-            {opsReport?.failure_rate != null
-              ? `${(opsReport.failure_rate * 100).toFixed(1)}%`
-              : report?.failure_rate != null
-                ? `${(report.failure_rate * 100).toFixed(1)}%`
-                : "—"}
-          </div>
-        </div>
-      </div>
-      <div className="ops-bar">
-        <span>
-          生产质量通过率{" "}
-          {opsReport?.quality_pass_rate != null
-            ? `${(opsReport.quality_pass_rate * 100).toFixed(0)}%`
-            : "—"}
-          {" · "}
-          自动通过 {opsReport?.auto_approved ?? "—"}
-          {" · "}
-          待人工 {opsReport?.uncertain_open ?? "—"}
-        </span>
-        <span
-          className={`health-line${
-            opsReport &&
-            (!opsReport.library_ok ||
-              !opsReport.output_ok ||
-              opsReport.db_ok === false)
-              ? " is-warn"
-              : ""
-          }`}
-        >
-          {opsReport?.health_line ||
-            (health
-              ? `设备可用 · 剩余空间 ${health.path_health.free_disk_gb.toFixed(0)} GB`
-              : "正在读取设备状态")}
-        </span>
-      </div>
-      <div className="hint" style={{ marginTop: -4 }}>
-        统计时间 {opsReport?.generated_at ? new Date(opsReport.generated_at).toLocaleString("zh-CN") : "—"}
-        {" · "}业务日 {opsReport?.business_date ?? "—"}
-        {" · "}时区 {opsReport?.timezone ?? "—"}
-        {" · "}来源 {opsReport?.source === "database" ? "数据库" : "—"}
-        {" · "}文件核对{" "}
-        {opsReport?.reconciliation
-          ? opsReport.reconciliation.in_sync
-            ? "一致"
-            : "有差异"
-          : "—"}
-      </div>
-      {todayPlan ? (
-        <div className="banner-ok">
-          今日计划 {String(todayPlan.day)} · {productionThemeLabel(String(todayPlan.theme || ""))} · 配额 {String(todayPlan.quota)}
-        </div>
-      ) : (
-        <div className="banner error">今日无日历计划</div>
-      )}
-      {health && !health.path_health.ok && (
-        <div className="banner error">
-          路径异常，禁止生产：{(health.path_health.errors || []).join("；") || "请检查片库/成片目录"}
-        </div>
-      )}
-      <div className="actions">
-        <button
-          type="button"
-          className={`primary${actionBusy === "calJob" ? " is-busy" : ""}`}
-          disabled={actionBusy === "calJob" || (health ? !health.path_health.ok : false)}
-          onClick={() => {
-            setActionBusy("calJob");
-            api
-              .createJobFromCalendar()
-              .then(() => {
-                notify("已按今日日历创建生产任务", "ok");
-                return refreshAll();
-              })
-              .catch((e: unknown) => notify(String(e), "err"))
-              .finally(() => setActionBusy(null));
-          }}
-        >
-          {actionBusy === "calJob" ? "创建中…" : "按今日日历开跑"}
-        </button>
-        <button type="button" onClick={() => setTab("produce")}>
-          去生产
-        </button>
-        <button type="button" onClick={() => setTab("publish")}>
-          去发布台
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setShowWizard(false);
-            setTab("settings");
-          }}
-        >
-          修改路径（设置）
-        </button>
-      </div>
-      <p className="hint">
-        每日自动生产：{autoDaily ? `${autoHour}:00 开始` : "未开启"}
-      </p>
       <StepFooter current="overview" onJump={setTab} />
     </section>
   );

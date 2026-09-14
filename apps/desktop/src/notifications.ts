@@ -61,9 +61,16 @@ function playMarioCoin(context: AudioContext, now: number): void {
   master.gain.exponentialRampToValueAtTime(0.0001, now + 0.38);
 }
 
-/** App 内提示音：跟随系统音量；优先短促双音 / Mario 币音，失败则静默。 */
+/** App 内提示音：跟随系统音量；优先短促双音 / Mario 币音，失败则静默。
+ *  受 SoundBed 静音开关约束（设置 → 偏好）。L19 真 wav 试听不走本函数。
+ */
 export function playAlertSound(kind: AlertSoundKind = "ok"): boolean {
   try {
+    try {
+      if (localStorage.getItem("suying.soundBed.muted.v1") === "1") return false;
+    } catch {
+      /* ignore */
+    }
     const AudioContextClass =
       window.AudioContext ||
       (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
