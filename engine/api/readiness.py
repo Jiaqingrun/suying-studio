@@ -108,15 +108,17 @@ def build_readiness_snapshot() -> dict[str, Any]:
     chat_probe_ok = False
     narration_model_missing = False
     try:
-        from engine.catalog.ollama_runtime import ollama_health_snapshot
-        from engine.catalog.ollama_status import check_ollama
+        # Hot path: App kickstart probes /readiness with an 800ms budget.
+        # Never call live Ollama HTTP here (hung STAT=T listeners black-hole TCP).
+        from engine.catalog.ollama_runtime import ollama_control_plane_snapshot
+        from engine.catalog.ollama_status import ollama_status_for_health
         from engine.pack.ollama_narration import resolve_narration_model
 
         ollama_narration_model = resolve_narration_model(settings)
-        gateway = ollama_health_snapshot()
+        gateway = ollama_control_plane_snapshot()
         ollama_circuit = gateway.get("circuit") if isinstance(gateway.get("circuit"), dict) else {}
         chat_probe_ok = bool(gateway.get("chat_probe_ok"))
-        base = check_ollama()
+        base = ollama_status_for_health()
         tags = {str(n).split(":")[0] for n in (base.get("models") or [])}
         # Also accept full tag match from model list if present
         model_names = {str(n) for n in (base.get("models") or [])}
@@ -125,7 +127,11 @@ def build_readiness_snapshot() -> dict[str, Any]:
             short = want.split(":")[0]
             narration_model_missing = want not in model_names and short not in tags and want not in tags
     except Exception:  # noqa: BLE001
-        pass
+        import logging
+
+        logging.getLogger("montage.readiness").exception(
+            "readiness ollama telemetry failed (non-fatal)"
+        )
 
     return {
         "ready": ready,

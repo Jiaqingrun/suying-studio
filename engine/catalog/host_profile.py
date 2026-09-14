@@ -6,6 +6,7 @@ import os
 import platform
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -262,7 +263,22 @@ def _python_info() -> tuple[str | None, str | None, bool]:
     return None, None, False
 
 
-def probe_host() -> HostProfile:
+# Background /health ollama refresh calls check_ollama → probe_host often;
+# shelling python -c / which on every hit is pure overhead for stable hosts.
+_HOST_CACHE: HostProfile | None = None
+_HOST_CACHE_AT = 0.0
+_HOST_CACHE_TTL_SEC = 60.0
+
+
+def probe_host(*, force: bool = False) -> HostProfile:
+    global _HOST_CACHE, _HOST_CACHE_AT
+    now = time.monotonic()
+    if (
+        not force
+        and _HOST_CACHE is not None
+        and (now - _HOST_CACHE_AT) < _HOST_CACHE_TTL_SEC
+    ):
+        return _HOST_CACHE
     ensure_host_bin_path()
     ram_b = _mem_bytes()
     ram_gb = round(ram_b / (1024**3), 1) if ram_b else 0.0
@@ -270,7 +286,7 @@ def probe_host() -> HostProfile:
     py_path, py_ver, py_ok = _python_info()
     ff = _which_tool("ffmpeg")
     ol = _which_tool("ollama")
-    return HostProfile(
+    profile = HostProfile(
         ram_gb=ram_gb,
         arch=arch,
         chip=_chip_name(),
@@ -284,6 +300,9 @@ def probe_host() -> HostProfile:
         ollama_cli=bool(ol),
         ollama_path=ol,
     )
+    _HOST_CACHE = profile
+    _HOST_CACHE_AT = now
+    return profile
 
 
 def vision_spec_for_tier(tier: str) -> dict[str, Any]:

@@ -748,6 +748,44 @@
         "落库前剥「画面展示/帧号/空人套话」；地面与靓仔仅行业附加",
         "/index/captions/verify 支持 force；覆盖安装仅换 App"
       ]
+    },
+    "0.8.12": {
+      "title": "Ollama 挂起自愈，App 不再假离线",
+      "summary": "睡眠/唤醒后 Ollama 停在 STAT=T 仍占端口时，/health 不再同步卡死；引擎自动 SIGCONT，桌面 kickstart 改用快速 /readiness。",
+      "highlights": [
+        "/health 的 Ollama 状态改缓存后台刷新，控制面保持亚秒响应",
+        "唤醒与定时 tick 自动恢复挂起的 Ollama（不杀外部进程）",
+        "覆盖安装仅换 App，不冲片库/词池/登录态"
+      ]
+    },
+    "0.8.13": {
+      "title": "就绪探测与挂起恢复加固",
+      "summary": "延续 0.8.12：/readiness 亚秒不碰同步 Ollama 探测；调度器定时 SIGCONT 挂起进程；桌面电源/工作区事件与引擎监督加固，减少假离线与卡死。",
+      "highlights": [
+        "GET /readiness 只读 Ollama 缓存，kickstart 预算内返回",
+        "scheduler 定时恢复 STAT=T 的 Ollama；唤醒链路与文档对齐",
+        "覆盖安装仅换 App，不冲片库/词池/登录态"
+      ]
+    },
+    "0.8.14": {
+      "title": "唤醒调度与触达巡检止血",
+      "summary": "第二轮审查四项真 bug：睡眠唤醒后日更调度停转、消息同步半活双 worker、巡检 last_scanned_at 黑洞、自动上传 poll 超时卡槽。",
+      "highlights": [
+        "DailyScheduler 唤醒后可继续 tick，不再假死停转",
+        "MessageSync 避免半活双 worker；巡检进度正确写入 last_scanned_at",
+        "auto_upload poll 超时释放槽位，不再永久占槽",
+        "覆盖安装仅换 App，不冲片库/词池/登录态"
+      ]
+    },
+    "0.8.15": {
+      "title": "架构互联效率审查收口",
+      "summary": "第三轮审查：解耦 semantic_backfill 对 api 的反向依赖；Ollama 暂停扫描地板、消息入队去 N+1、probe_host 缓存；kickstart/控制面改走 800ms /readiness，CarrierOpsStrip 读 readiness。",
+      "highlights": [
+        "semantic_backfill 去 ops→api 反向依赖",
+        "Ollama 暂停扫描有地板；消息入队去掉 N+1；probe_host 结果缓存",
+        "kickstart/控制面与 CarrierOpsStrip 改读 /readiness（约 800ms 预算）",
+        "覆盖安装仅换 App，不冲片库/词池/登录态"
+      ]
     }
   }
 }

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
+import signal
 import subprocess
 import time
 from pathlib import Path
@@ -14,10 +16,11 @@ from engine.catalog.ollama_runtime import (
     OLLAMA_URL,
     functional_chat_probe,
     functional_embed_probe,
-    ollama_health_snapshot,
     record_success,
     warmup_narration_model,
 )
+
+log = logging.getLogger("montage.ollama_service")
 
 MANAGED_LABEL = "com.qr.suying.ollama"
 MANAGED_BIN = Path.home() / "Suying" / "runtime" / "tools" / "bin" / "ollama"
@@ -26,6 +29,13 @@ USER_MODELS = Path.home() / ".ollama" / "models"
 STATE_FILE = Path.home() / "Suying" / "runtime" / "ollama" / "service_state.json"
 MAX_KICKSTART_WINDOW = 3
 KICKSTART_WINDOW_SEC = 600.0
+# macOS sleep/wake can leave ollama in STAT=T while 11434 still LISTENs;
+# TCP then hangs until client timeout and freezes App /health probes.
+CONT_COOLDOWN_SEC = 15.0
+# Scheduler pause path ticks every 2s; without a scan floor we spam lsof/pgrep
+# forever when nothing is stopped (last_cont_at only updates on SIGCONT).
+CONT_SCAN_COOLDOWN_SEC = 8.0
+_LAST_CONT_SCAN_AT = 0.0
 
 
 def _run(argv: list[str], *, timeout: float = 5.0) -> subprocess.CompletedProcess[str]:
@@ -54,6 +64,157 @@ def listener_pid(port: int = 11434) -> int | None:
 def process_command(pid: int) -> str:
     proc = _run(["ps", "-p", str(pid), "-o", "command="])
     return (proc.stdout or "").strip()
+
+
+def process_state_code(pid: int) -> str:
+    """Return macOS/BSD `ps` state code (e.g. S, R, T). Empty if missing."""
+    proc = _run(["ps", "-p", str(pid), "-o", "state="])
+    return (proc.stdout or "").strip()
+
+
+def is_stopped_state(state: str) -> bool:
+    """True when process is job-control stopped (SIGSTOP / debugger / sleep glitch)."""
+    code = (state or "").strip().upper()
+    return bool(code) and code[0] == "T"
+
+
+def list_ollama_related_pids() -> list[int]:
+    """PIDs for ollama serve / runner (listener first). Best-effort, deduped."""
+    found: list[int] = []
+    seen: set[int] = set()
+    listen = listener_pid()
+    if listen is not None:
+        seen.add(listen)
+        found.append(listen)
+    proc = _run(["pgrep", "-f", "[o]llama"])
+    if proc.returncode == 0:
+        for line in (proc.stdout or "").splitlines():
+            try:
+                pid = int(line.strip())
+            except ValueError:
+                continue
+            if pid in seen:
+                continue
+            cmd = process_command(pid).lower()
+            if "ollama" not in cmd:
+                continue
+            seen.add(pid)
+            found.append(pid)
+    return found
+
+
+def resume_stopped_ollama_processes(*, force: bool = False) -> dict[str, Any]:
+    """SIGCONT any stopped ollama processes so 11434 stops black-holing TCP.
+
+    Safe for external Homebrew/App Ollama: only continues a frozen process,
+    never kills or replaces it. Rate-limited unless ``force``.
+    """
+    global _LAST_CONT_SCAN_AT
+    state = read_state()
+    now = time.time()
+    last = float(state.get("last_cont_at") or 0.0)
+    if not force and last and (now - last) < CONT_COOLDOWN_SEC:
+        return {
+            "ok": True,
+            "action": "cooldown",
+            "resumed_pids": [],
+            "checked_pids": [],
+            "cooldown_remaining_sec": round(CONT_COOLDOWN_SEC - (now - last), 1),
+        }
+    # Separate from SIGCONT cooldown: healthy hosts never set last_cont_at, so
+    # without this floor the paused 2s scheduler tick would shell lsof/pgrep forever.
+    if (
+        not force
+        and _LAST_CONT_SCAN_AT
+        and (now - _LAST_CONT_SCAN_AT) < CONT_SCAN_COOLDOWN_SEC
+    ):
+        return {
+            "ok": True,
+            "action": "scan_cooldown",
+            "resumed_pids": [],
+            "checked_pids": [],
+            "cooldown_remaining_sec": round(
+                CONT_SCAN_COOLDOWN_SEC - (now - _LAST_CONT_SCAN_AT), 1
+            ),
+        }
+    _LAST_CONT_SCAN_AT = now
+    resumed: list[int] = []
+    checked: list[dict[str, Any]] = []
+    for pid in list_ollama_related_pids():
+        st = process_state_code(pid)
+        row: dict[str, Any] = {"pid": pid, "state": st}
+        checked.append(row)
+        if not is_stopped_state(st):
+            continue
+        # Command only when we may SIGCONT — list_ollama_related_pids already
+        # filtered via ps; avoid a second process_command on every healthy pid.
+        row["command"] = process_command(pid)[:160]
+        try:
+            os.kill(pid, signal.SIGCONT)
+            resumed.append(pid)
+            row["cont"] = True
+        except OSError as exc:  # noqa: BLE001
+            row["cont"] = False
+            row["error"] = str(exc)
+    if resumed:
+        merge_state(
+            last_cont_at=now,
+            last_cont_pids=resumed,
+            last_cont_reason="stopped_state_T",
+            last_recovery="sigcont",
+        )
+        log.warning("resumed stopped ollama pid(s) via SIGCONT: %s", resumed)
+    return {
+        "ok": True,
+        "action": "sigcont" if resumed else "none",
+        "resumed_pids": resumed,
+        "checked_pids": checked,
+    }
+
+
+def ensure_ollama_listener_responsive(
+    *,
+    probe_timeout: float = 1.0,
+    force_cont: bool = False,
+) -> dict[str, Any]:
+    """Unfreeze stopped listeners, then shallow-probe /api/tags with a short timeout."""
+    cont = resume_stopped_ollama_processes(force=force_cont)
+    pid = listener_pid()
+    if pid is None:
+        return {
+            "ok": False,
+            "action": cont.get("action") or "none",
+            "reason": "no_listener",
+            "cont": cont,
+        }
+    st = process_state_code(pid)
+    if is_stopped_state(st):
+        # First pass may have been on cooldown; force once.
+        cont = resume_stopped_ollama_processes(force=True)
+        st = process_state_code(pid)
+    try:
+        import httpx
+
+        with httpx.Client(timeout=probe_timeout, trust_env=False) as client:
+            resp = client.get(f"{OLLAMA_URL}/api/tags")
+        ok = resp.status_code == 200
+        return {
+            "ok": ok,
+            "action": cont.get("action") or "probe",
+            "listener_pid": pid,
+            "listener_state": st,
+            "http_status": resp.status_code,
+            "cont": cont,
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "action": cont.get("action") or "probe",
+            "listener_pid": pid,
+            "listener_state": st,
+            "error": str(exc)[:240],
+            "cont": cont,
+        }
 
 
 def sha256_file(path: Path) -> str | None:
@@ -265,6 +426,10 @@ def maybe_recover_ollama_service(*, kind: str = "chat") -> dict[str, Any]:
     ``bounded_kickstart`` is exhausted, recovery stops and surfaces
     ``action: manual`` so operators are not stuck in a silent retry loop.
     """
+    # Sleep/wake often freezes ollama (STAT=T) before functional probes time out.
+    responsive = ensure_ollama_listener_responsive(probe_timeout=1.0)
+    if responsive.get("cont", {}).get("resumed_pids"):
+        merge_state(last_recovery="sigcont_before_probe", last_recovery_kind=kind)
     probe_fn = functional_embed_probe if kind == "embed" else functional_chat_probe
     # Shared counter/state key (pre-existing name) so chat and embed callers
     # trip the same bounded-kickstart budget instead of doubling it.
@@ -314,8 +479,12 @@ def maybe_recover_embed_service() -> dict[str, Any]:
 def service_snapshot() -> dict[str, Any]:
     state = read_state()
     ownership = ownership_snapshot()
+    listener = ownership.get("listener_pid")
+    listener_state = process_state_code(int(listener)) if listener else ""
     return {
         **ownership,
+        "listener_state": listener_state,
+        "listener_stopped": is_stopped_state(listener_state),
         "state": state,
         "install_gate_blocked": install_gate_block_reason(),
     }

@@ -80,6 +80,17 @@ export function LicenseGate({ children }: Props) {
         }
       } catch (reason) {
         if (cancelled) return;
+        // Transient invoke failure must not wipe an active ops unlock session.
+        try {
+          const again = await getLicenseStatus();
+          if (cancelled) return;
+          if (again.authorized) {
+            setStatus(again);
+            return;
+          }
+        } catch {
+          /* fall through */
+        }
         await stopEngine().catch(() => null);
         setError(String(reason));
         setStatus({
@@ -163,8 +174,13 @@ export function LicenseGate({ children }: Props) {
     setError("");
     try {
       await settingsPasswordVerify(opsPassword);
-      setStatus({ ...status, authorized: true, reason: "trial_ops_session_unlocked" });
+      // Re-read via license_status_with_ops so the 15s poll sees the same ops session.
+      const next = await getLicenseStatus();
+      setStatus(next);
       setOpsPassword("");
+      if (!next.authorized) {
+        setError("运维密码已验证，但许可证未允许会话解锁");
+      }
     } catch (reason) {
       setError(String(reason));
     } finally {

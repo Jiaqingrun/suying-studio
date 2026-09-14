@@ -245,6 +245,19 @@ export type ServicesStatus = {
 
 export const api = {
   health: () => request<Health>("/health"),
+  /** Fast control-plane / business-ready probe (prefer over /health for UI liveness). */
+  readiness: () =>
+    request<{
+      ready: boolean;
+      process_alive?: boolean;
+      workspace_ready?: boolean;
+      workspace_state?: string;
+      license_authorized?: boolean;
+      offline_class?: string;
+      offline_detail?: string;
+      ollama_narration_enabled?: boolean;
+      engine_version?: string;
+    }>("/readiness"),
   licenseStatus: () => request<RuntimeLicenseStatus>("/license/status"),
   workspaceStatus: () =>
     request<{

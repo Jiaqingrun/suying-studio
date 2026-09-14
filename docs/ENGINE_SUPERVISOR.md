@@ -19,8 +19,18 @@
 | 层 | 含义 | 探针 |
 |----|------|------|
 | listen | 端口 LISTEN | `lsof` / supervisor `listen` |
-| control_plane | HTTP 控制面 | `GET /health` 200（含 `status=starting`） |
-| business_ready | 可生产 | `GET /readiness` → `ready=true` |
+| control_plane | HTTP 控制面 | 桌面 kickstart **与** `engine_status.control_plane` 均用 `GET /readiness`（须亚秒）；勿用慢 `/health` 判定控制面 |
+| business_ready | 可生产 | `GET /readiness` → `ready=true`（工作区详情仍可读 `GET /health`） |
+
+### `/health` / `/readiness` 与 Ollama（防卡死）
+
+- `GET /health` **不得**同步等待 Ollama HTTP。Ollama 块用进程内缓存，后台刷新。
+- `GET /readiness`（桌面 kickstart，约 800ms 预算）同样不得调用同步 `check_ollama()`；旁白模型是否缺失只读缓存。
+- macOS 睡眠/唤醒后 Homebrew/App Ollama 可能停在 `STAT=T` 仍占 `11434`，TCP 会黑洞到客户端超时。引擎会：
+  1. 对挂起的 ollama 进程发 `SIGCONT`（不杀外部进程）
+  2. 唤醒路径与 scheduler tick 自动巡检
+  3. 功能探针失败前先 `ensure_ollama_listener_responsive`
+- 细则：`engine/ops/ollama_service.py` · `engine/catalog/ollama_status.py` · `engine/api/readiness.py`
 
 相关：
 

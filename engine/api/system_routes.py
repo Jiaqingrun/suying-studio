@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Any
 
@@ -15,6 +16,8 @@ from engine.runtime.pause_coordinator import (
     get_system_event_control_from_settings,
 )
 from engine.runtime.quiesce import capture_owned_snapshot, quiesce_units, restore_units
+
+log = logging.getLogger("montage.system_routes")
 
 router = APIRouter(tags=["system"])
 
@@ -144,6 +147,22 @@ def _after_pause_async(timeout_sec: float, policy: SystemEventControl) -> None:
 
 def _after_resume_async(policy: SystemEventControl) -> None:
     try:
+        # Sleep/wake can leave Homebrew/App Ollama in STAT=T while 11434 still
+        # LISTENs; unfreeze before production units resume embeddings.
+        try:
+            from engine.catalog.ollama_status import schedule_ollama_status_refresh
+            from engine.ops.ollama_service import resume_stopped_ollama_processes
+
+            cont = resume_stopped_ollama_processes(force=True)
+            if cont.get("resumed_pids"):
+                _audit_system(
+                    "ollama_sigcont",
+                    "唤醒后恢复挂起的 Ollama 进程",
+                    details={"resumed_pids": cont.get("resumed_pids")},
+                )
+            schedule_ollama_status_refresh(force_cont=True)
+        except Exception:
+            log.exception("wake-path ollama SIGCONT / status refresh failed")
         path_ok, disk_ok = _path_and_disk_ok()
         state = coordinator.apply_resume_after_checks(path_ok=path_ok, disk_ok=disk_ok, policy=policy)
         if state.get("restore_ready"):

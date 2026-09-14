@@ -1,38 +1,43 @@
-# 关账后运营优化执行表（锚定臻享丽人）
+# 关账后运营优化执行表（锚定始峰五金 / 北京始峰伟业）
 
-> **效力：关账后运营执行权威表。** 2026-08-11 立约。  
+> **效力：关账后运营执行权威表。** 2026-08-11 立约；**2026-09-08 改锚**：用户确认臻享丽人非成交客户，主力改为已成交 **始峰五金**（live 域北京始峰伟业）。  
 > **不是** `DEV_LOCK` 进度表；**禁止**另立 ✅ / PARTIAL 完成态。  
 > 冲突时：[`DEV_LOCK.md`](DEV_LOCK.md) / [`HARD_LOCKS.md`](HARD_LOCKS.md) > [`CLOSEOUT_PLAN.md`](CLOSEOUT_PLAN.md) > 本文 > OVERALL / DEEP / [`VISUAL_DYNAMIC_OPTIMIZATION.md`](VISUAL_DYNAMIC_OPTIMIZATION.md)。  
-> 旁白：[`SERVICE_NARRATION_LOCK.md`](SERVICE_NARRATION_LOCK.md)（**L20**）。权威索引：[`README.md`](README.md)。
+> 生活服务旁白锁 L20 **仅**适用于 life-service 客户；始峰走 `building-supply`，禁止套用服务黄金底稿。权威索引：[`README.md`](README.md)。
 
 ---
 
 ## 0. 一句话
 
-关账后正式一体包已对齐 **0.7.21 / T2S release_seq=66**（含原生拖拽成片）；**GVisualPack2（阶段 2）已 SHIP**。**以臻享丽人为唯一主力客户**；**禁止**建材路径、**禁止**用仓库 seed 覆盖已适配生产规则、**禁止**阶段 X 夹带。
+正式一体包指针以 `~/Suying/releases/LAST_PUBLISH.json` 为准（现行 **0.8.11 / release_seq=90**）。**主力客户 = 始峰五金（北京始峰伟业）**；**臻享丽人降级为非成交、不默认日更**；**禁止**用仓库 seed 覆盖已适配生产规则、**禁止**阶段 X 夹带、**禁止**把 life-service / 臻享规则灌进始峰或 xlf。
 
 | 条件 | 允许 |
 |------|------|
-| 现在 | **日更稳态** + xlf 已升 **0.7.21**（生产规则未改）；本机/T2S **0.7.21 / seq=66** |
-| 需你当面确认 | **D 开闸主题**；阶段 X 具体名 |
-| 流水已批 | A→B→C 可连做过；B 含 xlf **0.7.20→0.7.21**（仅 App） |
+| 现在 | **始峰日更稳态**（轮换 38+90）；本机/T2S **0.8.11 / seq=90** |
+| 需你当面确认 | xlf `deploy-remote`；阶段 X 具体名；新 Gate |
+| 历史流水 | 2026-08 臻享 ABCD / GVP 为人眼与包装验收档案，**不再**指导默认运营 |
 | 未来新功能 | 当面改 DEV_LOCK 开新 Gate |
 
 ---
 
-## 1. 主力客户：臻享丽人（写死）
+## 1. 主力客户：始峰五金 / 北京始峰伟业（写死 · 2026-09-08）
 
 | 维 | 约定 |
 |----|------|
-| 品牌 | 臻享丽人 · 养生美容护理 · 生活服务 |
-| 禁止 | `building-supply`、仓配装车话术串入、客户名硬编码进引擎 |
-| industry_pack seed | `life-service`（见 `configs/customers/臻享丽人/profile.sample.json`；勿用 building-supply） |
-| 词池 | `configs/customers/臻享丽人/keyword-pack.json` |
-| 规则种子（**仅参考，非 live 真相**） | `configs/customers/臻享丽人/brand/production_rule_store_intro.json` · `brand/README_TEMP_RULE.md` |
-| VIDEO_LOCK 参考 | `configs/customers/臻享丽人/brand/VIDEO_LOCK.json` |
-| 工作区品牌盘 | `~/Movies/速影工作区/速影客户/臻享丽人/05-品牌/` |
+| 对外品牌 | 始峰五金 |
+| live / xlf 客户域 | 北京始峰伟业（已成交；与品牌同主体） |
+| 禁止 | life-service / 臻享护理串味、客户名硬编码进引擎、seed 冲 live 规则 |
+| industry_pack | `building-supply`（见 `configs/customers/北京始峰伟业/` · 品牌面 `北京始峰五金/`） |
+| 词池 | 工作区 `03-词池/keyword-pack.json`（以 live 为准 · **r23** · 2026-09-13 调研合入） |
+| 日更轮换 | **38 产品介绍 + 90 配送·装车**（[`WEEKLY_DIVERSITY_SLOTS.md`](../configs/customers/北京始峰伟业/WEEKLY_DIVERSITY_SLOTS.md)） |
+| VIDEO_LOCK | 工作区 `05-品牌/VIDEO_LOCK.json`（clone/aunt_slow 以现场为准） |
+| 工作区 | `~/Movies/速影工作区/速影客户/北京始峰伟业/` |
 | 合规 | profile banned_terms · `风险词弱化对照.md` · `企业资料-合规弱化.md` |
-| 旁白 | **L20** 黄金底稿 + 仅节奏润色；倾听用词 |
+| 旁白气质 | 产品稳镜 vs 装车景别对齐；**不**套 L20 服务腔 |
+
+### 1.0 臻享丽人（非成交 · 降级）
+
+用户 2026-09-08 确认：臻享丽人**不是**成交客户。本表不再以其为日更主战场；不占用产发配额；不 seed 冲其 live。历史 2026-08 条目保留为考古。
 
 ### 1.1 生产规则真相（用户 2026-08-11 · 写死）
 
@@ -223,6 +228,8 @@
 | 2026-08-12 | **撤销 xlf 臻享空壳**：用户「对方完全不需要」· DB 删 id=4 + 工作区目录 · 活动客户回 始峰 · `D1-xlf-zhenxiang-removed.txt` |
 | 2026-08-12 | **xlf 再删演示域**：演示客户 + 零分叉演示客户 · 始峰 id=1/规则16/rev15 未动 · `xlf-demo-customers-removed.txt` |
 | 2026-08-13 | **0.7.29 审片封面三格+居中预览**：本机安装 + T2S seq73 + xlf `--skip-models` · 始峰规则未改 |
+| 2026-09-13 | **始峰词池 r23**：合入豆包公开调研 machine.json（hooks/标题/library/keywords）；优先配送+产品面；面积/现货类清洗；identity/facts 未动；live+DB 已 install；configs seed 已同步 |
+| 2026-09-08 | **运营改锚**：用户确认臻享非成交；主力=始峰五金/北京始峰伟业；轮换收回 38+90；极限计划证据 `~/Suying/logs/extreme-plan-shifeng-20260908/`；正式包指针 0.8.11/seq=90 |
 
 ---
 

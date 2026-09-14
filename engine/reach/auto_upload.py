@@ -190,6 +190,26 @@ def start_job(
     return get_status()
 
 
+_BATCH_PHASE_MAP = {
+    "switching_profile": "starting",
+    "waiting_login": "waiting_login",
+    "uploading": "uploading",
+    "filling_copy": "uploading",
+    "setting_cover": "uploading",
+    "submitting": "uploading",
+    "verifying": "uploading",
+    "paused_human": "need_human",
+    "outcome_unknown": "awaiting_confirm",
+    "published": "done",
+    "skipped": "awaiting_confirm",
+    "failed": "failed",
+    "cancelled": "cancelled",
+    "completed": "done",
+    "running": "uploading",
+    "queued": "starting",
+}
+
+
 def _poll_batch_job(*, run_id: str, timeout_sec: float) -> None:
     """Mirror publish batch status into legacy auto-upload job dict."""
     import time
@@ -201,26 +221,8 @@ def _poll_batch_job(*, run_id: str, timeout_sec: float) -> None:
         from engine.reach.publish_runner import get_status as batch_get
 
         st = batch_get(run_id)
-        phase_map = {
-            "switching_profile": "starting",
-            "waiting_login": "waiting_login",
-            "uploading": "uploading",
-            "filling_copy": "uploading",
-            "setting_cover": "uploading",
-            "submitting": "uploading",
-            "verifying": "uploading",
-            "paused_human": "need_human",
-            "outcome_unknown": "awaiting_confirm",
-            "published": "done",
-            "skipped": "awaiting_confirm",
-            "failed": "failed",
-            "cancelled": "cancelled",
-            "completed": "done",
-            "running": "uploading",
-            "queued": "starting",
-        }
         raw_phase = st.get("phase") or st.get("status") or "idle"
-        mapped = phase_map.get(raw_phase, raw_phase)
+        mapped = _BATCH_PHASE_MAP.get(raw_phase, raw_phase)
         current = st.get("current_item") or {}
         _set(
             phase=mapped,
@@ -230,8 +232,20 @@ def _poll_batch_job(*, run_id: str, timeout_sec: float) -> None:
             run_status=st,
         )
         if mapped in ("done", "failed", "cancelled", "need_human", "awaiting_confirm", "idle"):
-            break
+            return
         time.sleep(2.0)
+    # Wall-clock budget exhausted while still uploading/starting — clear the
+    # sticky in-progress phase so the next start_job is not blocked forever.
+    if not _cancelled():
+        with _lock:
+            phase = str((_job or {}).get("phase") or "")
+        if phase in ("waiting_login", "uploading", "starting"):
+            _set(
+                phase="failed",
+                message=f"poll_timeout after {int(timeout_sec)}s",
+                error="poll_timeout",
+                need_human=False,
+            )
 
 
 def _wait_generic_login(*, host_hint: str, timeout_sec: float) -> dict[str, Any]:

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import threading
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -22,6 +24,8 @@ from engine.catalog.host_profile import (
 )
 from engine.catalog.ollama_runtime import OLLAMA_URL
 
+log = logging.getLogger("montage.ollama_status")
+
 INSTALL_URL = "https://ollama.com/download"
 # Back-compat exports (primary fast-screen; escalate is separate)
 VISION_MODEL = VISION_FAST
@@ -39,6 +43,18 @@ _pull_state: dict[str, Any] = {
     "message": "",
     "log_tail": "",
 }
+
+# /health must stay sub-second for App control_plane (Rust 800ms probe).
+# Live Ollama HTTP is refreshed in the background; hung STAT=T listeners are
+# SIGCONT'd before probe (see engine.ops.ollama_service).
+_CACHE_LOCK = threading.Lock()
+_CACHE: dict[str, Any] | None = None
+_CACHE_AT = 0.0
+_CACHE_TTL_SEC = 20.0
+_REFRESH_LOCK = threading.Lock()
+_REFRESHING = False
+_PENDING_FORCE_CONT = False
+_HEALTH_PROBE_TIMEOUT_SEC = 1.5
 
 
 def _now_iso() -> str:
@@ -157,7 +173,11 @@ def active_models_from_settings() -> tuple[str, str]:
 
 
 def check_ollama(*, timeout: float = 3.0) -> dict[str, Any]:
-    """Probe Ollama daemon, host profile, and recommended / active models."""
+    """Probe Ollama daemon, host profile, and recommended / active models.
+
+    Synchronous. Prefer :func:`ollama_status_for_health` on the hot `/health`
+    path so a hung 11434 listener cannot stall the App control plane.
+    """
     host = probe_host()
     rec = recommend_models(host)
     policy = resolve_vision_policy(host=host)
@@ -204,6 +224,7 @@ def check_ollama(*, timeout: float = 3.0) -> dict[str, Any]:
         "pull_commands": pull_cmds,
         "pull": dict(_pull_state),
         "setup_steps": _setup_steps(host),
+        "cached": False,
     }
     try:
         with httpx.Client(timeout=timeout, trust_env=False) as client:
@@ -241,6 +262,120 @@ def check_ollama(*, timeout: float = 3.0) -> dict[str, Any]:
         else:
             out["message"] = "未检测到 Ollama。请先安装并启动，再拉取适合本机的模型。"
         return out
+
+
+def _placeholder_ollama_status() -> dict[str, Any]:
+    """Instant stub used only until the first background probe completes."""
+    return {
+        "reachable": False,
+        "install_url": INSTALL_URL,
+        "embed_model": EMBED_MODEL,
+        "vision_model": VISION_MODEL,
+        "escalate_model": "",
+        "cascade": False,
+        "vision_timeout_sec": None,
+        "escalate_timeout_sec": None,
+        "vision_policy": {},
+        "recommended": {},
+        "host": {},
+        "embed_ready": False,
+        "vision_ready": False,
+        "escalate_ready": None,
+        "models": [],
+        "ready": False,
+        "message": "正在检测本地 Ollama…",
+        "pull_commands": [],
+        "pull": dict(_pull_state),
+        "setup_steps": [],
+        "cached": True,
+        "cache_pending": True,
+    }
+
+
+def _store_ollama_cache(payload: dict[str, Any]) -> dict[str, Any]:
+    global _CACHE, _CACHE_AT
+    stored = dict(payload)
+    stored["cached"] = True
+    with _CACHE_LOCK:
+        _CACHE = stored
+        _CACHE_AT = time.monotonic()
+    return dict(stored)
+
+
+def refresh_ollama_status_sync(
+    *,
+    timeout: float = _HEALTH_PROBE_TIMEOUT_SEC,
+    force_cont: bool = False,
+) -> dict[str, Any]:
+    """CONT stopped listeners if needed, probe, and update the health cache."""
+    try:
+        from engine.ops.ollama_service import ensure_ollama_listener_responsive
+
+        ensure_ollama_listener_responsive(
+            probe_timeout=min(1.0, float(timeout)),
+            force_cont=force_cont,
+        )
+    except Exception:  # noqa: BLE001
+        log.exception("ollama listener resume before probe failed")
+    fresh = check_ollama(timeout=timeout)
+    return _store_ollama_cache(fresh)
+
+
+def schedule_ollama_status_refresh(*, force_cont: bool = False) -> None:
+    """Background refresh; never blocks the caller.
+
+    If a refresh is already running, a ``force_cont`` request is queued so the
+    wake path cannot lose SIGCONT intent behind a stale non-force refresh.
+    """
+    global _REFRESHING, _PENDING_FORCE_CONT
+    with _REFRESH_LOCK:
+        if force_cont:
+            _PENDING_FORCE_CONT = True
+        if _REFRESHING:
+            return
+        _REFRESHING = True
+        use_force = _PENDING_FORCE_CONT
+        _PENDING_FORCE_CONT = False
+
+    def _run() -> None:
+        global _REFRESHING, _PENDING_FORCE_CONT
+        try:
+            refresh_ollama_status_sync(force_cont=use_force)
+        except Exception:  # noqa: BLE001
+            log.exception("background ollama status refresh failed")
+        finally:
+            rerun = False
+            with _REFRESH_LOCK:
+                _REFRESHING = False
+                if _PENDING_FORCE_CONT:
+                    rerun = True
+            if rerun:
+                schedule_ollama_status_refresh(force_cont=True)
+
+    threading.Thread(
+        target=_run,
+        daemon=True,
+        name="suying-ollama-status-refresh",
+    ).start()
+
+
+def ollama_status_for_health(*, max_age_sec: float | None = None) -> dict[str, Any]:
+    """Non-blocking Ollama block for GET /health (cached + background refresh)."""
+    ttl = _CACHE_TTL_SEC if max_age_sec is None else float(max_age_sec)
+    with _CACHE_LOCK:
+        cached = dict(_CACHE) if _CACHE else None
+        age = (time.monotonic() - _CACHE_AT) if _CACHE is not None else None
+    if cached is None:
+        schedule_ollama_status_refresh()
+        return _placeholder_ollama_status()
+    assert age is not None
+    out = dict(cached)
+    out["cached"] = True
+    out["cache_age_sec"] = round(age, 2)
+    if age > ttl:
+        out["stale"] = True
+        schedule_ollama_status_refresh()
+    return out
 
 
 def _setup_steps(host: Any) -> list[dict[str, Any]]:
@@ -502,6 +637,9 @@ __all__ = [
     "OLLAMA_URL",
     "INSTALL_URL",
     "check_ollama",
+    "ollama_status_for_health",
+    "refresh_ollama_status_sync",
+    "schedule_ollama_status_refresh",
     "start_pull",
     "start_pull_models",
     "start_pull_recommended",

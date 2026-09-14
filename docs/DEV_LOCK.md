@@ -393,7 +393,7 @@ GVoiceClone / GSystemPause / GSemanticOps 真机项按验收剧本关闭；T2S =
 | 80G | GStab.WORKSPACE | 插盘工作区自动/手动重连：缺盘 fail-closed 不建空库；卷身份探测；总览「立即同步」= 重连权威工作区并 refreshAll（不复制/合并 DB）；macOS mount 边沿自动同步 | **DONE 代码** · `/workspace/*` + Tauri `workspace_events` + Overview 控件；`tests/test_workspace_reconnect.py` 7 绿；真机拔插验收待开 · 2026-07-28 |
 | 81 | GLicense | 私下交付单机授权底座：Secure Enclave/ThisDeviceOnly 设备密钥、离线签发、Rust 双门禁、人工换机迁移 | **ACTIVE · M2 Keychain MVP DONE**；**SE 加固另议**；关账口径：不宣称对抗本机管理员 · `TRUSTED_OFFLINE_DELIVERY.md` · 2026-08-03 |
 | 81T | GTermLicense | 年期 term 默认正式许可：365 天、客户无感硬锁、运维台账 T-7/紧急度、远程再签仅导入；perpetual 祖父 | **DONE 代码+单测+smoke** · 主仓 term/entitlement/LicenseGate/import-remote-license；运维 `license_binding`+续签流水线 · [`TERM_LICENSE_PLAN.md`](TERM_LICENSE_PLAN.md) · 2026-08-04 |
-| 81E | ENGINE.SUPER | 引擎掉线根治：LaunchAgent 权威常驻、`boot_state` 先绑定、状态三分层、App kickstart 优先、失败分因 UI · 0.6.39 | **DONE 代码** · [`ENGINE_SUPERVISOR.md`](ENGINE_SUPERVISOR.md) · `check-engine-supervisor.sh` · 交付须 agent（缓存已有时 fail-closed） · 2026-08-07 |
+| 81E | ENGINE.SUPER | 引擎掉线根治：LaunchAgent 权威常驻、`boot_state` 先绑定、状态三分层、App kickstart 优先、失败分因 UI · 0.6.39 | **DONE 代码** · [`ENGINE_SUPERVISOR.md`](ENGINE_SUPERVISOR.md) · `check-engine-supervisor.sh` · 交付须 agent（缓存已有时 fail-closed） · 2026-08-07 · **2026-09-14 加固**：`/health` Ollama 缓存不阻塞；挂起 Ollama `SIGCONT` 自愈；kickstart 探针改 `/readiness` |
 | 82 | GOfflineDepot | 极空间完全离线安装仓：Ed25519 release/runtime 签名、防降级、CAS 工具/模型、原子安装回滚 | **UPLOADED_VERIFIED**：legal-complete depot seq=4（8 组件/67 对象，7,217,085,815 bytes）已上传至 T2S `T0210023G0UWV` 个人空间 `/nvme11/my/data/速影更新包/depot`；67 上传、0 跳过，全对象远端回读 SHA256、元数据回读验签与 CAS 集合/大小闭包均通过。客户特定 App `release/latest` 因 `delivery_id/customer_ref` 尚未签发仍待，未上传产品 ZIP、未改 `latest.json`、未覆盖 App · 2026-07-29 |
 
 **硬边界：** T2S 无片库同步；极空间账号引导+检测；`media_sync_enabled` 默认 false。
@@ -569,7 +569,7 @@ GVoiceClone / GSystemPause / GSemanticOps 真机项按验收剧本关闭；T2S =
 
 **SHIP 收口（2026-08-11）：** `RUNTIME_FLAVOR=core` → 0.7.20 · T2S seq=65 · kit `~/Suying/releases/速影-0.7.20-product-macos-arm64-core` · zip sha256 `400e8f989c86680171a12ea9e4bcf8eb418bbeef03f0a9f0eaeddec36b9d8e86` · `/Applications` 安装 · 引擎 `engine_version=0.7.20` · 含 stage2 + Latin 字幕字高修复。
 
-**下一步：** **0.7.26** 风格硬切已出包（T2S seq=71，本机已覆盖，xlf PARTIAL）；始峰试看三条在桌面 `速影试看-xlf-风格-20260812`；人眼验规则轮换开关；运营流水 ABCD 见 [`POST_CLOSEOUT_OPS_PLAN.md`](POST_CLOSEOUT_OPS_PLAN.md)。
+**下一步（2026-09-08 改锚）：** 正式包 **0.8.11 / T2S seq=90**（本机已覆盖）。运营主力 = **始峰五金 / 北京始峰伟业**（用户确认臻享非成交）。极限计划证据 `~/Suying/logs/extreme-plan-shifeng-20260908/`；日更轮换 **38+90**；GRuleVisualLab / GSceneTour 人眼见 §E GRVL.* / GST.*。xlf 再部署须当面授权。旧「0.7.26 / 臻享 ABCD」仅考古。
 
 ### 现在就做 — GRuleLabOpt 规则实验室深度优化（2026-08-12 已授权）
 
@@ -601,6 +601,11 @@ GVoiceClone / GSystemPause / GSemanticOps 真机项按验收剧本关闭；T2S =
 | 253 | GST.3 | 本地自由写词 + 标题小集 + 成片检查 | GSceneTour | **DONE · 2026-08-13** |
 | 254 | GST.4 | worker `scene_tour` 分支；跳过词池金句 | GSceneTour | **DONE · 2026-08-13** |
 | 255 | GST.5 | 生产页主按钮 + 规则实验室中文类别 + 审片镜句对照 | GSceneTour | **DONE · 2026-08-13** |
+| 256 | GST.6 | 热点第二版占位；评测/冒烟；界面无英文裸奔 | GSceneTour | **DONE · 2026-08-13** |
+| 257 | GST.7 | 声画对齐：TTS后拉长镜长 / tempo-fit / 混音前贴齐；`freeze_pad>0.5` 打回；L14 废止剔除 AI 披露 | GSceneTour | **PARTIAL · 2026-09-08** · 始峰 job**522** / out**#696** display**554**「仓配实景一目了然」ready：`…/ready/2026-09-08/montage_522_955846944.mp4`；代码既有；**须你人耳确认**无片尾冻帧旁白 |
+
+**GSceneTour 硬边界：** 不改 L20；不把热点原文写进旁白（V1）；不把 `premium` 精品样式冒充跟镜；跨客户不串味；缺分类/检查失败 → 拒片且中文说明；**禁止片尾冻帧旁白还在说**。  
+**分锁：** [`SCENE_TOUR_LOCK.md`](SCENE_TOUR_LOCK.md)
 
 ### 现在就做 — GRuleVisualLab 规则实验室视觉大改（2026-08-22 已授权）
 
@@ -614,12 +619,10 @@ GVoiceClone / GSystemPause / GSemanticOps 真机项按验收剧本关闭；T2S =
 | 265 | GRVL.E | 字幕竖排布局 | GRuleVisualLab | **DONE · 2026-08-22** |
 | 266 | GRVL.F | clip_transition xfade 枚举（默认 none） | GRuleVisualLab | **DONE · 2026-08-22** |
 | 267 | GRVL.G | narration_text_effect karaoke/marquee | GRuleVisualLab | **DONE · 2026-08-22** |
+| 268 | GRVL.H | 人眼：精品 ON ≥3 条可见特效且 READY/L15 不松 | GRuleVisualLab | **NEED_HUMAN · 2026-09-08** · 当日 GVP 包装样条 job520/521/523–525 因滚动避重/质检连续 `circuit_open` 未凑满 3 条包装 ready；清单见 `~/Suying/logs/extreme-plan-shifeng-20260908/GRVL_READY_LIST.txt`；**须你人眼签字**（可次日避重窗冷却后再产包装） |
+| 269 | GRVL.SHIP | 视觉大改随正式包交付 | GRuleVisualLab | **DONE · 随 0.8.11 / T2S seq=90** · 0.8.1–0.8.11 已含画布/蒙版/xfade/竖排/卡拉OK；本机 App=0.8.11；无授权不重打包 |
 
-| 256 | GST.6 | 热点第二版占位；评测/冒烟；界面无英文裸奔 | GSceneTour | **DONE · 2026-08-13** |
-| 257 | GST.7 | 声画对齐：TTS后拉长镜长 / tempo-fit / 混音前贴齐；`freeze_pad>0.5` 打回；L14 废止剔除 AI 披露 | GSceneTour | **DONE · 2026-08-13** · 单元测绿；#405 离线贴齐样片 `*_av_fixed`；新任务受 clone TTS 墙钟影响待人听验收 |
-
-**GSceneTour 硬边界：** 不改 L20；不把热点原文写进旁白（V1）；不把 `premium` 精品样式冒充跟镜；跨客户不串味；缺分类/检查失败 → 拒片且中文说明；**禁止片尾冻帧旁白还在说**。  
-**分锁：** [`SCENE_TOUR_LOCK.md`](SCENE_TOUR_LOCK.md)
+**GRuleVisualLab 硬边界：** 字段默认关；精品可开；不装 OM/Remotion；不松 READY/L15/L17–L20。白名单 [`FX_ASSET_WHITELIST.md`](FX_ASSET_WHITELIST.md)。
 
 ### 现在就做 — GContent SEO/GEO 软文中枢（已授权）
 

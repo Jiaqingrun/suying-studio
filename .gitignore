@@ -56,3 +56,6 @@ apps/desktop/src-tauri/icons.bak.*/
 
 # One-off remote debug scratch
 scripts/_tmp_*.py
+
+# Local materials (desktop inbox) — media/binaries not for git
+materials/

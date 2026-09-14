@@ -19,16 +19,40 @@ class DailyScheduler:
         self._publish_thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._ticks = 0
+        # Bumped on every start() so a quiesce stop→start that clears ``_stop``
+        # cannot revive an orphaned publish clock alongside a new one.
+        self._generation = 0
+        self._publish_lock = threading.Lock()
 
     def start(self) -> None:
-        if self._thread and self._thread.is_alive():
+        # Healthy & already running: no-op. If ``_stop`` is set while threads are
+        # still winding down (quiesce join timeout), we must not return early —
+        # that left the day loop permanently dead after sleep/wake.
+        if self.is_alive() and not self._stop.is_set():
             return
+        if (self._thread and self._thread.is_alive()) or (
+            self._publish_thread and self._publish_thread.is_alive()
+        ):
+            self._stop.set()
+            self._generation += 1
+            if self._thread and self._thread.is_alive():
+                self._thread.join(timeout=5)
+            if self._publish_thread and self._publish_thread.is_alive():
+                self._publish_thread.join(timeout=5)
+        self._generation += 1
+        gen = self._generation
         self._stop.clear()
         self._ticks = 0
-        self._thread = threading.Thread(target=self._loop, daemon=True, name="montage-daily-scheduler")
+        self._thread = threading.Thread(
+            target=self._loop,
+            args=(gen,),
+            daemon=True,
+            name="montage-daily-scheduler",
+        )
         self._thread.start()
         self._publish_thread = threading.Thread(
             target=self._publish_loop,
+            args=(gen,),
             daemon=True,
             name="montage-publish-clock",
         )
@@ -36,6 +60,7 @@ class DailyScheduler:
 
     def stop(self) -> None:
         self._stop.set()
+        self._generation += 1
         if self._thread:
             self._thread.join(timeout=3)
         if self._publish_thread:
@@ -49,16 +74,35 @@ class DailyScheduler:
             and self._publish_thread.is_alive()
         )
 
-    def _loop(self) -> None:
+    def _loop(self, gen: int) -> None:
         # First reconcile soon after boot (catch missed indexes)
         self._stop.wait(5.0)
-        while not self._stop.is_set():
+        while not self._stop.is_set() and gen == self._generation:
             from engine.runtime.pause_coordinator import coordinator as pause_coordinator
+
+            # STAT=T recovery must run even under system-event pause: sleep/wake
+            # often freezes Homebrew/App Ollama while claim_jobs is still false.
+            try:
+                from engine.catalog.ollama_status import schedule_ollama_status_refresh
+                from engine.ops.ollama_service import resume_stopped_ollama_processes
+
+                cont = resume_stopped_ollama_processes(force=False)
+                if cont.get("resumed_pids"):
+                    log.warning(
+                        "ollama tick resumed stopped pid(s): %s",
+                        cont.get("resumed_pids"),
+                    )
+                    schedule_ollama_status_refresh(force_cont=True)
+            except Exception:
+                log.exception("ollama responsive tick failed")
 
             if not pause_coordinator.should_claim_jobs():
                 self._ticks += 1
                 self._stop.wait(2.0)
                 continue
+
+            if gen != self._generation:
+                return
 
             settings = load_settings()
             try:
@@ -222,28 +266,41 @@ class DailyScheduler:
             except Exception:
                 log.exception("one-way media pull tick failed")
 
+            # Refresh cached /health ollama block ~ every 2 min (CONT already
+            # ran at the top of the loop, including while paused).
+            try:
+                from engine.catalog.ollama_status import schedule_ollama_status_refresh
+
+                if self._ticks % 4 == 0:
+                    schedule_ollama_status_refresh()
+            except Exception:
+                log.exception("ollama status cache refresh tick failed")
+
             self._ticks += 1
             self._stop.wait(30.0)
 
-    def _publish_loop(self) -> None:
+    def _publish_loop(self, gen: int) -> None:
         """Second-level durable publish clock; the 30s loop remains reconciliation-only."""
         self._stop.wait(1.0)
-        while not self._stop.is_set():
+        while not self._stop.is_set() and gen == self._generation:
             try:
                 from engine.runtime.pause_coordinator import coordinator as pause_coordinator
 
-                if pause_coordinator.should_claim_jobs():
-                    from engine.reach.publish_schedule import tick_schedules
+                with self._publish_lock:
+                    if gen != self._generation:
+                        return
+                    if pause_coordinator.should_claim_jobs():
+                        from engine.reach.publish_schedule import tick_schedules
 
-                    settings = load_settings()
-                    session = get_session()
-                    try:
-                        customer = require_active_customer(session, settings)
-                        pub_tick = tick_schedules(session, customer_id=customer.id)
-                        if pub_tick:
-                            log.info("publish clock tick: %s", pub_tick)
-                    finally:
-                        session.close()
+                        settings = load_settings()
+                        session = get_session()
+                        try:
+                            customer = require_active_customer(session, settings)
+                            pub_tick = tick_schedules(session, customer_id=customer.id)
+                            if pub_tick:
+                                log.info("publish clock tick: %s", pub_tick)
+                        finally:
+                            session.close()
             except Exception:
                 log.exception("publish clock tick failed")
             self._stop.wait(1.0)

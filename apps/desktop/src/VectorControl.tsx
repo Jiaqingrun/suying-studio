@@ -110,11 +110,22 @@ export function VectorControl({ notify }: { notify: NotifyFn }) {
   useEffect(() => {
     let cancelled = false;
     const tick = () => {
-      void refresh()
-        .catch(() => undefined)
-        .finally(() => {
+      void (async () => {
+        try {
+          const orient = orientation;
+          const [a, lock] = await Promise.all([
+            api.getVectorizationStatus(orient),
+            api.getOrientationLock().catch(() => null),
+          ]);
           if (cancelled) return;
-        });
+          setStatus(a);
+          if (a.schedule_start) setSchedStart(a.schedule_start.slice(0, 5));
+          if (a.schedule_end) setSchedEnd(a.schedule_end.slice(0, 5));
+          if (lock) setOrientLock(lock as OrientationLockStatus);
+        } catch {
+          /* poll ignore */
+        }
+      })();
     };
     tick();
     const busyRun = Boolean(

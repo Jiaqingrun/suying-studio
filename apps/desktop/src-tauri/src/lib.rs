@@ -332,7 +332,7 @@ struct EngineStatus {
     bundled: bool,
     /// 8766 LISTEN
     listen: bool,
-    /// GET /health 200
+    /// GET /readiness 2xx (same control-plane probe as kickstart; not /health)
     control_plane: bool,
     /// /readiness.ready
     business_ready: bool,
@@ -343,14 +343,16 @@ struct EngineStatus {
 }
 
 fn status_inner(state: &Mutex<EngineState>, message: Option<String>) -> EngineStatus {
-    // One /health for both reachable + workspace-healthy (was 2× HTTP per engine_status).
+    // Control-plane + business-ready from one /readiness (kickstart-aligned; avoid /health).
     let (reachable, healthy) = workspace_events::engine_reach_and_healthy();
-    let business_ready = workspace_events::engine_ready();
+    let business_ready = healthy;
     let listen = listener_pid_on_port(ENGINE_PORT).is_some();
     let readiness_msg = if business_ready {
         String::new()
-    } else {
+    } else if reachable {
         workspace_events::readiness_failure_message()
+    } else {
+        "无法读取 /readiness".to_string()
     };
     let (offline_class, offline_detail) =
         engine_supervisor::classify(listen, reachable, business_ready, &readiness_msg);

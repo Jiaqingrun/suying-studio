@@ -42,6 +42,7 @@ ACTIVE → PAUSING → PAUSED → RESUMING → ACTIVE
 - 系统 token 只保存在本机 runtime 的 0600 普通文件；桌面端须在引擎 **HTTP 200 确认**（`applied` / `duplicate` / `acknowledged` / 合法 `state`）后才出队；**不得**仅因 `applied=false`（重复或策略忽略）把事件留在 outbox。
 - 引擎 `POST /system/events` 热路径禁止同步阻塞写 `montage.db` 审计；审计须异步。超时与 toast 风暴见 [`INCIDENT_SYSTEM_EVENT_OUTBOX_TIMEOUT.md`](INCIDENT_SYSTEM_EVENT_OUTBOX_TIMEOUT.md)。
 - 唤醒后 `wake_settle_seconds`（默认 5）再复检。
+- **唤醒后 Ollama**：若本机 Ollama 进程处于挂起态（`STAT=T`）但仍占用 `11434`，引擎须 `SIGCONT` 并刷新 `/health` 的 Ollama 缓存；不得因同步探测 Ollama 把 `/health` 拖到数秒，以免桌面端误判引擎离线。
 - `will_power_off` 在关机过程中只暂停，不在断电中途自动恢复。
 - **冷启动 / 进程重启后**：残留的 `power_off` hold 必须自愈清除（macOS 冷启动不会补发可匹配的 `did_wake`）；**同样清除**残留的 `system_sleep` / `screen_sleep`（引擎已在运行即表示机器未在休眠）；`did_wake` 同时可清 `system_sleep`+`screen_sleep`+`power_off`（macOS 经常不投递 `screens_wake`）；`session_active` 亦可清残留休眠 hold；人工 `POST /system/resume` 必须能清 `system` 持有的原因（不得因 owner=manual/system 不匹配而假恢复）。
 - **路径恢复**：若仅因 path/disk 健康失败而 `PAUSED_BLOCKED`，App 轮询 `GET /system/pause-state` 时路径已恢复则自动重试恢复，避免插盘后仍永久停产。

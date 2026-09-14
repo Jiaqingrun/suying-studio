@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from engine.catalog.db import (
     ReachMessage,
@@ -271,6 +271,9 @@ class MessageSync:
         self._scheduler: threading.Thread | None = None
         self._queue: list[tuple[int, bool, str]] = []
         self._retry_counts: dict[int, int] = {}
+        self._retry_timers: list[threading.Timer] = []
+        self._generation = 0
+        self._restart_pending = False
         self._status: dict[str, Any] = {
             "active": False,
             "phase": "idle",
@@ -282,12 +285,49 @@ class MessageSync:
 
     def start_scheduler(self) -> None:
         with self._lock:
-            if self._thread and self._thread.is_alive():
+            worker_alive = bool(self._thread and self._thread.is_alive())
+            sched_alive = bool(self._scheduler and self._scheduler.is_alive())
+            # Healthy pair already running: no-op. If ``_stop`` is still set
+            # (quiesce join timeout), fall through so we can revive cleanly.
+            if worker_alive and sched_alive and not self._stop.is_set():
                 return
+            old_worker = self._thread
+            old_sched = self._scheduler
+
+        # Drain any half-dead generation before spawning — otherwise clearing
+        # ``_stop`` revives an orphaned worker alongside a new one (dual Chrome).
+        if worker_alive or sched_alive or self._stop.is_set():
+            self.stop_scheduler()
+            for thread in (old_sched, old_worker):
+                if thread and thread.is_alive():
+                    thread.join(timeout=5)
+
+        with self._lock:
+            if (
+                self._thread
+                and self._thread.is_alive()
+                and self._thread is not threading.current_thread()
+            ):
+                # Prior scan still inside ``_scan_one`` after cancel+join.
+                # Do not start a second worker; worker exit will honor restart.
+                self._restart_pending = True
+                return
+            self._restart_pending = False
+            self._generation += 1
+            gen = self._generation
             self._stop.clear()
-            self._thread = threading.Thread(target=self._worker_loop, name="reach-message-worker", daemon=True)
+            self._cancel.clear()
+            self._thread = threading.Thread(
+                target=self._worker_loop,
+                args=(gen,),
+                name="reach-message-worker",
+                daemon=True,
+            )
             self._scheduler = threading.Thread(
-                target=self._scheduler_loop, name="reach-message-scheduler", daemon=True
+                target=self._scheduler_loop,
+                args=(gen,),
+                name="reach-message-scheduler",
+                daemon=True,
             )
             self._thread.start()
             self._scheduler.start()
@@ -296,9 +336,18 @@ class MessageSync:
         self._enqueue_due_accounts()
 
     def stop_scheduler(self) -> None:
+        self._restart_pending = False
         self._stop.set()
         self._cancel.set()
         self._wake.set()
+        with self._lock:
+            timers = list(self._retry_timers)
+            self._retry_timers.clear()
+        for timer in timers:
+            try:
+                timer.cancel()
+            except Exception:
+                pass
         for thread in (self._scheduler, self._thread):
             if thread and thread.is_alive():
                 thread.join(timeout=3)
@@ -402,19 +451,28 @@ class MessageSync:
         self._retry_counts[account_id] = attempt
         delay = 15 if attempt == 1 else 60
 
+        gen = self._generation
+
         def enqueue_retry() -> None:
-            if not self._stop.is_set():
-                self.enqueue(
-                    [account_id],
-                    reason=f"transient_retry_{attempt}",
-                )
+            if self._stop.is_set() or gen != self._generation:
+                return
+            self.enqueue(
+                [account_id],
+                reason=f"transient_retry_{attempt}",
+            )
 
         timer = threading.Timer(delay, enqueue_retry)
         timer.daemon = True
+        with self._lock:
+            # Drop cancelled/finished timers so the list cannot grow forever.
+            self._retry_timers = [t for t in self._retry_timers if t.is_alive()]
+            self._retry_timers.append(timer)
         timer.start()
 
-    def _scheduler_loop(self) -> None:
+    def _scheduler_loop(self, gen: int) -> None:
         while not self._stop.wait(TICK_SEC):
+            if gen != self._generation:
+                return
             self._enqueue_due_accounts()
 
     def _enqueue_due_accounts(self) -> None:
@@ -426,7 +484,7 @@ class MessageSync:
                     ReachMessageAccount.enabled.is_(True)
                 )
             ).all()
-            due: list[int] = []
+            time_due: list[int] = []
             for row in rows:
                 if not is_active_message_account(row):
                     continue
@@ -441,28 +499,43 @@ class MessageSync:
                     )
                 ):
                     continue
-                latest = session.scalar(
-                    select(ReachMessageScan)
-                    .where(ReachMessageScan.account_id == row.id)
-                    .order_by(ReachMessageScan.id.desc())
-                    .limit(1)
-                )
-                if latest is not None and latest.status == "needs_human":
-                    continue
                 if row.last_scanned_at is None or now - _as_utc(
                     row.last_scanned_at
                 ) >= timedelta(seconds=MESSAGE_SCAN_INTERVAL_SEC):
-                    due.append(row.id)
+                    time_due.append(row.id)
+            if not time_due:
+                return
+            # One query for latest scan status (was N+1 per enabled account / 30s).
+            max_ids = (
+                select(
+                    ReachMessageScan.account_id,
+                    func.max(ReachMessageScan.id).label("max_id"),
+                )
+                .where(ReachMessageScan.account_id.in_(time_due))
+                .group_by(ReachMessageScan.account_id)
+            ).subquery()
+            blocked = {
+                int(aid)
+                for aid, status in session.execute(
+                    select(ReachMessageScan.account_id, ReachMessageScan.status).join(
+                        max_ids,
+                        (ReachMessageScan.account_id == max_ids.c.account_id)
+                        & (ReachMessageScan.id == max_ids.c.max_id),
+                    )
+                ).all()
+                if str(status or "") == "needs_human"
+            }
+            due = [aid for aid in time_due if aid not in blocked]
             if due:
                 self.enqueue(due, reason="scheduler")
         finally:
             session.close()
 
-    def _worker_loop(self) -> None:
-        while not self._stop.is_set():
+    def _worker_loop(self, gen: int) -> None:
+        while not self._stop.is_set() and gen == self._generation:
             self._wake.wait(1)
             self._wake.clear()
-            while not self._stop.is_set():
+            while not self._stop.is_set() and gen == self._generation:
                 with self._lock:
                     if not self._queue:
                         break
@@ -470,6 +543,18 @@ class MessageSync:
                 self._cancel.clear()
                 self._scan_one(account_id, dry_run=dry_run, task_id=task_id)
         self._set(active=False, phase="stopped")
+        pending = False
+        with self._lock:
+            if self._restart_pending and gen == self._generation:
+                pending = True
+                self._restart_pending = False
+        if pending:
+            # Never call start_scheduler on this same worker thread (is_alive).
+            threading.Thread(
+                target=self.start_scheduler,
+                daemon=True,
+                name="reach-message-restart",
+            ).start()
 
     def _scan_one(self, account_id: int, *, dry_run: bool, task_id: str) -> None:
         session = get_session()
@@ -751,7 +836,11 @@ class MessageSync:
             if scan.account_id is not None:
                 account = session.get(ReachMessageAccount, scan.account_id)
                 if account is not None:
-                    account.last_scanned_at = _now()
+                    # cancelled/deferred (system pause, chrome busy) must NOT
+                    # stamp last_scanned_at — that created a ~1800s due black
+                    # hole after quiesce cancelled retries.
+                    if status not in {"cancelled", "deferred"}:
+                        account.last_scanned_at = _now()
                     account.updated_at = _now()
                     try:
                         from engine.ops.audit_log import write_log

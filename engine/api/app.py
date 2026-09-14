@@ -246,6 +246,13 @@ def _boot_workspace_services() -> None:
                 semantic_backfill_runtime.ensure_started()
             except Exception:
                 log.exception("semantic backfill runtime start failed")
+            try:
+                from engine.catalog.ollama_status import schedule_ollama_status_refresh
+
+                # Prime /health ollama cache without blocking bind.
+                schedule_ollama_status_refresh(force_cont=True)
+            except Exception:
+                log.exception("ollama status cache prime failed")
             _workspace_services_started = True
             boot_state.mark_ready()
         else:
@@ -656,11 +663,6 @@ class DryRunRequest(BaseModel):
     topic_intent: TopicIntentRequest | None = None
 
 
-class VerifyClipletsRequest(BaseModel):
-    cliplet_ids: list[int] = Field(min_length=1, max_length=10)
-    force: bool = False
-
-
 def _active_scope(session, settings: AppSettings | None = None):
     from engine.api.scope import active_scope
 
@@ -763,9 +765,11 @@ def health() -> dict[str, Any]:
 
     probe = probe_workspace(settings)
     rt = pause_coordinator.snapshot()
-    from engine.catalog.ollama_status import check_ollama
+    from engine.catalog.ollama_status import ollama_status_for_health
 
-    ollama = check_ollama()
+    # Never block /health on live Ollama HTTP (hung STAT=T listeners used to
+    # take ~3s and trip the App's 800ms control_plane probe → fake offline).
+    ollama = ollama_status_for_health()
 
     if not probe.can_init_db or probe.state not in ("ready", "local"):
         return {
@@ -907,9 +911,10 @@ def health_ollama() -> dict[str, Any]:
     open (machine-wide gate tripped by recent failures).
     """
     from engine.catalog.ollama_runtime import ollama_health_snapshot
-    from engine.catalog.ollama_status import check_ollama
+    from engine.catalog.ollama_status import refresh_ollama_status_sync
 
-    base = check_ollama()
+    # Ops detail endpoint may wait briefly; still CONT stopped listeners first.
+    base = refresh_ollama_status_sync(timeout=1.5)
     gateway = ollama_health_snapshot()
     circuit = gateway.get("circuit") or {}
     circuit_open = str(circuit.get("state") or "") == "open"

@@ -32,6 +32,7 @@ export function PublishBatchPanel({
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   const [totalCount, setTotalCount] = useState(1);
   const [alerts, setAlerts] = useState<HumanAlert[]>([]);
+  const mountedRef = useRef(true);
   const accountRows = useMemo(
     () =>
       chromeProfiles
@@ -46,11 +47,19 @@ export function PublishBatchPanel({
     [chromeProfiles],
   );
 
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const refreshRun = useCallback(
     async (id?: string) => {
       const rid = id || runId;
       if (!rid) {
         const active = await api.reachPublishActiveStatus();
+        if (!mountedRef.current) return;
         if (active.run_id) {
           const found = String(active.run_id);
           setRunId(found);
@@ -60,6 +69,7 @@ export function PublishBatchPanel({
         return;
       }
       const status = await api.reachPublishRunStatus(rid);
+      if (!mountedRef.current) return;
       setRunStatus(status);
       if (["completed", "failed", "cancelled", "interrupted_system"].includes(String(status.status))) {
         localStorage.removeItem(storageKey);
@@ -73,13 +83,15 @@ export function PublishBatchPanel({
       api.humanAlerts(),
       api.reachPublishDeferred(),
     ]);
+    if (!mountedRef.current) return;
     setAlerts(alertResult.alerts || []);
     setDeferredItems(deferredResult.items || []);
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     const poll = async () => {
-      if (refreshInFlight.current) return;
+      if (cancelled || refreshInFlight.current) return;
       refreshInFlight.current = true;
       try {
         await Promise.all([refreshRun(), refreshPanels()]);
@@ -95,7 +107,10 @@ export function PublishBatchPanel({
         ),
     );
     const timer = setInterval(() => void poll().catch(() => null), activePolling ? 1000 : 5000);
-    return () => clearInterval(timer);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
   }, [refreshPanels, refreshRun, runStatus?.status]);
 
   useEffect(() => {

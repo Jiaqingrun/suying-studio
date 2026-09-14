@@ -173,7 +173,7 @@ pub fn classify(
     if listen && !health_ok {
         return (
             "listen_unhealthy".into(),
-            "8766 有监听但 /health 不可用".into(),
+            "8766 有监听但控制面探针不可用".into(),
         );
     }
     if !listen {
@@ -199,12 +199,13 @@ pub fn classify(
 
 pub fn snapshot(engine_log: &std::path::Path) -> SupervisorSnapshot {
     let listen = crate::listener_pid_on_port(ENGINE_PORT).is_some();
-    let health_ok = crate::workspace_events::engine_reachable();
-    let business_ready = crate::workspace_events::engine_ready();
+    let (health_ok, business_ready) = crate::workspace_events::engine_reach_and_healthy();
     let readiness_msg = if business_ready {
         String::new()
-    } else {
+    } else if health_ok {
         crate::workspace_events::readiness_failure_message()
+    } else {
+        "无法读取 /readiness".to_string()
     };
     let (offline_class, offline_detail) =
         classify(listen, health_ok, business_ready, &readiness_msg);

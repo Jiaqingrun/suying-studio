@@ -159,10 +159,10 @@ def jobs_pipeline() -> dict[str, Any]:
         gate_snap = resource_gate.snapshot()
         clone = clone_runtime_status()
         held = worker.running_job_id()
-        from engine.catalog.ollama_runtime import ollama_health_snapshot
+        from engine.catalog.ollama_runtime import ollama_control_plane_snapshot
         from engine.pack.ollama_narration import resolve_narration_model
 
-        ollama_gw = ollama_health_snapshot()
+        ollama_gw = ollama_control_plane_snapshot()
         ollama_circuit = ollama_gw.get("circuit") if isinstance(ollama_gw.get("circuit"), dict) else {}
         running_obs = _job_obs_fields(running) if running else {}
         return {

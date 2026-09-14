@@ -492,15 +492,19 @@ fn start_delivery(app: &AppHandle) {
                 *state.last_error_emit.lock().unwrap() = None;
                 false
             };
+            // Lock order: prefs → generation → outbox → last (must match set_prefs).
+            let prefs = state.prefs.lock().unwrap().clone();
+            let gen = generation.or(*state.engine_generation.lock().unwrap());
+            let pending_events = state.outbox.lock().unwrap().len();
             let mut last = state.last.lock().unwrap();
             last.last_kind = Some(pending.kind.clone());
             last.last_event_id = Some(pending.event_id.clone());
             last.last_at = Some(now_stamp());
-            last.prefs = state.prefs.lock().unwrap().clone();
+            last.prefs = prefs;
             last.delivery_ok = Some(delivery_ok);
             last.delivery_error = delivery_error;
-            last.engine_generation = generation.or(*state.engine_generation.lock().unwrap());
-            last.pending_events = state.outbox.lock().unwrap().len();
+            last.engine_generation = gen;
+            last.pending_events = pending_events;
             let snapshot = last.clone();
             drop(last);
             // On failure, only emit occasionally so UI does not toast every 5s retry.
@@ -558,10 +562,13 @@ pub fn handle_native_event(app: &AppHandle, kind: &str) {
 pub fn system_events_snapshot(
     state: State<'_, PowerEventsState>,
 ) -> Result<SystemStateSnapshot, String> {
+    // Lock order: prefs → outbox → last (must match set_prefs / delivery).
+    let prefs = state.prefs.lock().unwrap().clone();
+    let pending_events = state.outbox.lock().unwrap().len();
     let mut snapshot = state.last.lock().unwrap().clone();
-    snapshot.prefs = state.prefs.lock().unwrap().clone();
+    snapshot.prefs = prefs;
     snapshot.supported = cfg!(target_os = "macos");
-    snapshot.pending_events = state.outbox.lock().unwrap().len();
+    snapshot.pending_events = pending_events;
     Ok(snapshot)
 }
 

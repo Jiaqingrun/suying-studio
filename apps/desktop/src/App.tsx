@@ -1165,6 +1165,10 @@ function App() {
         }, 1200);
       }
     }).then((fn) => {
+      if (cancelled) {
+        fn();
+        return;
+      }
       unlisten = fn;
     });
     return () => {
@@ -1294,6 +1298,10 @@ function App() {
         }
       }
     }).then((fn) => {
+      if (cancelled) {
+        fn();
+        return;
+      }
       unlisten = fn;
     });
     return () => {

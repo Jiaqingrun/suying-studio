@@ -121,17 +121,30 @@ fn now_iso() -> String {
     format!("{secs}")
 }
 
+/// Control-plane / kickstart budget — must stay sub-second (see ENGINE_SUPERVISOR).
+const READINESS_TIMEOUT: Duration = Duration::from_millis(800);
+/// Fuller /health + workspace reconnect may touch DB/paths.
+const HEALTH_TIMEOUT: Duration = Duration::from_secs(8);
+
 fn http_json(method: &str, path: &str) -> Result<serde_json::Value, String> {
+    http_json_timeout(method, path, HEALTH_TIMEOUT)
+}
+
+fn http_json_timeout(
+    method: &str,
+    path: &str,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
     let url = format!("{ENGINE_URL}{path}");
     let resp = if method == "POST" {
         ureq::post(&url)
-            .timeout(Duration::from_secs(8))
+            .timeout(timeout)
             .set("Content-Type", "application/json")
             .send_string("{}")
             .map_err(|e| e.to_string())?
     } else {
         ureq::get(&url)
-            .timeout(Duration::from_secs(8))
+            .timeout(timeout)
             .call()
             .map_err(|e| e.to_string())?
     };
@@ -141,11 +154,6 @@ fn http_json(method: &str, path: &str) -> Result<serde_json::Value, String> {
         return Err(format!("HTTP {status}: {body}"));
     }
     serde_json::from_str(&body).map_err(|e| e.to_string())
-}
-
-fn health_payload_reachable(v: &serde_json::Value) -> bool {
-    // Any parseable /health body means the control plane answered.
-    !v.is_null()
 }
 
 fn health_payload_workspace_ok(v: &serde_json::Value) -> bool {
@@ -161,14 +169,15 @@ fn health_payload_workspace_ok(v: &serde_json::Value) -> bool {
     status == "ok" && (ws == "ready" || ws == "local")
 }
 
-/// Single /health fetch used by status probes (avoid double HTTP on every tick).
+/// Single /health fetch used by workspace probes (may be slower than readiness).
 pub fn fetch_health() -> Option<serde_json::Value> {
     http_json("GET", "/health").ok()
 }
 
 /// /readiness: license + workspace + runtime integrity (business-usable).
+/// Uses the same 800ms budget as kickstart so status polls cannot hang on /health.
 pub fn fetch_readiness() -> Option<serde_json::Value> {
-    http_json("GET", "/readiness").ok()
+    http_json_timeout("GET", "/readiness", READINESS_TIMEOUT).ok()
 }
 
 pub fn engine_ready() -> bool {
@@ -182,6 +191,13 @@ pub fn readiness_failure_message() -> String {
         Some(v) => {
             if v.get("ready").and_then(|x| x.as_bool()) == Some(true) {
                 return String::new();
+            }
+            if let Some(detail) = v
+                .get("offline_detail")
+                .and_then(|x| x.as_str())
+                .filter(|s| !s.is_empty())
+            {
+                return detail.to_string();
             }
             if let Some(reason) = v
                 .get("license_locked_reason")
@@ -211,11 +227,14 @@ pub fn readiness_failure_message() -> String {
 }
 
 /// True when the engine HTTP control plane responds (any workspace state).
+/// Prefer /readiness: it stays fast and does not embed live Ollama probes.
+/// (Full /health is also non-blocking for Ollama as of the cached health path,
+/// but readiness is the cheaper liveness signal for kickstart loops.)
 pub fn engine_reachable() -> bool {
-    ureq::get(&format!("{ENGINE_URL}/health"))
-        .timeout(Duration::from_millis(800))
+    ureq::get(&format!("{ENGINE_URL}/readiness"))
+        .timeout(READINESS_TIMEOUT)
         .call()
-        .map(|r| r.status() == 200)
+        .map(|r| (200..300).contains(&r.status()))
         .unwrap_or(false)
 }
 
@@ -226,14 +245,14 @@ pub fn engine_workspace_healthy() -> bool {
         .unwrap_or(false)
 }
 
-/// Reachable + workspace-healthy + business-ready from /health and /readiness.
+/// Control-plane up + business-ready, both from /readiness (same probe as kickstart).
+/// Do **not** gate `control_plane` on /health: a slow DB/path check used to mark the
+/// App offline while kickstart already saw readiness 200 → heal loops / fake offline.
 pub fn engine_reach_and_healthy() -> (bool, bool) {
-    match fetch_health() {
+    match fetch_readiness() {
         Some(v) => {
-            let reachable = health_payload_reachable(&v);
-            let workspace_ok = health_payload_workspace_ok(&v);
-            let ready = engine_ready();
-            (reachable, workspace_ok && ready)
+            let ready = v.get("ready").and_then(|x| x.as_bool()).unwrap_or(false);
+            (true, ready)
         }
         None => (false, false),
     }
@@ -336,10 +355,12 @@ pub fn handle_volume_event(app: &AppHandle, kind: &str) {
     }
 
     {
+        // Lock order: prefs → last (must match workspace_sync_set_prefs).
+        let prefs = state.prefs.lock().unwrap().clone();
         let mut last = state.last.lock().unwrap();
         last.last_kind = Some(kind.into());
         last.last_at = Some(now_iso());
-        last.prefs = state.prefs.lock().unwrap().clone();
+        last.prefs = prefs;
     }
 
     if kind == "did_unmount" {
@@ -501,8 +522,10 @@ fn reconnect_inner(app: &AppHandle, state: &WorkspaceEventsState, manual: bool) 
 pub fn workspace_events_snapshot(
     state: State<'_, WorkspaceEventsState>,
 ) -> Result<WorkspaceStateSnapshot, String> {
+    // Lock order: prefs → last (must match workspace_sync_set_prefs / volume handler).
+    let prefs = state.prefs.lock().map_err(|e| e.to_string())?.clone();
     let mut snap = state.last.lock().map_err(|e| e.to_string())?.clone();
-    snap.prefs = state.prefs.lock().map_err(|e| e.to_string())?.clone();
+    snap.prefs = prefs;
     snap.probe = Some(probe_from_engine());
     Ok(snap)
 }

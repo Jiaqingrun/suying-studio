@@ -199,8 +199,14 @@ export function LogsPage({
 
   useEffect(() => {
     if (!active) return;
-    const id = window.setInterval(() => void refresh(), POLL_BUDGET_MS.logs);
-    return () => window.clearInterval(id);
+    let cancelled = false;
+    const id = window.setInterval(() => {
+      if (!cancelled) void refresh();
+    }, POLL_BUDGET_MS.logs);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
   }, [active, refresh]);
 
   async function download(format: "json" | "csv") {

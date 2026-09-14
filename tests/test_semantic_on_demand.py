@@ -27,7 +27,10 @@ from engine.ingest.semantic_gate import (
     semantic_index_admissible,
 )
 from engine.ops.scheduler import DailyScheduler
-from engine.api.app import VerifyClipletsRequest, verify_captions_on_demand
+from engine.api.library_review_routes import (
+    VerifyClipletsRequest,
+    verify_captions_on_demand,
+)
 from tests.test_semantic_ingest import valid_analysis
 
 
@@ -95,8 +98,9 @@ class SemanticOnDemandTests(unittest.TestCase):
         self.assertEqual(row.embedding_json, [0.1, 0.2, 0.3])
 
     def test_api_respects_semantic_analysis_mode(self) -> None:
-        with patch("engine.api.app.assert_runtime_active"), patch(
-            "engine.api.app.load_settings",
+        mod = "engine.api.library_review_routes"
+        with patch(f"{mod}.assert_runtime_active"), patch(
+            f"{mod}.load_settings",
             return_value=SimpleNamespace(semantic_analysis_mode="off"),
         ):
             with self.assertRaises(HTTPException) as caught:
@@ -104,22 +108,22 @@ class SemanticOnDemandTests(unittest.TestCase):
         self.assertEqual(caught.exception.status_code, 409)
 
         fake_session = MagicMock()
-        with patch("engine.api.app.assert_runtime_active"), patch(
-            "engine.api.app.load_settings",
+        with patch(f"{mod}.assert_runtime_active"), patch(
+            f"{mod}.load_settings",
             return_value=SimpleNamespace(semantic_analysis_mode="on_demand"),
-        ), patch("engine.api.app.get_session", return_value=fake_session), patch(
-            "engine.api.app._active_scope",
+        ), patch(f"{mod}.get_session", return_value=fake_session), patch(
+            f"{mod}.active_scope",
             return_value=(None, SimpleNamespace(id=9), None),
         ), patch(
-            "engine.api.app.verify_cliplets_on_demand",
-            return_value={"ok": True, "verified": 1},
-        ) as verify:
+            f"{mod}.verify_cliplets_on_demand",
+            return_value={"ok": True, "verified": 1, "passed": 1, "failed": 0},
+        ) as verify, patch("engine.ops.audit_log.write_log"):
             result = verify_captions_on_demand(
                 VerifyClipletsRequest(cliplet_ids=[7])
             )
         self.assertTrue(result["ok"])
         verify.assert_called_once_with(
-            fake_session, customer_id=9, cliplet_ids=[7]
+            fake_session, customer_id=9, cliplet_ids=[7], force=False
         )
         fake_session.close.assert_called_once()
 

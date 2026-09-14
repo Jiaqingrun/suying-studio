@@ -667,14 +667,18 @@ def warmup_narration_model(model: str | None = None) -> dict[str, Any]:
     return functional_chat_probe(model=model, force=True)
 
 
-def embed_gateway_snapshot() -> dict[str, Any]:
-    shallow_ok, shallow_msg = _shallow_tags_probe()
+def ollama_control_plane_snapshot() -> dict[str, Any]:
+    """Circuit + last functional probes only — never hits Ollama HTTP.
+
+    Safe for ``/readiness`` and other sub-second control-plane paths. Live
+    tags/chat/embed probes belong on background refresh or ops endpoints.
+    """
     probe_at, probe_ok, probe_msg, probe_latency = _probe_cache
-    circuit = circuit_snapshot()
     chat = _func_cache.get("chat") or {}
+    cached_at, shallow_ok, shallow_msg = _shallow_cache
     return {
-        "shallow_reachable": shallow_ok,
-        "shallow_message": shallow_msg,
+        "shallow_reachable": bool(shallow_ok) if cached_at else False,
+        "shallow_message": shallow_msg if cached_at else "cache_pending",
         "functional_probe_ok": probe_ok,
         "functional_probe_message": probe_msg,
         "functional_probe_latency_ms": probe_latency,
@@ -684,9 +688,23 @@ def embed_gateway_snapshot() -> dict[str, Any]:
         "chat_probe_model": chat.get("model"),
         "chat_probe_latency_ms": chat.get("latency_ms"),
         "embed_slot_locked": _embed_slot.locked(),
-        "circuit": circuit,
+        "circuit": circuit_snapshot(),
         "url": OLLAMA_URL,
+        "live_http": False,
     }
+
+
+def embed_gateway_snapshot() -> dict[str, Any]:
+    shallow_ok, shallow_msg = _shallow_tags_probe()
+    out = ollama_control_plane_snapshot()
+    out.update(
+        {
+            "shallow_reachable": shallow_ok,
+            "shallow_message": shallow_msg,
+            "live_http": True,
+        }
+    )
+    return out
 
 
 def ollama_health_snapshot() -> dict[str, Any]:

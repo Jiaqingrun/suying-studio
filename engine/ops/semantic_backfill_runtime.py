@@ -119,7 +119,8 @@ class SemanticBackfillRuntime:
                 break
 
     def _run_one_batch(self) -> dict[str, Any]:
-        from engine.api.scope import active_scope
+        # Prefer catalog customer_scope — ops must not import engine.api (layering).
+        from engine.catalog.customer_scope import require_active_customer
         from engine.catalog.db import get_session
         from engine.ingest.cliplet import (
             recaption_existing_cliplets,
@@ -129,7 +130,7 @@ class SemanticBackfillRuntime:
         settings = load_settings()
         session = get_session()
         try:
-            _, customer, _ = active_scope(session, settings)
+            customer = require_active_customer(session, settings)
             result = recaption_existing_cliplets(
                 session,
                 customer_id=customer.id,

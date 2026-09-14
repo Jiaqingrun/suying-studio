@@ -48,7 +48,7 @@
 | 9a | [`DAILY_DIVERSITY_PLAN.md`](DAILY_DIVERSITY_PLAN.md) | **日更去同质化（全行业）**：五层诊断、周槽位、facet/轮换、可见成效 A/B 档；**禁止另立 ✅**；B 档须点名 live 客户与改前/改后对照 |
 | 9b | [`RULE_LAB_OPT.md`](RULE_LAB_OPT.md) | **GRuleLabOpt**：规则实验室 IA/默认值同源/日更·精品克隆/按任务规则轮换/规则绑定词池内容面（不改 v3 真相模型） |
 | 9c | [`FX_ASSET_WHITELIST.md`](FX_ASSET_WHITELIST.md) | **GRuleVisualLab**：免费可商用特效/字体 Tier A 白名单；多层蒙版；字段默认关、精品可开；非法律意见 |
-| 10 | [`POST_CLOSEOUT_OPS_PLAN.md`](POST_CLOSEOUT_OPS_PLAN.md) | **关账后运营优化执行表**：主力 **臻享丽人**；0.7.18 舰队；**xlf 可升 App、生产规则禁止 seed 覆盖**；阶段 0 配置。**禁止另立 ✅**；非新 Gate |
+| 10 | [`POST_CLOSEOUT_OPS_PLAN.md`](POST_CLOSEOUT_OPS_PLAN.md) | **关账后运营优化执行表**：主力 **始峰五金/北京始峰伟业**（2026-09-08 改锚；臻享非成交降级）；xlf 可升 App、生产规则禁止 seed 覆盖。**禁止另立 ✅**；非新 Gate |
 
 ## 3. 运维与交付
 

@@ -12,25 +12,46 @@ export function CarrierOpsStrip() {
 
   async function refresh() {
     try {
-      const [c, k, u, h] = await Promise.all([
+      const [c, k, u, r] = await Promise.all([
         api.carrierStatus(),
         api.keywordStats(),
         api.appUpdateCheck(),
-        api.health(),
+        api.readiness(),
       ]);
       setCarrier(c);
       setKw(k);
       setUpd(u);
-      setNarrOn(Boolean(h.ollama_narration_enabled));
+      setNarrOn(Boolean(r.ollama_narration_enabled));
     } catch (e) {
       setMsg(String(e));
     }
   }
 
   useEffect(() => {
-    void refresh();
-    const t = window.setInterval(() => void refresh(), 60000);
-    return () => window.clearInterval(t);
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const [c, k, u, r] = await Promise.all([
+          api.carrierStatus(),
+          api.keywordStats(),
+          api.appUpdateCheck(),
+          api.readiness(),
+        ]);
+        if (cancelled) return;
+        setCarrier(c);
+        setKw(k);
+        setUpd(u);
+        setNarrOn(Boolean(r.ollama_narration_enabled));
+      } catch (e) {
+        if (!cancelled) setMsg(String(e));
+      }
+    };
+    void tick();
+    const t = window.setInterval(() => void tick(), 60000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(t);
+    };
   }, []);
 
   async function onInstallUpdate() {
