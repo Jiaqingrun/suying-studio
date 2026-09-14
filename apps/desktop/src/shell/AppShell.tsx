@@ -42,7 +42,7 @@ export function AppShell({
               <span className="brand-ver">SUYING</span>
             </div>
           )}
-          <p className="brand-tag">本地日更 · 深空指挥台</p>
+          <p className="brand-tag">本地日更 · 水彩工作室</p>
         </div>
         <nav className="nav" aria-label="心智分组导航">
           {NAV_MIND_GROUPS.map((group) => (
