@@ -58,14 +58,14 @@
   --btn-h: 34px;
   --hit-min: 36px;
   --card-pad: 18px;
-  --shadow-soft: 0 1px 0 rgba(28, 25, 22, 0.04);
+  --shadow-soft: 0 1px 0 rgba(28, 25, 22, 0.045);
   --shadow-card: 0 1px 0 rgba(28, 25, 22, 0.05);
   --content-max: 1400px;
 
   /* Motion */
-  --motion-duration: 220ms;
+  --motion-duration: 240ms;
   --motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --motion-slow: 480ms;
+  --motion-slow: 520ms;
 }
 
 /* Compact: more content, readable floor */

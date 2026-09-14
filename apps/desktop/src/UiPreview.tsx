@@ -111,7 +111,7 @@ export function UiPreview() {
       topbarTitle={
         <>
           <h2>UI 预览台</h2>
-          <span>石青墨纸 · 不连引擎</span>
+          <span>石青墨纸 MAX · 不连引擎</span>
         </>
       }
       topbarActions={
@@ -119,7 +119,7 @@ export function UiPreview() {
           <button type="button" onClick={() => setGate("splash")}>
             启动 splash
           </button>
-          <button type="button" onClick={() => setGate("license")}>
+          <button type="button" className="primary" onClick={() => setGate("license")}>
             授权页
           </button>
         </div>
@@ -160,6 +160,37 @@ export function UiPreview() {
               actionLabel="重试"
               onAction={() => undefined}
             />
+          </div>
+        </PageSection>
+        <PageSection title="石青墨纸色票" description="墨 / 纸 / 朱砂 / 石青 — 仅预览台展示。">
+          <div className="ui-preview-swatch" aria-hidden="true">
+            <span>
+              <i className="sw-ink" />
+              ink #1c1916
+            </span>
+            <span>
+              <i className="sw-paper" />
+              paper #e9e6df
+            </span>
+            <span>
+              <i className="sw-seal" />
+              seal #c43c28
+            </span>
+            <span>
+              <i className="sw-stone" />
+              stone #3a647c
+            </span>
+          </div>
+        </PageSection>
+        <PageSection title="动效样例" description="尊重 prefers-reduced-motion；正式路径同套变量。">
+          <div className="ui-preview-motion-row">
+            <span className="ui-preview-pulse" aria-hidden="true" />
+            <span className="loading-bar" aria-hidden="true" />
+            <button type="button" className="primary">
+              主按钮
+            </button>
+            <button type="button">次按钮</button>
+            <span className="status-chip ok">引擎在线</span>
           </div>
         </PageSection>
       </section>

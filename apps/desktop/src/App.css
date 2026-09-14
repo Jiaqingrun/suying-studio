@@ -3,6 +3,7 @@
 @import "tailwindcss" source(none);
 @source "./";
 @import "./styles/tokens.css";
+@import "./styles/ui-max.css";
 
 :root {
   /* tokens.css 已定义主色；此处保留兼容旧选择器的别名 */
