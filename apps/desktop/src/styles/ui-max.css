@@ -1,0 +1,461 @@
+/* 速影 · 石青墨纸 MAX — 纯视觉加码层（不改选择器语义/交互合同） */
+
+:root {
+  --ink-wash: rgba(28, 25, 22, 0.045);
+  --paper-highlight: rgba(255, 252, 246, 0.55);
+  --seal: #c43c28;
+  --type-display: clamp(1.25rem, 1.1rem + 0.4vw, 1.55rem);
+  --focus-ring: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* —— Atmosphere —— */
+.app.app--gui {
+  background:
+    radial-gradient(1100px 520px at -5% -15%, rgba(196, 60, 40, 0.07), transparent 58%),
+    radial-gradient(900px 480px at 105% -5%, rgba(58, 100, 124, 0.055), transparent 52%),
+    radial-gradient(700px 360px at 55% 110%, rgba(28, 25, 22, 0.04), transparent 55%),
+    linear-gradient(180deg, #f3f0e9 0%, var(--bg-0) 38%, #d9d3c8 100%),
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 29px,
+      var(--ink-wash) 29px,
+      var(--ink-wash) 30px
+    );
+}
+
+.app.app--gui .rail {
+  background:
+    linear-gradient(165deg, rgba(250, 247, 240, 0.99) 0%, rgba(228, 222, 211, 0.98) 72%, rgba(220, 214, 203, 0.98) 100%),
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 29px,
+      rgba(28, 25, 22, 0.018) 29px,
+      rgba(28, 25, 22, 0.018) 30px
+    );
+  box-shadow: inset -1px 0 0 color-mix(in srgb, var(--line) 80%, transparent);
+}
+
+.app.app--gui .brand {
+  padding: 20px 16px 22px;
+}
+
+.app.app--gui .brand-glyph {
+  width: 44px;
+  height: 44px;
+  font-size: 1.45rem;
+  letter-spacing: 0;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 250, 244, 0.12),
+    0 0 0 1px rgba(28, 25, 22, 0.2);
+  transition: transform var(--motion-duration) var(--motion-ease);
+}
+
+.app.app--gui .brand:hover .brand-glyph {
+  transform: translateY(-1px);
+}
+
+.app.app--gui .brand-name {
+  font-size: 1.42rem;
+  letter-spacing: 0.26em;
+}
+
+.app.app--gui .brand-tag {
+  margin-top: 12px;
+  max-width: 18em;
+  color: var(--text-mute);
+  letter-spacing: 0.02em;
+}
+
+.app.app--gui .brand::after {
+  height: 2px;
+  background: linear-gradient(90deg, var(--seal) 0%, color-mix(in srgb, var(--seal) 35%, transparent) 42%, transparent 78%);
+}
+
+/* —— Nav —— */
+.app.app--gui .nav {
+  gap: 3px;
+  padding: 16px 10px 12px;
+}
+
+.app.app--gui .nav-btn {
+  position: relative;
+  min-height: var(--hit-min);
+  padding: 10px 12px;
+  letter-spacing: 0.02em;
+}
+
+.app.app--gui .nav-btn .nav-icon {
+  opacity: 0.72;
+  transition: opacity var(--motion-duration) var(--motion-ease), color var(--motion-duration) var(--motion-ease);
+}
+
+.app.app--gui .nav-btn:hover .nav-icon,
+.app.app--gui .nav-btn.active .nav-icon {
+  opacity: 1;
+  color: var(--accent);
+}
+
+.app.app--gui .nav-btn.active {
+  background: linear-gradient(90deg, var(--accent-dim), color-mix(in srgb, var(--accent-dim) 20%, transparent));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-line) 55%, transparent);
+}
+
+.app.app--gui .nav-label {
+  font-weight: 520;
+}
+
+.app.app--gui .nav-btn.active .nav-label {
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* —— Topbar / workspace —— */
+.app.app--gui .topbar {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-0) 92%, transparent), color-mix(in srgb, var(--bg-0) 70%, transparent));
+  border-bottom-color: color-mix(in srgb, var(--line) 88%, transparent);
+}
+
+.app.app--gui .topbar-title h2 {
+  font-family: var(--font-display);
+  letter-spacing: 0.08em;
+  font-size: 1.02rem;
+}
+
+.app.app--gui .workspace {
+  padding: 20px 22px 42px;
+  scroll-behavior: smooth;
+}
+
+/* —— Controls —— */
+.app.app--gui button {
+  border-radius: var(--radius-sm);
+  letter-spacing: 0.02em;
+  transition:
+    background var(--motion-duration) var(--motion-ease),
+    border-color var(--motion-duration) var(--motion-ease),
+    color var(--motion-duration) var(--motion-ease),
+    transform var(--motion-duration) var(--motion-ease),
+    box-shadow var(--motion-duration) var(--motion-ease);
+}
+
+.app.app--gui button.primary {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 92%, #fff) 0%, var(--accent-strong) 100%);
+  border-color: var(--accent-strong);
+  box-shadow: inset 0 1px 0 rgba(255, 250, 244, 0.18);
+}
+
+.app.app--gui button.primary:hover {
+  filter: brightness(1.03);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 250, 244, 0.22),
+    0 1px 0 rgba(28, 25, 22, 0.06);
+}
+
+.app.app--gui button:focus-visible,
+.app.app--gui .nav-btn:focus-visible,
+.app.app--gui input:focus-visible,
+.app.app--gui select:focus-visible,
+.app.app--gui textarea:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-color: var(--accent-line);
+}
+
+.app.app--gui input,
+.app.app--gui select,
+.app.app--gui textarea {
+  background: color-mix(in srgb, var(--surface-0) 88%, #fff);
+  border-radius: var(--radius-sm);
+}
+
+/* —— Page chrome —— */
+.app.app--gui .page-stack {
+  gap: 22px;
+}
+
+.app.app--gui .page-blurb {
+  font-size: 0.84rem;
+  letter-spacing: 0.01em;
+  color: var(--text-dim);
+  max-width: 52ch;
+}
+
+.app.app--gui .page-section {
+  border-radius: var(--radius);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 94%, #fff), color-mix(in srgb, var(--bg-1) 35%, var(--surface-1)));
+  border-color: color-mix(in srgb, var(--line) 92%, transparent);
+  box-shadow: var(--shadow-soft);
+  animation: stage-enter var(--motion-slow) var(--motion-ease) both;
+}
+
+.app.app--gui .page-section:nth-child(2) { animation-delay: 40ms; }
+.app.app--gui .page-section:nth-child(3) { animation-delay: 80ms; }
+.app.app--gui .page-section:nth-child(4) { animation-delay: 120ms; }
+
+.app.app--gui .section-header {
+  position: relative;
+  padding: 18px 22px 15px;
+}
+
+.app.app--gui .section-header::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 18px;
+  bottom: 15px;
+  width: 3px;
+  background: linear-gradient(180deg, var(--seal), transparent);
+  opacity: 0.85;
+}
+
+.app.app--gui .section-header h3 {
+  font-size: var(--type-display);
+  letter-spacing: 0.1em;
+}
+
+.app.app--gui .page-section-body {
+  padding: 18px 22px 22px;
+}
+
+.app.app--gui .overview-hero {
+  gap: 16px;
+  padding: 6px 2px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--paper-highlight) 70%, transparent), transparent);
+}
+
+.app.app--gui .overview-hero .page-header h2 {
+  font-size: clamp(1.4rem, 1.2rem + 0.5vw, 1.75rem);
+  letter-spacing: 0.14em;
+}
+
+/* —— Pipeline / stats —— */
+.app.app--gui .pipeline-lane {
+  gap: 10px;
+}
+
+.app.app--gui .pipeline-node {
+  min-width: 104px;
+  padding: 13px 15px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-0) 90%, #fff), var(--surface-1));
+}
+
+.app.app--gui .pipeline-count {
+  font-size: 1.35rem;
+  letter-spacing: -0.02em;
+}
+
+.app.app--gui .stat {
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-0) 80%, transparent);
+  box-shadow: none;
+  padding: 14px 14px 12px;
+}
+
+.app.app--gui .stat::before {
+  background: linear-gradient(90deg, var(--seal), transparent);
+  opacity: 0.7;
+}
+
+.app.app--gui .stat-label {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  font-family: var(--font-mono);
+}
+
+.app.app--gui .stat-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* —— States —— */
+.app.app--gui .empty-state {
+  padding: clamp(28px, 4vw, 44px) 24px;
+  gap: 12px;
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--line-strong) 70%, transparent);
+  background:
+    radial-gradient(480px 160px at 50% 0%, rgba(196, 60, 40, 0.05), transparent 70%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 85%, transparent), var(--surface-1));
+}
+
+.app.app--gui .empty-state-mark {
+  width: 48px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--seal), transparent);
+}
+
+.app.app--gui .empty-state strong {
+  font-family: var(--font-display);
+  letter-spacing: 0.08em;
+  font-size: 1.05rem;
+}
+
+.app.app--gui .loading-state,
+.app.app--gui .error-state {
+  min-height: 120px;
+  place-content: center;
+  border-radius: var(--radius-sm);
+}
+
+.app.app--gui .loading-bar {
+  width: 148px;
+  height: 2px;
+}
+
+.app.app--gui .error-state strong {
+  font-family: var(--font-display);
+  letter-spacing: 0.06em;
+  color: var(--danger);
+}
+
+.app.app--gui .banner {
+  border-radius: var(--radius-sm);
+  border-left-width: 3px;
+}
+
+.app.app--gui .activity-ticker {
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface-1) 92%, var(--bg-0));
+}
+
+.app.app--gui .human-alert-card {
+  border-radius: var(--radius-sm);
+  border-left-width: 3px;
+}
+
+.app.app--gui .status-strip-item {
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface-0) 88%, transparent);
+}
+
+.app.app--gui .segment-nav {
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface-0) 75%, transparent);
+}
+
+/* —— License hero —— */
+.app.app--gui ~ .license-gate,
+.license-gate {
+  isolation: isolate;
+}
+
+.license-hero-veil {
+  background:
+    linear-gradient(115deg, rgba(20, 18, 16, 0.82) 0%, rgba(20, 18, 16, 0.48) 46%, rgba(20, 18, 16, 0.22) 100%),
+    linear-gradient(180deg, rgba(20, 18, 16, 0.12) 0%, rgba(20, 18, 16, 0.62) 100%);
+}
+
+.license-splash {
+  gap: 16px;
+  padding: 8px 4px;
+}
+
+.license-hero-title {
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.35);
+}
+
+.license-card {
+  border-left: 3px solid var(--seal);
+  backdrop-filter: blur(16px) saturate(1.05);
+}
+
+/* —— Dialogs / cmdk —— */
+.app.app--gui .cmdk-panel,
+.app.app--gui .app-dialog,
+.cmdk-panel {
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--line-strong) 80%, transparent);
+  box-shadow: var(--shadow-soft);
+  background: color-mix(in srgb, var(--surface-0) 96%, #fff);
+}
+
+/* —— Preview-only flourishes —— */
+.ui-preview-swatch {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.ui-preview-swatch span {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-0);
+  font-size: 0.72rem;
+  color: var(--text-mute);
+  font-family: var(--font-mono);
+}
+
+.ui-preview-swatch i {
+  display: block;
+  height: 28px;
+  border-radius: 2px;
+}
+
+.ui-preview-swatch .sw-ink { background: #1c1916; }
+.ui-preview-swatch .sw-paper { background: #e9e6df; border: 1px solid rgba(28,25,22,0.12); }
+.ui-preview-swatch .sw-seal { background: #c43c28; }
+.ui-preview-swatch .sw-stone { background: #3a647c; }
+
+.ui-preview-motion-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.ui-preview-pulse {
+  width: 10px;
+  height: 10px;
+  background: var(--seal);
+  animation: ui-max-pulse 1.4s var(--motion-ease) infinite;
+}
+
+@keyframes ui-max-pulse {
+  0%, 100% { transform: scale(0.85); opacity: 0.45; }
+  50% { transform: scale(1.15); opacity: 1; }
+}
+
+/* —— Narrow / dense —— */
+@media (max-width: 1180px) {
+  .app.app--gui .workspace {
+    padding: 16px 16px 32px;
+  }
+  .app.app--gui .section-header,
+  .app.app--gui .page-section-body {
+    padding-inline: 16px;
+  }
+}
+
+@media (max-width: 900px) {
+  .app.app--gui .brand-name {
+    letter-spacing: 0.16em;
+    font-size: 1.15rem;
+  }
+  .app.app--gui .overview-hero .page-header h2 {
+    font-size: 1.25rem;
+  }
+  .app.app--gui .pipeline-node {
+    min-width: 88px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app.app--gui .page-section,
+  .ui-preview-pulse,
+  .app.app--gui .brand-glyph {
+    animation: none !important;
+    transition: none !important;
+  }
+}

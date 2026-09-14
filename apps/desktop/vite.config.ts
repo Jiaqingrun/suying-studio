@@ -14,8 +14,9 @@ export default defineConfig(async () => ({
   // 1. prevent Vite from obscuring rust errors
   clearScreen: false,
   // 2. tauri expects a fixed port, fail if that port is not available
+  // UI-only preview can override with VITE_PORT (e.g. 43127)
   server: {
-    port: 1420,
+    port: Number(process.env.VITE_PORT || 1420),
     strictPort: true,
     host: host || false,
     hmr: host

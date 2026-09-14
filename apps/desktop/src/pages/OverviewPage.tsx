@@ -111,23 +111,26 @@ export function OverviewPage({
 
   return (
     <section className="page-stack overview-page">
-      <PageHeader
-        title="总览"
-        blurb="先看动态与泳道：有日历则开跑，无计划去生产填日历"
-        actions={
-          <WorkspaceSyncControl
-            phase={workspacePhase}
-            message={workspaceMessage}
-            error={workspaceError}
-            probe={workspaceProbe}
-            prefs={workspacePrefs}
-            busy={workspaceBusy}
-            onToggleAuto={onWorkspaceToggleAuto}
-            onSyncNow={onWorkspaceSyncNow}
-            onRefresh={() => void refreshAll()}
-          />
-        }
-      />
+      <div className="overview-hero">
+        <PageHeader
+          title="总览"
+          blurb="先看动态与泳道：有日历则开跑，无计划去生产填日历"
+          actions={
+            <WorkspaceSyncControl
+              phase={workspacePhase}
+              message={workspaceMessage}
+              error={workspaceError}
+              probe={workspaceProbe}
+              prefs={workspacePrefs}
+              busy={workspaceBusy}
+              onToggleAuto={onWorkspaceToggleAuto}
+              onSyncNow={onWorkspaceSyncNow}
+              onRefresh={() => void refreshAll()}
+            />
+          }
+        />
+        <OverviewPipeline nodes={pipelineNodes} onJump={setTab} pathBlocked={pathBlocked} />
+      </div>
       <PageSection
         id="just-done"
         title="刚完成"
@@ -184,7 +187,12 @@ export function OverviewPage({
             })}
           </div>
         ) : (
-          <EmptyState title="还没有刚完成的成片" actionLabel="去生产" onAction={() => setTab("produce")} />
+          <EmptyState
+            title="还没有刚完成的成片"
+            body="从生产页填日历并开跑，成片会出现在这里。"
+            actionLabel="去生产"
+            onAction={() => setTab("produce")}
+          />
         )}
       </PageSection>
       <PageSection
@@ -214,10 +222,11 @@ export function OverviewPage({
             </div>
           </article>
         ))}
-        {!humanAlerts.length ? <EmptyState title="当前没有必须人工处理的事项" /> : null}
+        {!humanAlerts.length ? (
+          <EmptyState title="当前没有必须人工处理的事项" body="规则确认、登录验证码与熔断会集中出现在这里。" />
+        ) : null}
       </PageSection>
       <ActivityTicker items={activityItems} onJump={setTab} />
-      <OverviewPipeline nodes={pipelineNodes} onJump={setTab} pathBlocked={pathBlocked} />
       <div className="stat-grid">
         <div className="stat">
           <div className="stat-label">素材</div>

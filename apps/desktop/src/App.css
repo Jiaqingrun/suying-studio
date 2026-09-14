@@ -3,6 +3,7 @@
 @import "tailwindcss" source(none);
 @source "./";
 @import "./styles/tokens.css";
+@import "./styles/ui-max.css";
 
 :root {
   /* tokens.css 已定义主色；此处保留兼容旧选择器的别名 */
@@ -46,15 +47,15 @@ textarea {
   grid-template-columns: var(--rail-w) 1fr;
   grid-template-rows: var(--header-h) minmax(0, 1fr);
   background:
-    radial-gradient(1000px 500px at 0% -10%, rgba(184, 69, 50, 0.055), transparent 55%),
-    radial-gradient(800px 400px at 100% 0%, rgba(196, 122, 20, 0.045), transparent 50%),
-    linear-gradient(180deg, #faf6f0 0%, var(--bg-0) 42%, #eee7dd 100%),
+    radial-gradient(920px 460px at 0% -12%, rgba(196, 60, 40, 0.06), transparent 58%),
+    radial-gradient(760px 380px at 100% 0%, rgba(58, 100, 124, 0.05), transparent 52%),
+    linear-gradient(180deg, #f1eee7 0%, var(--bg-0) 44%, #ddd7cd 100%),
     repeating-linear-gradient(
       0deg,
       transparent,
-      transparent 23px,
-      rgba(15, 23, 42, 0.015) 23px,
-      rgba(15, 23, 42, 0.015) 24px
+      transparent 27px,
+      rgba(28, 25, 22, 0.018) 27px,
+      rgba(28, 25, 22, 0.018) 28px
     );
 }
 
@@ -75,20 +76,20 @@ textarea {
   flex-direction: column;
   border-right: 1px solid var(--line);
   background:
-    linear-gradient(180deg, rgba(255, 252, 247, 0.97), rgba(238, 231, 221, 0.98)),
+    linear-gradient(180deg, rgba(248, 245, 238, 0.98), rgba(228, 222, 212, 0.98)),
     repeating-linear-gradient(
       0deg,
       transparent,
-      transparent 23px,
-      rgba(15, 23, 42, 0.02) 23px,
-      rgba(15, 23, 42, 0.02) 24px
+      transparent 27px,
+      rgba(28, 25, 22, 0.02) 27px,
+      rgba(28, 25, 22, 0.02) 28px
     );
   padding: 0 0 16px;
   min-height: 0;
 }
 
 .brand {
-  padding: 18px 18px 22px;
+  padding: 18px 16px 20px;
   border-bottom: 1px solid var(--line);
   position: relative;
 }
@@ -96,39 +97,64 @@ textarea {
 .brand::after {
   content: "";
   position: absolute;
-  left: 18px;
-  right: 18px;
+  left: 16px;
+  right: 16px;
   bottom: -1px;
   height: 2px;
-  background: linear-gradient(90deg, var(--accent), transparent 70%);
-  opacity: 0.85;
+  background: linear-gradient(90deg, var(--accent), transparent 72%);
+  opacity: 0.9;
+  transform-origin: left center;
+  animation: brand-rule-in var(--motion-slow) var(--motion-ease) both;
 }
 
 .brand-mark {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-glyph {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--accent-ink);
+  background:
+    linear-gradient(145deg, #3a322b 0%, #1c1916 58%, #141210 100%);
+  border: 1px solid rgba(255, 250, 244, 0.08);
+}
+
+.brand-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .brand-name {
-  font-family: var(--font-mono);
-  font-weight: 600;
-  font-size: 1.25rem;
-  letter-spacing: 0.12em;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.35rem;
+  letter-spacing: 0.22em;
   text-transform: none;
   margin: 0;
   color: var(--text);
+  line-height: 1.1;
 }
 
 .brand-ver {
   font-family: var(--font-mono);
-  font-size: 0.65rem;
+  font-size: 0.62rem;
   color: var(--accent);
-  letter-spacing: 0.08em;
+  letter-spacing: 0.14em;
 }
 
 .brand-tag {
-  margin: 8px 0 0;
+  margin: 10px 0 0;
   font-size: 0.72rem;
   color: var(--text-dim);
   line-height: 1.45;
@@ -150,19 +176,24 @@ textarea {
   width: 100%;
   text-align: left;
   border: 1px solid transparent;
+  border-left: 2px solid transparent;
   background: transparent;
   color: var(--text-dim);
   padding: 9px 12px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 0.84rem;
-  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  transition:
+    color var(--motion-duration) var(--motion-ease),
+    background var(--motion-duration) var(--motion-ease),
+    border-color var(--motion-duration) var(--motion-ease);
 }
 
 .nav-btn:hover {
   color: var(--text);
   background: var(--bg-1);
   border-color: var(--line);
+  border-left-color: color-mix(in srgb, var(--accent) 35%, var(--line));
 }
 
 .nav-btn:active:not(.active) {
@@ -174,6 +205,7 @@ textarea {
   color: var(--text);
   background: var(--accent-dim);
   border-color: var(--accent-line);
+  border-left-color: var(--accent);
 }
 
 .nav-idx {
@@ -400,8 +432,8 @@ textarea {
   gap: 12px;
   padding: 0 14px 0 18px;
   border-bottom: 1px solid var(--line);
-  background: rgba(250, 246, 240, 0.94);
-  backdrop-filter: blur(4px);
+  background: color-mix(in srgb, var(--surface-0) 88%, transparent);
+  backdrop-filter: blur(10px);
 }
 
 .topbar-title {
@@ -497,6 +529,32 @@ textarea {
   min-height: 0;
   overflow: auto;
   padding: 18px 20px 36px;
+}
+
+.tab-pane:not([hidden]) {
+  animation: stage-enter var(--motion-slow) var(--motion-ease) both;
+}
+
+@keyframes stage-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes brand-rule-in {
+  from {
+    transform: scaleX(0.15);
+    opacity: 0;
+  }
+  to {
+    transform: scaleX(1);
+    opacity: 0.9;
+  }
 }
 
 .tab-pane[hidden] {
@@ -2288,54 +2346,76 @@ button.linkish,
   display: flex;
   flex-wrap: wrap;
   align-items: stretch;
-  gap: 6px;
+  gap: 8px;
 }
 .pipeline-step {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 .pipeline-arrow {
-  width: 12px;
-  height: 2px;
-  background: var(--line-strong);
+  width: 14px;
+  height: 1px;
+  background: linear-gradient(90deg, var(--line-strong), color-mix(in srgb, var(--accent) 40%, transparent));
 }
 .pipeline-node {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
-  min-width: 88px;
-  padding: 10px 12px;
-  border-radius: var(--radius);
-  border: 1px solid var(--accent-line);
+  gap: 4px;
+  min-width: 96px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--accent);
   background: var(--surface-1);
   cursor: pointer;
   color: var(--text);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  box-shadow: var(--shadow-soft);
+  transition:
+    border-color var(--motion-duration) var(--motion-ease),
+    background var(--motion-duration) var(--motion-ease),
+    transform var(--motion-duration) var(--motion-ease);
 }
 .pipeline-node:hover {
-  border-color: var(--accent);
+  border-color: var(--accent-line);
+  background: color-mix(in srgb, var(--accent-dim) 55%, var(--surface-1));
+  transform: translateY(-1px);
 }
 .pipeline-node.is-warn {
-  border-color: rgba(245, 158, 11, 0.55);
+  border-left-color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 40%, var(--line));
 }
 .pipeline-node.is-blocked {
-  border-color: rgba(255, 90, 95, 0.55);
+  border-left-color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--line));
 }
 .pipeline-label {
   font-size: 0.75rem;
   color: var(--text-dim);
+  letter-spacing: 0.04em;
 }
 .pipeline-count {
   font-family: var(--font-mono);
-  font-size: 1.15rem;
+  font-size: 1.2rem;
   font-variant-numeric: tabular-nums;
   color: var(--accent);
   font-weight: 600;
+  animation: count-settle var(--motion-slow) var(--motion-ease) both;
 }
 .pipeline-node.is-warn .pipeline-count { color: var(--warn); }
 .pipeline-node.is-blocked .pipeline-count { color: var(--danger); }
+
+@keyframes count-settle {
+  from {
+    opacity: 0.35;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
 
 .next-pill {
   border: 1px solid var(--accent-line);
@@ -2933,14 +3013,14 @@ button.primary:active:not(:disabled) {
 /* —— GUI refactor chrome —— */
 .app--gui {
   background:
-    radial-gradient(900px 420px at 0% -8%, rgba(184, 69, 50, 0.07), transparent 55%),
-    radial-gradient(700px 360px at 100% 0%, rgba(61, 107, 138, 0.05), transparent 50%),
-    linear-gradient(180deg, #f7f2ea 0%, var(--bg-0) 42%, #e8dfd4 100%);
+    radial-gradient(900px 420px at 0% -8%, rgba(196, 60, 40, 0.06), transparent 55%),
+    radial-gradient(700px 360px at 100% 0%, rgba(58, 100, 124, 0.05), transparent 50%),
+    linear-gradient(180deg, #f1eee7 0%, var(--bg-0) 42%, #ddd7cd 100%);
 }
 
 .app--gui .rail {
   background:
-    linear-gradient(180deg, rgba(255, 252, 247, 0.96), rgba(235, 228, 218, 0.98));
+    linear-gradient(180deg, rgba(248, 245, 238, 0.98), rgba(226, 220, 210, 0.98));
 }
 
 .app--gui .brand::after {
@@ -3050,7 +3130,7 @@ button.primary:active:not(:disabled) {
   gap: 4px;
   padding: 4px;
   margin-bottom: var(--space-4);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--line);
   background: var(--surface-2);
 }
@@ -3062,7 +3142,7 @@ button.primary:active:not(:disabled) {
   min-height: var(--hit-min);
   padding: 6px 14px;
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
@@ -3110,11 +3190,74 @@ button.primary:active:not(:disabled) {
 }
 
 .empty-state {
-  padding: var(--space-5);
+  padding: var(--space-6) var(--space-5);
   border: 1px dashed var(--line-strong);
   border-radius: var(--radius);
-  background: var(--surface-2);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 80%, transparent), var(--surface-1));
   text-align: center;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  animation: stage-enter var(--motion-slow) var(--motion-ease) both;
+}
+
+.empty-state-mark {
+  width: 36px;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent), transparent);
+  margin-bottom: 4px;
+}
+
+.empty-state--warn {
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
+  background: color-mix(in srgb, var(--warn-dim) 70%, var(--surface-1));
+}
+
+.empty-state--danger {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--line));
+  background: color-mix(in srgb, var(--danger-dim) 70%, var(--surface-1));
+}
+
+.loading-state,
+.error-state {
+  padding: var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  text-align: center;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+}
+
+.error-state {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--line));
+  background: color-mix(in srgb, var(--danger-dim) 65%, var(--surface-1));
+}
+
+.loading-bar {
+  display: block;
+  width: 120px;
+  height: 2px;
+  border-radius: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--accent) 45%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: loading-sweep 1.2s linear infinite;
+}
+
+@keyframes loading-sweep {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
 }
 
 /* GUI.IA2 — one visual grammar across all eight product pages */
@@ -3163,9 +3306,9 @@ button.primary:active:not(:disabled) {
 .page-section {
   scroll-margin-top: 84px;
   border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--surface-1) 97%, var(--accent) 3%);
-  box-shadow: 0 10px 30px rgba(7, 15, 28, 0.055);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface-1) 96%, var(--bg-0) 4%);
+  box-shadow: var(--shadow-soft);
   overflow: clip;
 }
 
@@ -3198,6 +3341,12 @@ button.primary:active:not(:disabled) {
   margin: 0;
 }
 
+.section-header h3 {
+  font-family: var(--font-display);
+  letter-spacing: 0.06em;
+  font-weight: 700;
+}
+
 .section-header p {
   margin-top: 5px;
   color: var(--text-mute);
@@ -3206,10 +3355,11 @@ button.primary:active:not(:disabled) {
 
 .section-status {
   padding: 3px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   color: var(--text-mute);
   background: var(--bg-0);
   font-size: 12px;
+  font-family: var(--font-mono);
 }
 
 .section-actions {
@@ -4450,36 +4600,87 @@ label.check {
 .license-gate {
   min-height: 100vh;
   display: grid;
-  place-items: center;
-  padding: 40px;
-  background:
-    radial-gradient(circle at 20% 15%, rgba(190, 132, 63, 0.18), transparent 34%),
-    linear-gradient(145deg, #f6efe3, #e9dcc9);
+  place-items: stretch;
+  position: relative;
+  overflow: hidden;
+  padding: 0;
+  background: #1c1916;
 }
-.license-gate--checking {
-  background:
-    radial-gradient(circle at 20% 15%, rgba(190, 132, 63, 0.1), transparent 34%),
-    linear-gradient(145deg, #f7f4ef, #efe8dc);
+
+.license-hero {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
 }
-.license-splash {
-  text-align: center;
+
+.license-hero-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+  transform: scale(1.04);
+  animation: hero-drift 18s ease-in-out infinite alternate;
+}
+
+.license-hero-veil {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(105deg, rgba(28, 25, 22, 0.78) 0%, rgba(28, 25, 22, 0.42) 48%, rgba(28, 25, 22, 0.18) 100%),
+    linear-gradient(180deg, rgba(28, 25, 22, 0.2) 0%, rgba(28, 25, 22, 0.55) 100%);
+}
+
+.license-stage {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
   display: grid;
-  gap: 16px;
+  place-items: center;
+  padding: clamp(24px, 5vw, 56px);
+}
+
+.license-gate--checking .license-stage {
   place-items: center;
 }
-.license-splash .muted {
-  color: rgba(54, 40, 27, 0.55);
-  font-size: 0.95rem;
-  letter-spacing: 0.04em;
+
+.license-splash {
+  text-align: left;
+  display: grid;
+  gap: 14px;
+  justify-items: start;
+  max-width: min(520px, 100%);
+  color: #f4efe6;
+  animation: stage-enter var(--motion-slow) var(--motion-ease) both;
+}
+
+.license-splash .muted,
+.license-hero-support {
+  color: rgba(244, 239, 230, 0.72);
+  font-size: 1rem;
+  letter-spacing: 0.06em;
+  margin: 0;
+}
+
+.license-hero-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(2.8rem, 7vw, 4.4rem);
+  letter-spacing: 0.28em;
+  font-weight: 700;
+  color: #fffaf4;
+  line-height: 1;
 }
 
 .license-card {
-  width: min(620px, 100%);
-  padding: 36px;
-  border: 1px solid rgba(95, 66, 35, 0.2);
-  border-radius: 24px;
-  background: rgba(255, 252, 246, 0.94);
-  box-shadow: 0 28px 70px rgba(67, 45, 20, 0.18);
+  width: min(560px, 100%);
+  padding: 32px 34px;
+  border: 1px solid rgba(244, 239, 230, 0.16);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, #f2efe8 92%, transparent);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(12px);
+  animation: stage-enter var(--motion-slow) var(--motion-ease) both;
 }
 
 .license-brand {
@@ -4491,7 +4692,7 @@ label.check {
 
 .license-brand--compact {
   margin-bottom: 0;
-  flex-direction: column;
+  flex-direction: row;
   gap: 12px;
 }
 
@@ -4501,17 +4702,15 @@ label.check {
   height: 52px;
   display: grid;
   place-items: center;
-  border-radius: 14px;
+  border-radius: var(--radius-sm);
   color: #fffaf0;
   background:
-    linear-gradient(145deg, #4a3726 0%, #2c2118 55%, #211812 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 248, 235, 0.12),
-    0 8px 18px rgba(54, 40, 27, 0.22);
+    linear-gradient(145deg, #3a322b 0%, #1c1916 55%, #141210 100%);
+  border: 1px solid rgba(255, 248, 235, 0.1);
 }
 
 .license-mark-glyph {
-  font-family: "Songti SC", "STSong", "Noto Serif SC", "Source Han Serif SC", serif;
+  font-family: var(--font-display);
   font-size: 26px;
   font-weight: 700;
   line-height: 1;
@@ -4527,15 +4726,20 @@ label.check {
 }
 
 .license-brand--compact .license-brand-copy {
-  align-items: center;
+  align-items: flex-start;
 }
 
 .license-brand-name {
-  font-size: 1.2rem;
-  font-weight: 800;
-  letter-spacing: 0.18em;
-  color: #2c2118;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: #1c1916;
   line-height: 1.15;
+}
+
+.license-splash .license-brand-name {
+  color: #fffaf4;
 }
 
 .license-brand-product {
@@ -4547,8 +4751,14 @@ label.check {
   line-height: 1.2;
 }
 
+.license-splash .license-brand-product {
+  color: rgba(244, 239, 230, 0.62);
+}
+
 .license-card h1 {
   margin: 8px 0 10px;
+  font-family: var(--font-display);
+  letter-spacing: 0.04em;
 }
 
 .license-request-label {
@@ -4564,11 +4774,11 @@ label.check {
   min-height: 190px;
   resize: vertical;
   padding: 14px;
-  border: 1px solid #d9c8b1;
-  border-radius: 12px;
+  border: 1px solid #d2c7b6;
+  border-radius: var(--radius-sm);
   background: #fffdf9;
   color: #3e3327;
-  font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 12px/1.55 var(--font-mono);
 }
 
 .license-actions {
@@ -4581,7 +4791,7 @@ label.check {
 .license-error,
 .license-reason {
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
 }
 
@@ -4593,6 +4803,25 @@ label.check {
 .license-reason {
   color: #715018;
   background: #fff6dc;
+}
+
+@keyframes hero-drift {
+  from {
+    transform: scale(1.04) translate3d(0, 0, 0);
+  }
+  to {
+    transform: scale(1.08) translate3d(-1.2%, -0.8%, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .license-hero-img,
+  .pipeline-count,
+  .tab-pane:not([hidden]),
+  .brand::after,
+  .loading-bar {
+    animation: none !important;
+  }
 }
 
 @keyframes guide-spotlight-pulse {
@@ -4673,5 +4902,162 @@ label.check {
 @media (max-width: 1100px) {
   .automation-task-form {
     grid-template-columns: repeat(2, minmax(180px, 1fr));
+  }
+}
+
+/* —— UI upgrade 2026-09：总览首屏构图 + 窗口可用性 —— */
+.overview-hero {
+  display: grid;
+  gap: 14px;
+  padding: 4px 2px 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  margin-bottom: 4px;
+}
+
+.overview-hero .page-header {
+  margin-bottom: 0;
+}
+
+.overview-hero .page-header h2,
+.page-header .panel-head h2 {
+  font-family: var(--font-display);
+  letter-spacing: 0.08em;
+  font-size: 1.35rem;
+}
+
+.overview-hero .pipeline {
+  margin-bottom: 0;
+}
+
+.just-done-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.just-done-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px 0;
+  border: none;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.just-done-card:first-child {
+  border-top: none;
+  padding-top: 4px;
+}
+
+.panel {
+  background: linear-gradient(180deg, rgba(252, 250, 245, 0.94), rgba(235, 230, 221, 0.92));
+  box-shadow: var(--shadow-soft);
+}
+
+.workspace-sync-chip {
+  border-radius: var(--radius-sm);
+}
+
+.status-chip {
+  border-radius: var(--radius-sm);
+}
+
+@media (max-width: 1180px) {
+  .app.app--gui {
+    grid-template-columns: minmax(168px, var(--rail-w)) 1fr;
+  }
+
+  .workspace {
+    padding: 14px 14px 28px;
+  }
+
+  .page-stack {
+    width: 100%;
+  }
+}
+
+@media (max-width: 900px) {
+  .app.app--gui {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto var(--header-h) minmax(0, 1fr);
+  }
+
+  .rail {
+    grid-row: 1;
+    grid-column: 1;
+    flex-direction: row;
+    align-items: stretch;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    padding: 0;
+    overflow-x: auto;
+  }
+
+  .brand {
+    min-width: 168px;
+    border-bottom: none;
+    border-right: 1px solid var(--line);
+    padding: 12px 14px;
+  }
+
+  .brand::after {
+    display: none;
+  }
+
+  .brand-tag {
+    display: none;
+  }
+
+  .nav {
+    flex-direction: row;
+    flex: 1;
+    padding: 8px;
+    overflow-x: auto;
+    gap: 4px;
+  }
+
+  .nav-btn {
+    flex: 0 0 auto;
+    min-width: max-content;
+  }
+
+  .rail-foot {
+    display: none;
+  }
+
+  .topbar {
+    grid-row: 2;
+  }
+
+  .workspace {
+    grid-row: 3;
+  }
+
+  .stat-grid,
+  .grid3 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .license-stage {
+    padding: 18px;
+    align-items: end;
+  }
+
+  .license-card {
+    padding: 22px 18px;
+  }
+
+  .license-hero-title {
+    letter-spacing: 0.18em;
+  }
+
+  .stat-grid,
+  .grid3,
+  .grid2 {
+    grid-template-columns: 1fr;
   }
 }
