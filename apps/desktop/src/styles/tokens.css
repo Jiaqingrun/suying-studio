@@ -7,10 +7,10 @@
   --bg-1: #f3eef4;
   --bg-2: #faf7fb;
   --bg-3: #ffffff;
-  --surface-0: rgba(255, 255, 255, 0.42);
-  --surface-1: rgba(255, 255, 255, 0.58);
-  --surface-2: rgba(255, 255, 255, 0.72);
-  --surface-3: rgba(255, 255, 255, 0.86);
+  --surface-0: rgba(255, 255, 255, 0.28);
+  --surface-1: rgba(255, 255, 255, 0.40);
+  --surface-2: rgba(255, 255, 255, 0.48);
+  --surface-3: rgba(255, 255, 255, 0.62);
   --line: rgba(72, 58, 88, 0.1);
   --line-strong: rgba(72, 58, 88, 0.18);
   --line-glass: rgba(255, 255, 255, 0.72);
@@ -81,12 +81,13 @@
   --z-topbar: 30;
   --z-float: 40;
   --z-modal: 100;
-  --glass: blur(24px) saturate(1.2);
-  --glass-strong: blur(32px) saturate(1.25);
+  --glass: blur(28px) saturate(1.35);
+  --glass-strong: blur(36px) saturate(1.4);
 
   /* Exact AV wash asset */
-  --wash-image: url("/watercolor-wash.jpg");
-  --wash-image-sm: url("/watercolor-wash-sm.jpg");
+  /* pigment-only wash (v2: no concept-UI ghosts in the texture) */
+  --wash-image: url("/watercolor-wash.jpg?v=pigment3");
+  --wash-image-sm: url("/watercolor-wash-sm.jpg?v=pigment3");
   --vol-light:
     radial-gradient(ellipse 50% 42% at 50% 44%, rgba(255, 255, 255, 0.18), transparent 72%);
 
