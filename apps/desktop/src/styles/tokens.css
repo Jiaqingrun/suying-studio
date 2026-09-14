@@ -1,59 +1,59 @@
-/* 速影 · AV 水彩底（水彩洗色 + 毛玻璃卡片）
- * 完全替换深空 HUD / 暖宣纸视觉权威。兼容既有 var(--*) 消费点。
+/* 速影 · AV 水彩底（严格对齐概念图 AV-watercolor-uhd）
+ * 水彩洗色纸底 + 乳白毛玻璃卡 + 炭黑正文 + 宋体大标题
  */
 :root {
-  /* Watercolor wash layers — lavender / cream paper */
-  --bg-0: #e8e2ec;
-  --bg-1: #f4f0f5;
+  /* Paper / wash — match AV: cream center, lavender/dusty-violet edges */
+  --bg-0: #ebe6ef;
+  --bg-1: #f3eef4;
   --bg-2: #faf7fb;
   --bg-3: #ffffff;
-  --surface-0: rgba(255, 252, 255, 0.55);
-  --surface-1: rgba(255, 255, 255, 0.62);
-  --surface-2: rgba(255, 255, 255, 0.78);
-  --line: rgba(90, 70, 110, 0.12);
-  --line-strong: rgba(90, 70, 110, 0.22);
-  --text: #2c2834;
-  --text-dim: #5c5568;
-  --text-mute: #8a8296;
+  --surface-0: rgba(255, 255, 255, 0.42);
+  --surface-1: rgba(255, 255, 255, 0.58);
+  --surface-2: rgba(255, 255, 255, 0.72);
+  --surface-3: rgba(255, 255, 255, 0.86);
+  --line: rgba(72, 58, 88, 0.1);
+  --line-strong: rgba(72, 58, 88, 0.18);
+  --line-glass: rgba(255, 255, 255, 0.72);
+  --text: #2a2630;
+  --text-dim: #5a5464;
+  --text-mute: #8a8494;
 
-  /* Soft ink accent — dusty plum, not neon HUD cyan */
-  --accent: #7a6b8a;
-  --accent-strong: #5f526d;
-  --accent-ink: #faf7fb;
-  --accent-dim: rgba(122, 107, 138, 0.14);
-  --accent-line: rgba(122, 107, 138, 0.4);
-  --accent-glow: rgba(160, 140, 180, 0.28);
+  /* Soft plum ink — AV accent, never neon cyan / candy purple */
+  --accent: #6e617c;
+  --accent-strong: #554a60;
+  --accent-ink: #faf8fb;
+  --accent-dim: rgba(110, 97, 124, 0.12);
+  --accent-line: rgba(110, 97, 124, 0.32);
+  --accent-soft: #c8bcd4;
+  --accent-wash: rgba(180, 160, 195, 0.35);
 
-  /* Secondary readouts (soft) */
-  --hud-amber: #c4924a;
-  --hud-blue: #6a8caf;
-  --hud-mag: #a86b88;
+  --hud-amber: #b8894a;
+  --hud-blue: #6a87a6;
+  --hud-mag: #9a6b82;
 
-  /* Status — muted watercolor pigments */
-  --warn: #c4924a;
-  --warn-dim: rgba(196, 146, 74, 0.16);
-  --danger: #c45a6a;
-  --danger-dim: rgba(196, 90, 106, 0.14);
-  --ok: #5a9a78;
-  --ok-dim: rgba(90, 154, 120, 0.14);
-  --info: #6a8caf;
-  --info-dim: rgba(106, 140, 175, 0.14);
-  --amber: #c4924a;
+  --warn: #b8894a;
+  --warn-dim: rgba(184, 137, 74, 0.16);
+  --danger: #b85a68;
+  --danger-dim: rgba(184, 90, 104, 0.14);
+  --ok: #4f8f6e;
+  --ok-dim: rgba(79, 143, 110, 0.14);
+  --info: #6a87a6;
+  --info-dim: rgba(106, 135, 166, 0.14);
+  --amber: #b8894a;
 
-  /* Brand (video lock overlays — unchanged product colors) */
   --brand-red: #e10600;
   --brand-yellow: #ffe600;
 
-  /* Type — 真中文：宋体标题 + 苹方/黑体正文，禁止乱码假字体栈 */
+  /* 真中文：标题宋体 / 正文苹方黑体 */
   --font-display: "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", serif;
   --font-sans: "PingFang SC", "Hiragino Sans GB", "Heiti SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
   --font-mono: "SF Mono", "Menlo", "Consolas", ui-monospace, monospace;
 
-  /* Density */
-  --radius: 18px;
-  --radius-sm: 12px;
-  --header-h: 56px;
-  --rail-w: 232px;
+  --radius: 22px;
+  --radius-sm: 14px;
+  --radius-pill: 999px;
+  --header-h: 64px;
+  --rail-w: 220px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -61,84 +61,78 @@
   --space-5: 24px;
   --space-6: 32px;
   --font-body: 14px;
-  --font-title: 1.05rem;
+  --font-title: 1.08rem;
   --font-caption: 12px;
-  --btn-h: 34px;
+  --btn-h: 36px;
   --hit-min: 36px;
-  --card-pad: 18px;
-  --shadow-soft: 0 1px 0 rgba(255, 255, 255, 0.65) inset;
+  --card-pad: 22px;
+  --shadow-soft: 0 1px 0 rgba(255, 255, 255, 0.75) inset;
   --shadow-card:
-    0 0 0 1px rgba(255, 255, 255, 0.55),
-    0 10px 36px rgba(70, 50, 90, 0.08),
-    0 2px 8px rgba(70, 50, 90, 0.04);
+    0 0 0 1px rgba(255, 255, 255, 0.65),
+    0 12px 40px rgba(60, 40, 80, 0.07),
+    0 2px 10px rgba(60, 40, 80, 0.04);
   --shadow-float:
-    0 0 0 1px rgba(255, 255, 255, 0.7),
-    0 18px 48px rgba(70, 50, 90, 0.12),
-    0 4px 12px rgba(70, 50, 90, 0.05);
-  --content-max: 1400px;
+    0 0 0 1px rgba(255, 255, 255, 0.75),
+    0 22px 56px rgba(60, 40, 80, 0.1),
+    0 4px 14px rgba(60, 40, 80, 0.05);
+  --content-max: 1280px;
 
-  /* Depth / glass */
   --z-rail: 20;
   --z-topbar: 30;
   --z-float: 40;
   --z-modal: 100;
-  --glass: blur(22px) saturate(1.15);
-  --vol-light:
-    radial-gradient(ellipse 70% 55% at 8% 12%, rgba(170, 150, 195, 0.35), transparent 55%),
-    radial-gradient(ellipse 55% 45% at 92% 8%, rgba(130, 110, 160, 0.28), transparent 50%),
-    radial-gradient(ellipse 60% 50% at 50% 100%, rgba(210, 195, 185, 0.22), transparent 55%),
-    radial-gradient(ellipse 40% 35% at 70% 60%, rgba(255, 255, 255, 0.45), transparent 60%);
+  --glass: blur(24px) saturate(1.2);
+  --glass-strong: blur(32px) saturate(1.25);
 
-  /* Wash image (public/) */
+  /* Exact AV wash asset */
   --wash-image: url("/watercolor-wash.jpg");
   --wash-image-sm: url("/watercolor-wash-sm.jpg");
+  --vol-light:
+    radial-gradient(ellipse 50% 42% at 50% 44%, rgba(255, 255, 255, 0.18), transparent 72%);
 
-  /* Motion — 克制优雅 */
-  --motion-duration: 320ms;
+  --motion-duration: 360ms;
   --motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --motion-slow: 720ms;
+  --motion-slow: 900ms;
   --parallax: 4px;
 }
 
 :root[data-density="compact"],
 .app[data-density="compact"] {
   --rail-w: 188px;
-  --header-h: 48px;
+  --header-h: 52px;
   --space-3: 8px;
   --space-4: 10px;
   --space-5: 14px;
   --space-6: 20px;
   --font-body: 13px;
-  --font-title: 0.95rem;
+  --font-title: 0.98rem;
   --font-caption: 11px;
   --btn-h: 32px;
-  --hit-min: 36px;
-  --card-pad: 12px;
-  --radius: 14px;
+  --card-pad: 14px;
+  --radius: 18px;
 }
 
 :root[data-density="wide"],
 .app[data-density="wide"] {
-  --rail-w: 252px;
-  --header-h: 58px;
+  --rail-w: 240px;
+  --header-h: 68px;
   --space-4: 18px;
   --space-5: 28px;
   --space-6: 36px;
-  --font-body: 14px;
-  --font-title: 1.1rem;
-  --card-pad: 22px;
-  --content-max: 1680px;
+  --font-title: 1.12rem;
+  --card-pad: 24px;
+  --content-max: 1480px;
 }
 
 @theme {
-  --color-deck-bg: #e8e2ec;
+  --color-deck-bg: #ebe6ef;
   --color-deck-panel: #faf7fb;
-  --color-deck-ink: #2c2834;
-  --color-deck-muted: #5c5568;
-  --color-deck-accent: #7a6b8a;
-  --color-deck-danger: #c45a6a;
-  --color-deck-warn: #c4924a;
-  --color-deck-ok: #5a9a78;
+  --color-deck-ink: #2a2630;
+  --color-deck-muted: #5a5464;
+  --color-deck-accent: #6e617c;
+  --color-deck-danger: #b85a68;
+  --color-deck-warn: #b8894a;
+  --color-deck-ok: #4f8f6e;
   --font-sans: "PingFang SC", "Hiragino Sans GB", "Heiti SC", "Noto Sans SC", sans-serif;
   --font-mono: "SF Mono", "Menlo", ui-monospace, monospace;
 }

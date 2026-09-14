@@ -20,6 +20,7 @@ import {
 } from "../reviewLabels";
 import { bucketLabel, roleLabel, SCENE_TOUR_UI } from "../sceneTourLabels";
 import { EmptyState, PageHeader, StepFooter } from "../shell/PageChrome";
+import { AvReviewPublishGallery } from "../shell/AvReviewPublishGallery";
 import type { Tab } from "../types";
 import type { NotifyFn } from "./pageTypes";
 
@@ -257,9 +258,45 @@ export function ReviewPage({
   return (
     <section className="page-stack review-page">
       <PageHeader
-        title="成片抽检"
-        blurb="过片子 · 影院抽检；只处理证据冲突或无法自动判定的成片"
+        title="审片 · 发布"
+        blurb="精选影像 · 专业审校 · 优雅发布"
         actions={<span className="count">{pendingCount} 条待人工</span>}
+      />
+      <AvReviewPublishGallery
+        tasks={readyOutputs.slice(0, 3).map((o) => {
+          const oid = Number(o.id);
+          const label = outputDisplayLabel(o) || "成片";
+          const shots = o.shot_count != null ? `${o.shot_count} 镜头` : "成片";
+          const dur = o.duration_label ? String(o.duration_label) : o.duration_sec != null ? `${o.duration_sec}s` : "";
+          const res = o.resolution ? String(o.resolution) : "4K";
+          const st = String(o.review_status || o.status || "pending");
+          const tone = st.includes("pass") || st.includes("ok") || st === "approved"
+            ? "ok" as const
+            : st.includes("revise") || st.includes("reject")
+              ? "revise" as const
+              : "pending" as const;
+          const status =
+            tone === "ok" ? "已通过" : tone === "revise" ? "修订中" : "待审校";
+          let thumb: string | null = null;
+          try {
+            const coverPath = Array.isArray(o.cover_paths) ? String(o.cover_paths[0] || "") : String(o.cover_path || "");
+            thumb = previewCoverSrc(oid, 0, coverPath || null) || null;
+          } catch {
+            thumb = null;
+          }
+          return {
+            id: String(oid),
+            title: label,
+            meta: [shots, dur, res].filter(Boolean).join(" · "),
+            status,
+            statusTone: tone,
+            thumb,
+          };
+        })}
+        onOpenAllTasks={() => {
+          document.querySelector(".review-list, .cinema-bar")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }}
+        onOpenPublish={() => setTab("publish")}
       />
       <p className="hint">
         出片门禁明确通过的成片会强制自动通过，不进本页待人工列表；可在下方「决策历史」或「日志 → 质检门禁」查看「审片自动通过」。

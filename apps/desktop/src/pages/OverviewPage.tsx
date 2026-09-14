@@ -12,6 +12,8 @@ import {
   StatusStrip,
   StepFooter,
 } from "../shell/PageChrome";
+import { AvReviewPublishGallery } from "../shell/AvReviewPublishGallery";
+import { previewCoverSrc } from "../mediaPreview";
 import type { HumanAlert, PublishWorkspace, Tab } from "../types";
 import { WorkspaceSyncControl } from "../WorkspaceSyncControl";
 import type { WorkspaceProbeView, WorkspaceSyncPrefs } from "../workspaceSync";
@@ -128,8 +130,8 @@ export function OverviewPage({
   return (
     <section className="page-stack overview-page">
       <PageHeader
-        title="总览"
-        blurb="开工台 · 一眼看清泳道、告警与下一步；数字只来自引擎真源"
+        title="审片 · 发布"
+        blurb="精选影像 · 专业审校 · 优雅发布"
         actions={
           <WorkspaceSyncControl
             phase={workspacePhase}
@@ -143,6 +145,31 @@ export function OverviewPage({
             onRefresh={() => void refreshAll()}
           />
         }
+      />
+      <AvReviewPublishGallery
+        tasks={(recentOutputs || []).slice(0, 3).map((o) => {
+          const oid = Number(o.id);
+          const label = outputDisplayLabel(o) || "成片";
+          let thumb: string | null = null;
+          try {
+            const coverPath = Array.isArray(o.cover_paths)
+              ? String(o.cover_paths[0] || "")
+              : String(o.cover_path || "");
+            thumb = previewCoverSrc(oid, 0, coverPath || null) || null;
+          } catch {
+            thumb = null;
+          }
+          return {
+            id: String(oid),
+            title: label,
+            meta: "成片 · 待处理",
+            status: "待审校",
+            statusTone: "pending" as const,
+            thumb,
+          };
+        })}
+        onOpenAllTasks={() => setTab("review")}
+        onOpenPublish={() => setTab("publish")}
       />
 
       <div className="overview-command">

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import type { LayoutDensity, Tab } from "../types";
 import { TABS, TAB_BLURB, NAV_MIND_GROUPS } from "../types";
+import { AvFeatureBar } from "./AvFeatureBar";
 
 type NavBadge = Partial<Record<Tab, number>>;
 
@@ -83,7 +84,10 @@ export function AppShell({
         <div className="topbar-actions">{topbarActions}</div>
       </header>
 
-      <div className="workspace">{children}</div>
+      <div className="workspace">
+        {children}
+        <AvFeatureBar />
+      </div>
     </div>
   );
 }

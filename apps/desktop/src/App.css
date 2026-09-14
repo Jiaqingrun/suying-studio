@@ -6,10 +6,7 @@
 @import "./styles/immersive.css";
 
 :root {
-  /* tokens.css 已定义主色；此处保留兼容旧选择器的别名 */
-  --radius: 18px;
-  --header-h: 56px;
-  --rail-w: 232px;
+  /* tokens.css 已定义主色；勿覆盖 AV --radius */
 }
 
 * {
@@ -27,7 +24,7 @@ body {
   margin: 0;
   font-family: var(--font-sans);
   color: var(--text);
-  background: var(--bg-0);
+  background: transparent;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -46,7 +43,7 @@ textarea {
   display: grid;
   grid-template-columns: var(--rail-w) 1fr;
   grid-template-rows: var(--header-h) minmax(0, 1fr);
-  background: var(--bg-0);
+  background: transparent;
 }
 
 .app[data-density="compact"] .panel,
