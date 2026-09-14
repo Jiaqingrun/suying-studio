@@ -86,8 +86,8 @@
 
   /* Exact AV wash asset */
   /* pigment-only wash (v2: no concept-UI ghosts in the texture) */
-  --wash-image: url("/watercolor-wash.jpg?v=pigment3");
-  --wash-image-sm: url("/watercolor-wash-sm.jpg?v=pigment3");
+  --wash-image: url("/watercolor-wash.jpg?v=fuse4");
+  --wash-image-sm: url("/watercolor-wash-sm.jpg?v=fuse4");
   --vol-light:
     radial-gradient(ellipse 50% 42% at 50% 44%, rgba(255, 255, 255, 0.18), transparent 72%);
 

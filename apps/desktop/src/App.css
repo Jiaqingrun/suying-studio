@@ -479,6 +479,19 @@ textarea {
   padding: 18px 20px 36px;
 }
 
+/* Layout stage only — never a frosted plate (AV wash must show through) */
+.main-stage {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+
+
 .tab-pane[hidden] {
   display: none !important;
 }

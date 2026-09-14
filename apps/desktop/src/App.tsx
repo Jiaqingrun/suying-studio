@@ -3115,7 +3115,7 @@ function App() {
         />
       )}
 
-      <main className="panel">
+      <main className="main-stage">
         {mountedTabs.includes("overview") && (
           <div className="tab-pane" hidden={tab !== "overview"} aria-hidden={tab !== "overview"}>
             <OverviewPage
