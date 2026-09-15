@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import hmac
-import os
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from engine.api.ops_auth import require_ops_token
 from engine.catalog.customer_scope import require_active_customer
 from engine.catalog.db import get_session
 from engine.config.settings import load_settings
@@ -17,26 +16,6 @@ from engine.runtime.pause_coordinator import assert_runtime_active
 from engine.version import ENGINE_VERSION
 
 router = APIRouter(prefix="/ops", tags=["maintenance"])
-
-
-def _runtime_dir() -> Path:
-    return Path(
-        os.environ.get("SUYING_APP_RUNTIME_DIR")
-        or Path.home() / "Library/Application Support/com.qr.suying/runtime"
-    )
-
-
-def _require_ops_token(token: str | None) -> None:
-    try:
-        expected = (_runtime_dir() / "system_token.txt").read_text(encoding="utf-8").strip()
-    except OSError as exc:
-        raise HTTPException(503, "高级操作验证暂不可用，请重启速影") from exc
-    if (
-        len(expected) != 64
-        or not token
-        or not hmac.compare_digest(expected, token.strip())
-    ):
-        raise HTTPException(403, "高级功能已锁定，请先输入密码")
 
 
 class BackupPolicyUpdate(BaseModel):
@@ -95,7 +74,7 @@ def backup_list() -> dict[str, Any]:
 def backup_start(
     x_suying_ops_token: str | None = Header(default=None, alias="X-Suying-Ops-Token"),
 ) -> dict[str, Any]:
-    _require_ops_token(x_suying_ops_token)
+    require_ops_token(x_suying_ops_token)
     assert_runtime_active("backup")
     from engine.ops.backup_service import start_backup
 
@@ -107,7 +86,7 @@ def backup_policy_update(
     body: BackupPolicyUpdate,
     x_suying_ops_token: str | None = Header(default=None, alias="X-Suying-Ops-Token"),
 ) -> dict[str, Any]:
-    _require_ops_token(x_suying_ops_token)
+    require_ops_token(x_suying_ops_token)
     from engine.ops.backup_service import save_policy
 
     policy = save_policy(body.model_dump(exclude_none=True))
@@ -136,7 +115,7 @@ def backup_prune(
     body: BackupPruneRequest,
     x_suying_ops_token: str | None = Header(default=None, alias="X-Suying-Ops-Token"),
 ) -> dict[str, Any]:
-    _require_ops_token(x_suying_ops_token)
+    require_ops_token(x_suying_ops_token)
     if not body.dry_run and not body.confirm:
         raise HTTPException(400, "删除历史备份前必须明确确认")
     from engine.ops.backup_service import prune_backups
@@ -156,7 +135,7 @@ def published_cleanup_policy_update(
     body: PublishedCleanupPolicyUpdate,
     x_suying_ops_token: str | None = Header(default=None, alias="X-Suying-Ops-Token"),
 ) -> dict[str, Any]:
-    _require_ops_token(x_suying_ops_token)
+    require_ops_token(x_suying_ops_token)
     from engine.ops.published_cleanup import save_policy
 
     return {"ok": True, "policy": save_policy(body.model_dump(exclude_none=True))}
@@ -187,7 +166,7 @@ def published_cleanup_run(
     body: PublishedCleanupRequest,
     x_suying_ops_token: str | None = Header(default=None, alias="X-Suying-Ops-Token"),
 ) -> dict[str, Any]:
-    _require_ops_token(x_suying_ops_token)
+    require_ops_token(x_suying_ops_token)
     if not body.confirm:
         raise HTTPException(400, "清理已发布视频前必须明确确认")
     assert_runtime_active("published_video_cleanup")
@@ -252,7 +231,7 @@ def disk_cleanup_policy_update(
     body: DiskCleanupPolicyUpdate,
     x_suying_ops_token: str | None = Header(default=None, alias="X-Suying-Ops-Token"),
 ) -> dict[str, Any]:
-    _require_ops_token(x_suying_ops_token)
+    require_ops_token(x_suying_ops_token)
     from engine.ops.disk_cleanup import save_merged_policy
 
     patch = body.model_dump(exclude_none=True)
@@ -264,7 +243,7 @@ def disk_cleanup_run(
     body: DiskCleanupRunRequest,
     x_suying_ops_token: str | None = Header(default=None, alias="X-Suying-Ops-Token"),
 ) -> dict[str, Any]:
-    _require_ops_token(x_suying_ops_token)
+    require_ops_token(x_suying_ops_token)
     if not body.confirm:
         raise HTTPException(400, "清理前必须明确确认")
     assert_runtime_active("disk_cleanup")

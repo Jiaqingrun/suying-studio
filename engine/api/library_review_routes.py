@@ -300,33 +300,6 @@ def output_publish_card(output_id: int) -> dict[str, Any]:
         session.close()
 
 
-def scoped_output(session, output_id: int, customer_id: int) -> RenderOutput:
-    out = session.get(RenderOutput, output_id)
-    if not out:
-        raise HTTPException(404, "output not found")
-    if out.job_id:
-        job = session.get(Job, out.job_id)
-        if job and job.customer_id and job.customer_id != customer_id:
-            raise HTTPException(403, "output 不属于当前客户")
-    return out
-
-
-def output_cover_paths(out: RenderOutput) -> list[str]:
-    covers: list[str] = []
-    if isinstance(out.qc_json, dict):
-        covers = [str(c) for c in (out.qc_json.get("covers") or []) if c]
-    if not covers and out.sidecar_path:
-        try:
-            import json
-            from pathlib import Path
-
-            data = json.loads(Path(out.sidecar_path).read_text(encoding="utf-8"))
-            covers = [str(c) for c in (data.get("covers") or []) if c]
-        except Exception:
-            covers = []
-    return covers
-
-
 @router.api_route("/outputs/{output_id}/video", methods=["GET", "HEAD"])
 def stream_output_video(output_id: int):
     """Stream ready mp4 for in-app review preview (GET+HEAD + Range).
@@ -334,20 +307,24 @@ def stream_output_video(output_id: int):
     Local desktop engine: stream by output id + file existence.
     Do not gate on active customer — switching customers briefly leaves stale
     UI cards that would otherwise get 403 and poison the webview media cache.
-    Listing endpoints remain customer-scoped.
+    Listing endpoints remain customer-scoped. Path must still stay under
+    configured output/render/cache roots (fail-closed against poisoned paths).
     """
     from pathlib import Path
 
     from fastapi.responses import FileResponse
+
+    from engine.api.output_scope import assert_streamable_media_path, media_allow_roots
 
     session = get_session()
     try:
         out = session.get(RenderOutput, output_id)
         if not out:
             raise HTTPException(404, "output not found")
-        path = Path(out.output_path or "")
-        if not path.is_file():
-            raise HTTPException(404, f"成片文件不存在: {path}")
+        path = assert_streamable_media_path(
+            Path(out.output_path or ""),
+            media_allow_roots(session),
+        )
         return FileResponse(
             path,
             media_type="video/mp4",
@@ -370,6 +347,8 @@ def stream_output_cover(output_id: int, index: int = 0):
 
     from fastapi.responses import FileResponse
 
+    from engine.api.output_scope import assert_streamable_media_path, media_allow_roots
+
     session = get_session()
     try:
         out = session.get(RenderOutput, output_id)
@@ -378,9 +357,10 @@ def stream_output_cover(output_id: int, index: int = 0):
         covers = output_cover_paths(out)
         if index < 0 or index >= len(covers):
             raise HTTPException(404, "封面不存在")
-        path = Path(covers[index])
-        if not path.is_file():
-            raise HTTPException(404, f"封面文件不存在: {path}")
+        path = assert_streamable_media_path(
+            Path(covers[index]),
+            media_allow_roots(session),
+        )
         suffix = path.suffix.lower()
         media = {
             ".jpg": "image/jpeg",

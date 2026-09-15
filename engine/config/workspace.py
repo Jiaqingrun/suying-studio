@@ -354,14 +354,18 @@ def probe_workspace(settings: AppSettings | None = None) -> WorkspaceProbe:
             reasons.append(f"绑定卷未连接: {bound.volume_uuid}")
             return probe
         probe.mount_point = mount
-        # Path must live under the bound volume mount.
+        # Path must live under the bound volume mount (is_relative_to — never
+        # str.startswith, which confuses /Volumes/QR with /Volumes/QR-evil).
         try:
-            resolved = str(data_root.resolve())
-            if not resolved.startswith(str(Path(mount).resolve())):
+            mount_root = Path(mount).resolve()
+            resolved = data_root.resolve()
+            if not (
+                resolved == mount_root or resolved.is_relative_to(mount_root)
+            ):
                 probe.state = STATE_MISMATCH
                 reasons.append("工作区路径不在绑定卷挂载点下")
                 return probe
-        except OSError:
+        except (OSError, ValueError):
             probe.state = STATE_MISMATCH
             reasons.append("无法解析工作区路径与挂载点")
             return probe
