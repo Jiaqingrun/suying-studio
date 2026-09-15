@@ -22,9 +22,11 @@ def require_ops_token(token: str | None) -> None:
         expected = (runtime_dir() / "system_token.txt").read_text(encoding="utf-8").strip()
     except OSError as exc:
         raise HTTPException(503, "高级操作验证暂不可用，请重启速影") from exc
+    got = (token or "").strip()
+    # Length gate first — compare_digest raises on mismatch on some Python builds.
     if (
         len(expected) != 64
-        or not token
-        or not hmac.compare_digest(expected, token.strip())
+        or len(got) != 64
+        or not hmac.compare_digest(expected, got)
     ):
         raise HTTPException(403, "高级功能已锁定，请先输入密码")
