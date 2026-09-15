@@ -3,15 +3,14 @@ import { useEffect, useRef } from "react";
 type HexCell = {
   x: number;
   y: number;
-  /** unit offset in noise space */
   nx: number;
   ny: number;
 };
 
 /**
- * Fixed center nebula: fine hexagonal mesh tinted by layered noise.
- * Reference look — deep navy cells, violet/magenta clouds, cyan hotspots.
- * Soft radial falloff into the watercolor wash (no muddy multiply blot).
+ * Silk watercolor nebula — pastel veil + whispered hex grain.
+ * Tuned to nest into #ebe4ef paper: long falloff, slow drift,
+ * dual blur + CSS mask so nothing reads as a hard sticker.
  */
 export function PigmentTurbulence() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -29,9 +28,12 @@ export function PigmentTurbulence() {
     let h = 0;
     let dpr = 1;
     let cells: HexCell[] = [];
-    let hexR = 5.5;
+    let hexR = 3.6;
     let hexPath: Path2D | null = null;
+    let off: HTMLCanvasElement | null = null;
+    let octx: CanvasRenderingContext2D | null = null;
     let t0 = performance.now();
+    let lastPaint = 0;
     let railW = 220;
     let cx = 0;
     let cy = 0;
@@ -68,14 +70,16 @@ export function PigmentTurbulence() {
       const wellW = Math.max(320, w - wellL);
       cx = wellL + wellW * 0.5;
       cy = h * 0.44;
-      const body = Math.min(wellW, h) * 0.34;
-      fieldRx = body * 1.35;
-      fieldRy = body * 1.05;
-      hexR = Math.max(4.2, Math.min(6.4, body / 48));
-      hexPath = buildHexPath(hexR * 0.92);
+      // Wide field — edge dissolve is the whole point of “不突兀”
+      const body = Math.min(wellW, h) * 0.42;
+      fieldRx = body * 1.7;
+      fieldRy = body * 1.32;
+      // Fine overlapping mesh → continuous grain after blur
+      hexR = Math.max(2.8, Math.min(4.2, body / 72));
+      hexPath = buildHexPath(hexR * 1.14);
 
-      const stepX = hexR * 1.75;
-      const stepY = hexR * Math.sqrt(3) * 0.92;
+      const stepX = hexR * 1.55;
+      const stepY = hexR * Math.sqrt(3) * 0.82;
       const list: HexCell[] = [];
       const x0 = cx - fieldRx;
       const x1 = cx + fieldRx;
@@ -88,16 +92,26 @@ export function PigmentTurbulence() {
         for (let x = x0 + xOff; x <= x1; x += stepX) {
           const dx = (x - cx) / fieldRx;
           const dy = (y - cy) / fieldRy;
-          if (dx * dx + dy * dy > 1.05) continue;
+          if (dx * dx + dy * dy > 1.12) continue;
           list.push({
             x,
             y,
-            nx: (x - cx) * 0.018,
-            ny: (y - cy) * 0.018,
+            nx: (x - cx) * 0.0085,
+            ny: (y - cy) * 0.0085,
           });
         }
       }
       cells = list;
+
+      if (!off) {
+        off = document.createElement("canvas");
+        octx = off.getContext("2d", { alpha: true });
+      }
+      if (off && octx) {
+        off.width = Math.floor(w * dpr);
+        off.height = Math.floor(h * dpr);
+        octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
     };
 
     const resize = () => {
@@ -113,56 +127,110 @@ export function PigmentTurbulence() {
       seed();
     };
 
-    const paintFrame = (t: number) => {
-      ctx.globalCompositeOperation = "source-over";
-      ctx.clearRect(0, 0, w, h);
-      if (!hexPath || cells.length === 0) return;
+    /** Dominant soft body — watercolor ink pool, not a dark disc. */
+    const paintVeil = (c: CanvasRenderingContext2D, t: number) => {
+      const breath = 1 + 0.02 * Math.sin(t * 0.22);
+      const rx = fieldRx * 0.95 * breath;
+      const ry = fieldRy * 0.95 * breath;
 
-      // Slow domain drift — one cohesive flowing mass
-      const driftX = t * 0.11;
-      const driftY = t * 0.07;
-      const swirl = t * 0.085;
-      const breath = 1 + 0.04 * Math.sin(t * 0.4);
+      const g = c.createRadialGradient(cx, cy, rx * 0.05, cx, cy, rx);
+      g.addColorStop(0, "rgba(198, 168, 228, 0.34)");
+      g.addColorStop(0.22, "rgba(178, 148, 218, 0.26)");
+      g.addColorStop(0.45, "rgba(150, 158, 220, 0.16)");
+      g.addColorStop(0.68, "rgba(168, 178, 220, 0.08)");
+      g.addColorStop(0.86, "rgba(210, 200, 228, 0.035)");
+      g.addColorStop(1, "rgba(235, 228, 239, 0)");
+      c.fillStyle = g;
+      c.beginPath();
+      c.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+      c.fill();
+
+      // Slow orbiting secondary blot — depth without hard layers
+      const ox = cx + Math.cos(t * 0.09) * fieldRx * 0.1;
+      const oy = cy - Math.sin(t * 0.08) * fieldRy * 0.08;
+      const g2 = c.createRadialGradient(ox, oy, 0, ox, oy, rx * 0.52);
+      g2.addColorStop(0, "rgba(214, 150, 204, 0.14)");
+      g2.addColorStop(0.5, "rgba(140, 170, 226, 0.07)");
+      g2.addColorStop(1, "rgba(140, 170, 226, 0)");
+      c.fillStyle = g2;
+      c.beginPath();
+      c.ellipse(ox, oy, rx * 0.52, ry * 0.44, t * 0.04, 0, Math.PI * 2);
+      c.fill();
+
+      // Cool mist wash on the lower-right — ties into paper blues
+      const ox3 = cx + fieldRx * 0.18;
+      const oy3 = cy + fieldRy * 0.12;
+      const g3 = c.createRadialGradient(ox3, oy3, 0, ox3, oy3, rx * 0.4);
+      g3.addColorStop(0, "rgba(130, 190, 220, 0.09)");
+      g3.addColorStop(1, "rgba(130, 190, 220, 0)");
+      c.fillStyle = g3;
+      c.beginPath();
+      c.ellipse(ox3, oy3, rx * 0.4, ry * 0.34, 0, 0, Math.PI * 2);
+      c.fill();
+    };
+
+    const paintFrame = (t: number) => {
+      if (!hexPath || !off || !octx || cells.length === 0) return;
+
+      octx.globalCompositeOperation = "source-over";
+      octx.clearRect(0, 0, w, h);
+      paintVeil(octx, t);
+
+      // Glacial cohesive drift — neighboring cells share motion
+      const driftX = t * 0.038;
+      const driftY = t * 0.026;
+      const swirl = t * 0.028;
+      const breath = 1 + 0.022 * Math.sin(t * 0.24);
 
       for (const cell of cells) {
         const dx = (cell.x - cx) / fieldRx;
         const dy = (cell.y - cy) / fieldRy;
         const rr = Math.sqrt(dx * dx + dy * dy);
-        // Soft vignette — keep edges airy into the wash
-        const radial = Math.max(0, 1 - smoothstep(0.42, 1.02, rr / breath));
-        if (radial < 0.02) continue;
+        // Very long vignette — mesh fades long before the field edge
+        const radial = Math.max(0, 1 - smoothstep(0.12, 0.96, rr / breath));
+        if (radial < 0.04) continue;
 
-        // Polar swirl so the cloud turns as one body
-        const ang = Math.atan2(dy, dx) + swirl * (0.55 + rr * 0.35);
-        const rad = rr * (0.85 + 0.12 * Math.sin(ang * 2.2 + t * 0.3));
-        const wx = Math.cos(ang) * rad * 3.2 + driftX;
-        const wy = Math.sin(ang) * rad * 3.2 + driftY;
+        const ang = Math.atan2(dy, dx) + swirl * (0.35 + rr * 0.2);
+        const rad = rr * (0.92 + 0.06 * Math.sin(ang * 1.6 + t * 0.16));
+        const wx = Math.cos(ang) * rad * 1.7 + driftX;
+        const wy = Math.sin(ang) * rad * 1.7 + driftY;
 
-        const n1 = fbm(cell.nx * 1.1 + wx, cell.ny * 1.1 + wy, 4);
-        const n2 = fbm(cell.nx * 2.4 - wy * 0.6, cell.ny * 2.4 + wx * 0.5, 3);
-        const n3 = fbm(cell.nx * 0.55 + driftY * 0.4, cell.ny * 0.55 - driftX * 0.3, 3);
-        // Turbulent density: bright cores on dark honeycomb
-        let v = n1 * 0.55 + n2 * 0.28 + (1 - n3) * 0.17;
-        v = Math.pow(clamp01(v), 1.15);
-        // Punch a luminous core near center
-        const core = Math.pow(Math.max(0, 1 - rr * 1.15), 1.6) * 0.35;
-        v = clamp01(v * 0.78 + core + n2 * 0.12);
+        const n1 = fbm(cell.nx + wx, cell.ny + wy, 3);
+        const n2 = fbm(cell.nx * 1.55 - wy * 0.35, cell.ny * 1.55 + wx * 0.3, 2);
+        // Narrow energy range → soft clouds, no harsh dark voids
+        let v = n1 * 0.58 + n2 * 0.42;
+        v = 0.42 + 0.58 * Math.pow(clamp01(v), 0.85);
+        const core = Math.pow(Math.max(0, 1 - rr * 0.95), 2.0) * 0.12;
+        const energy = clamp01(v * 0.82 + core) * radial;
+        if (energy < 0.1) continue;
 
-        const energy = v * radial;
-        if (energy < 0.06) continue;
-
-        const { r, g, b, a } = nebulaRgba(energy, n2, radial);
-        ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
-        ctx.save();
-        ctx.translate(cell.x, cell.y);
-        ctx.fill(hexPath);
-        ctx.restore();
+        const { r, g, b, a } = silkRgba(energy, n2, radial);
+        octx.fillStyle = `rgba(${r},${g},${b},${a})`;
+        octx.save();
+        octx.translate(cell.x, cell.y);
+        const s = 0.9 + energy * 0.18;
+        octx.scale(s, s);
+        octx.fill(hexPath);
+        octx.restore();
       }
+
+      // Soft composite blur — dissolves hex facets into continuous pigment
+      ctx.globalCompositeOperation = "source-over";
+      ctx.clearRect(0, 0, w, h);
+      ctx.save();
+      ctx.filter = "blur(2.4px)";
+      ctx.globalAlpha = 0.92;
+      ctx.drawImage(off, 0, 0, w, h);
+      ctx.restore();
     };
 
     const tick = (now: number) => {
       if (!running) return;
-      paintFrame((now - t0) / 1000);
+      // ~30fps — smoother perceived motion, less hitch than 60fps heavy fill
+      if (now - lastPaint >= 32) {
+        lastPaint = now;
+        paintFrame((now - t0) / 1000);
+      }
       raf = requestAnimationFrame(tick);
     };
 
@@ -191,7 +259,6 @@ function smoothstep(e0: number, e1: number, x: number) {
   return t * t * (3 - 2 * t);
 }
 
-/** Hash-based value noise — cheap, stable, good enough for honeycomb tint. */
 function hash2(ix: number, iy: number) {
   const n = Math.sin(ix * 127.1 + iy * 311.7) * 43758.5453123;
   return n - Math.floor(n);
@@ -226,19 +293,19 @@ function fbm(x: number, y: number, octaves: number) {
 }
 
 /**
- * Color ramp matching the hex nebula reference:
- * deep navy → royal violet → magenta → electric cyan.
+ * Pastel ramp locked to the lavender wash —
+ * lilac → soft violet → rose → misty periwinkle → soft cyan.
+ * Kept mid-light so it never punches a dirty hole in the paper.
  */
-function nebulaRgba(energy: number, tint: number, radial: number) {
-  // Stops as [e, r, g, b]
+function silkRgba(energy: number, tint: number, radial: number) {
   const stops: Array<[number, number, number, number]> = [
-    [0.0, 4, 6, 22],
-    [0.18, 18, 12, 58],
-    [0.36, 58, 24, 140],
-    [0.52, 138, 36, 210],
-    [0.68, 190, 55, 230],
-    [0.82, 90, 140, 255],
-    [1.0, 40, 240, 255],
+    [0.0, 218, 208, 232],
+    [0.2, 196, 174, 226],
+    [0.4, 178, 148, 218],
+    [0.55, 198, 142, 206],
+    [0.72, 148, 166, 226],
+    [0.88, 128, 192, 226],
+    [1.0, 138, 208, 228],
   ];
 
   let r = stops[0][1];
@@ -249,9 +316,10 @@ function nebulaRgba(energy: number, tint: number, radial: number) {
     const c = stops[i + 1];
     if (energy >= a[0] && energy <= c[0]) {
       const t = (energy - a[0]) / (c[0] - a[0] || 1);
-      r = a[1] + (c[1] - a[1]) * t;
-      g = a[2] + (c[2] - a[2]) * t;
-      b = a[3] + (c[3] - a[3]) * t;
+      const u = t * t * (3 - 2 * t);
+      r = a[1] + (c[1] - a[1]) * u;
+      g = a[2] + (c[2] - a[2]) * u;
+      b = a[3] + (c[3] - a[3]) * u;
       break;
     }
     if (energy > c[0]) {
@@ -261,26 +329,15 @@ function nebulaRgba(energy: number, tint: number, radial: number) {
     }
   }
 
-  // Magenta bias in mid cloud, cyan bias on peaks
-  if (energy > 0.35 && energy < 0.72) {
-    r = Math.min(255, r + tint * 36);
-    b = Math.min(255, b + (1 - tint) * 18);
-  } else if (energy >= 0.72) {
-    g = Math.min(255, g + tint * 28);
-    b = Math.min(255, b + 20);
-  }
+  r = Math.min(255, r + tint * 10);
+  b = Math.min(255, b + (1 - tint) * 8);
 
-  // Opaque enough in the core to read as honeycomb, soft on rim
-  const a =
-    energy < 0.2
-      ? 0.18 + energy * 1.1
-      : energy < 0.55
-        ? 0.42 + energy * 0.55
-        : 0.72 + energy * 0.22;
+  // Whisper alpha — veil carries the color, mesh only textures it
+  const a = (0.06 + energy * 0.2) * (0.35 + radial * 0.65);
   return {
     r: Math.round(r),
     g: Math.round(g),
     b: Math.round(b),
-    a: Math.min(0.94, a * (0.55 + radial * 0.55)),
+    a: Math.min(0.32, a),
   };
 }

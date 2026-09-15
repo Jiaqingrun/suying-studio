@@ -999,7 +999,7 @@ body:has(.app--immersive) #root {
   color: var(--text-dim);
 }
 
-/* Hex nebula — fixed to viewport; UNDER cards, OVER wash; normal blend keeps violet/cyan luminous */
+/* Silk nebula — pastel veil nests into wash; dual blur + radial mask kill hard edges */
 .app.app--immersive > .pigment-turbulence,
 .app--immersive .pigment-turbulence {
   position: fixed !important;
@@ -1008,8 +1008,26 @@ body:has(.app--immersive) #root {
   height: 100vh;
   pointer-events: none;
   z-index: 0 !important;
-  opacity: 0.92;
+  opacity: 0.9;
   mix-blend-mode: normal;
+  /* Soften faceting; slight saturation keeps lilac readable under glass */
+  filter: blur(0.8px) saturate(1.05);
+  /* Canvas already fades; mask makes the whole plate dissolve into paper */
+  -webkit-mask-image: radial-gradient(
+    ellipse 62% 54% at 54% 44%,
+    #000 0%,
+    #000 28%,
+    rgba(0, 0, 0, 0.55) 55%,
+    transparent 78%
+  );
+  mask-image: radial-gradient(
+    ellipse 62% 54% at 54% 44%,
+    #000 0%,
+    #000 28%,
+    rgba(0, 0, 0, 0.55) 55%,
+    transparent 78%
+  );
+  will-change: transform, filter;
 }
 
 .app--immersive .workspace {
@@ -1031,7 +1049,8 @@ body:has(.app--immersive) #root {
 
 @media (prefers-reduced-motion: reduce) {
   .app--immersive .pigment-turbulence {
-    opacity: 0.78;
+    opacity: 0.75;
     mix-blend-mode: normal;
+    filter: blur(1.1px) saturate(1.03);
   }
 }
