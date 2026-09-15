@@ -875,6 +875,16 @@
         "生产空态；密度文案中文化；tsc + 20 tests 通过",
         "覆盖安装仅换 App"
       ]
+    },
+    "0.8.30": {
+      "title": "全方位审计收口",
+      "summary": "在 0.8.29 底座上做代码+文档全方位审查：修 readiness 离线 class、发布角标、运维日志轮询与 SoundBed 静音一致性；硬锁冲突只记待裁决，不改 L17。",
+      "highlights": [
+        "readiness blocked → control_plane_not_ready；桌面 offlineClassLabel 补齐",
+        "发布「视频发布」角标改 readyCount；运维 LogsPage 随 FrozenTab active 停轮询",
+        "SoundBed mute 与 playAlertSound 同步；workspace reconnect 45s 超时",
+        "覆盖安装仅换 App"
+      ]
     }
   }
 }
