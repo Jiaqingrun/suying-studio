@@ -178,9 +178,10 @@ export function OpsPage({
   }, [section]);
 
   useEffect(() => {
-    if (section !== "services") return;
+    if (!active || section !== "services") return;
     let cancelled = false;
     const tick = () => {
+      if (cancelled || document.visibilityState !== "visible") return;
       void getEngineSupervisor().then((s) => {
         if (!cancelled) setSuperv(s);
       });
@@ -191,7 +192,7 @@ export function OpsPage({
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [section, engineOn, engineBusy]);
+  }, [active, section, engineOn, engineBusy]);
 
   const mediaSources = Array.isArray(syncStatus?.media_sources)
     ? (syncStatus.media_sources as Array<Record<string, string>>)
@@ -268,7 +269,7 @@ export function OpsPage({
                     : "当前设备暂未安装画面分析能力，点击可查看原因"}
                 </span>
               </div>
-              <VectorControl notify={notify} />
+              <VectorControl notify={notify} pageActive={active} />
               <p className="hint" style={{ marginBottom: 10 }}>
                 本地 AI 用于理解画面和改写旁白。点击推荐安装即可，速影会按本机性能选择合适版本。
               </p>
@@ -855,7 +856,7 @@ export function OpsPage({
                   </button>
                 </div>
               ) : null}
-              <CarrierOpsStrip />
+              <CarrierOpsStrip pageActive={active} />
             </>
           )}
 

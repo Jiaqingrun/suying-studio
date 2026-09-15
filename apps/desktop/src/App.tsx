@@ -3226,6 +3226,7 @@ function App() {
             setTab={goTab}
             customerName={customerName}
             activeCustomerId={activeCustomerId}
+            active={tab === "produce"}
             productionOrientation={productionOrientation}
             setProductionOrientation={(value) => {
               setProductionOrientation(value);
@@ -3384,6 +3385,7 @@ function App() {
             outputs={outputs}
             mediaEpoch={mediaEpoch}
             activeCustomerId={activeCustomerId}
+            active={tab === "publish"}
             packLast={packLast}
             packBusyId={packBusyId}
             exportPack={exportPack}

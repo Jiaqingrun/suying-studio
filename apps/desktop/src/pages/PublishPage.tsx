@@ -25,6 +25,8 @@ export interface PublishPageProps {
   outputs: Array<Record<string, unknown>>;
   mediaEpoch: number;
   activeCustomerId: number | null;
+  /** False when FrozenTab hides this page — stop batch run polling. */
+  active?: boolean;
   packLast: string;
   packBusyId: number | null;
   exportPack: (id: number) => void;
@@ -81,6 +83,7 @@ export function PublishPage({
   outputs,
   mediaEpoch,
   activeCustomerId,
+  active = true,
   packLast,
   packBusyId,
   exportPack,
@@ -326,6 +329,7 @@ export function PublishPage({
                 activeCustomerId={activeCustomerId}
                 notify={notify}
                 onRefresh={() => refreshReach()}
+                pageActive={active}
               />
             </>
           )}

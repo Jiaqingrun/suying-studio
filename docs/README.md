@@ -21,6 +21,15 @@
 | 1e | [`SEMANTIC_OBJECT_VECTOR_LOCK.md`](SEMANTIC_OBJECT_VECTOR_LOCK.md) | 语义证据 / 物品 / 向量运营（GSemanticOps） |
 | 1f | [`VOICE_CLONE.md`](VOICE_CLONE.md) | 可选本地克隆 TTS（**L19**：就绪+试听冻结；**core + App 外 F5 Kit** 交付） |
 
+### 改锁 / 发版前（P3 防回归）
+
+发版或改 HARD_LOCKS / AGENTS / 根 README 前：
+
+1. 跑 `./scripts/check-legacy-cleanup-gate.sh`（已挂入 `gate_package_regression.sh` 与 `release-to-t2s.sh` 开头）
+2. 人工过一遍：L20 三处同义 · L19 交付拓扑 · 安装路径非 Desktop 交付 · 视觉不以「毛玻璃」为现行 · `DEV_LOCK` 不写死过期版号 · L17 无授权不改
+
+禁止回潮句示例：现行入口「仅节奏润色」；根 README / 安装文把 `Desktop/速影.app` 写成正式交付落点。
+
 ## 2. 产品与工程合同
 
 | 序 | 文档 | 用途 |

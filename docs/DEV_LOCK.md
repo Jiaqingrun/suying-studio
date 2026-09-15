@@ -571,6 +571,7 @@ GVoiceClone / GSystemPause / GSemanticOps 真机项按验收剧本关闭；T2S =
 
 **下一步（历史关账锚点 · 2026-09-08 曾写）：** 曾锚定正式包 **0.8.11 / T2S seq=90**（本机已覆盖）。该句**不是**现行版本指针。  
 **现行正式包查询（A4=B）：** `packaging/release_notes.json` · 本机 `~/Suying/releases/LAST_PUBLISH.json`（或等价发布回执）。禁止再把固定旧版写进本段当现行。  
+**开发/发布主线指针（A8=C→A · 2026-09-16）：** 现行主线 = worktree `~/QR/dev/_worktrees/suying-ui-av-watercolor` · 分支 `cursor/suying-ui-av-watercolor-590f`（已含 ops_auth 最小集）。`~/QR/dev/速影` main checkout 的其余 WIP 须按 `Agent Store` A8 分拣另审，禁止盲合词包/版本戳。防回归：`scripts/check-legacy-cleanup-gate.sh`。  
 运营主力 = **始峰五金 / 北京始峰伟业**（用户确认臻享非成交）。极限计划证据 `~/Suying/logs/extreme-plan-shifeng-20260908/`；日更轮换 **38+90**；GRuleVisualLab / GSceneTour 人眼见 §E GRVL.* / GST.*。xlf 再部署须当面授权。旧「0.7.26 / 臻享 ABCD」仅考古。
 
 ### 现在就做 — GRuleLabOpt 规则实验室深度优化（2026-08-12 已授权）

@@ -28,6 +28,8 @@ export interface ProductionPageProps {
   setTab: (t: Tab) => void;
   customerName: string;
   activeCustomerId?: number | null;
+  /** False when FrozenTab hides this page — stop pipeline polling. */
+  active?: boolean;
   productionOrientation: "portrait" | "landscape";
   setProductionOrientation: (value: "portrait" | "landscape") => void;
   brandLogo: BrandLogoState;
@@ -162,6 +164,7 @@ export function ProductionPage({
   setTab,
   customerName,
   activeCustomerId = null,
+  active = true,
   productionOrientation,
   setProductionOrientation,
   brandLogo,
@@ -339,8 +342,10 @@ export function ProductionPage({
     : "已关闭轮换，将使用当前启用规则";
 
   useEffect(() => {
+    if (!active) return;
     let cancelled = false;
     const tick = async () => {
+      if (cancelled || document.visibilityState !== "visible") return;
       try {
         const snap = await api.jobsPipeline();
         if (!cancelled) {
@@ -365,7 +370,7 @@ export function ProductionPage({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [activeCustomerId]);
+  }, [active, activeCustomerId]);
 
   return (
     <section className="page-stack production-page">
