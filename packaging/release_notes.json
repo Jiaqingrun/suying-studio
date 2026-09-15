@@ -845,6 +845,16 @@
         "消息 KPI、pulse-chip、workspace-sync、banner/badge 态色改为描边+字色",
         "选中态靠边框与强调字色，不靠涂料底；覆盖安装仅换 App"
       ]
+    },
+    "0.8.27": {
+      "title": "切页流畅两轮收口",
+      "summary": "两轮审查以流畅为最终目标：去掉切页 pane 动画与 chrome 实时 blur，空闲预挂载九页，切页时冻结合成；页面 memo 减少隐藏页调和。",
+      "highlights": [
+        "idle 预挂载九页，避免首次点击冷挂载",
+        "取消 pane-rise；切页 data-tab-switching 冻结特效",
+        "去掉 rail/topbar/双卡 backdrop-filter 与 SVG 噪点；背景改 scroll",
+        "pages memo；覆盖安装仅换 App"
+      ]
     }
   }
 }

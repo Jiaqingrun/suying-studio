@@ -148,16 +148,42 @@ function App() {
     fail_cooldown_sec: 0,
   });
   const layout = useLayoutDensity();
+  const tabRef = useRef<Tab>(tab);
+  const tabSwitchClearRef = useRef<number | null>(null);
+  tabRef.current = tab;
+
+  const markTabSwitching = useCallback(() => {
+    const root = document.documentElement;
+    root.dataset.tabSwitching = "1";
+    if (tabSwitchClearRef.current != null) {
+      window.clearTimeout(tabSwitchClearRef.current);
+    }
+    // Two frames for paint settle, then brief hold so chrome blur doesn't thrash mid-switch.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        tabSwitchClearRef.current = window.setTimeout(() => {
+          delete root.dataset.tabSwitching;
+          tabSwitchClearRef.current = null;
+        }, 120);
+      });
+    });
+  }, []);
 
   const goTab = useCallback((t: Tab, opts?: { produce?: ProduceWorkspace; publish?: PublishWorkspace; settings?: SettingsSection; ops?: OpsSection; section?: string; guideTarget?: string }) => {
+    const prev = tabRef.current;
+    if (prev !== t) {
+      markTabSwitching();
+      const schedule =
+        typeof window.requestIdleCallback === "function"
+          ? (cb: () => void) => window.requestIdleCallback(() => cb(), { timeout: 400 })
+          : (cb: () => void) => window.setTimeout(cb, 120);
+      schedule(() => {
+        void import("./soundBed").then(({ playSoundBed }) => playSoundBed("tab")).catch(() => {});
+      });
+    }
     startTransition(() => {
       setMountedTabs((tabs) => (tabs.includes(t) ? tabs : [...tabs, t]));
-      setTab((prev) => {
-        if (prev !== t) {
-          void import("./soundBed").then(({ playSoundBed }) => playSoundBed("tab"));
-        }
-        return t;
-      });
+      setTab(t);
       if (opts?.produce) setProduceWorkspace(opts.produce);
       if (opts?.publish) setPublishWorkspace(opts.publish);
       if (opts?.settings) setSettingsSection(opts.settings);
@@ -197,6 +223,41 @@ function App() {
         window.setTimeout(() => spotlightWhenMounted(20), 50);
       }
     });
+  }, [markTabSwitching]);
+
+  // Idle premount remaining tabs so first visit isn't a cold heavy mount on click.
+  useEffect(() => {
+    const order = TABS.map(([id]) => id).filter((id) => id !== "overview");
+    let cancelled = false;
+    let idleId: number | null = null;
+    let timeoutId: number | null = null;
+    let idx = 0;
+
+    const schedule = (cb: () => void, delay = 0) => {
+      if (typeof window.requestIdleCallback === "function") {
+        idleId = window.requestIdleCallback(() => cb(), { timeout: 900 + delay });
+      } else {
+        timeoutId = window.setTimeout(cb, 280 + delay);
+      }
+    };
+
+    const mountNext = () => {
+      if (cancelled || idx >= order.length) return;
+      const next = order[idx++];
+      setMountedTabs((tabs) => (tabs.includes(next) ? tabs : [...tabs, next]));
+      schedule(mountNext, idx * 40);
+    };
+
+    // Wait for first paint / overview settle before premounting heavies.
+    timeoutId = window.setTimeout(() => schedule(mountNext), 700);
+    return () => {
+      cancelled = true;
+      if (idleId != null && typeof window.cancelIdleCallback === "function") {
+        window.cancelIdleCallback(idleId);
+      }
+      if (timeoutId != null) window.clearTimeout(timeoutId);
+      if (tabSwitchClearRef.current != null) window.clearTimeout(tabSwitchClearRef.current);
+    };
   }, []);
 
   useEffect(() => {
