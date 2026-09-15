@@ -855,6 +855,16 @@
         "去掉 rail/topbar/双卡 backdrop-filter 与 SVG 噪点；背景改 scroll",
         "pages memo；覆盖安装仅换 App"
       ]
+    },
+    "0.8.28": {
+      "title": "切页冻结隐藏页",
+      "summary": "针对仍略卡：用 FrozenTab 冻结非当前页 React 树，避免轮询/切页时调和全部 keep-alive 重页；预挂载改为仅轻页；切页更长冻结特效并精简水彩层。",
+      "highlights": [
+        "FrozenTab：隐藏页保留状态但不跟 App 轮询重渲染（active 仍可下发停轮询）",
+        "预挂载仅 warm review/publish/data，避免一次挂满 settings/produce",
+        "水彩层减层、纸噪去 mix-blend；切页隐藏中心星云",
+        "覆盖安装仅换 App"
+      ]
     }
   }
 }

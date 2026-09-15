@@ -14,14 +14,13 @@ body:has(.app--immersive) #root {
 .app--gui.app--immersive {
   /* Pure pigment stage: CSS wash fields + clean photo texture (no concept-UI ghosts) */
   background-color: #ebe4ef;
+  /* Fewer wash layers → cheaper composites on tab switch */
   background-image:
-    radial-gradient(ellipse 70% 55% at 12% 18%, rgba(170, 155, 195, 0.45), transparent 62%),
-    radial-gradient(ellipse 65% 50% at 90% 10%, rgba(120, 105, 155, 0.38), transparent 58%),
-    radial-gradient(ellipse 55% 45% at 78% 88%, rgba(145, 130, 170, 0.32), transparent 60%),
-    radial-gradient(ellipse 50% 40% at 18% 85%, rgba(175, 185, 205, 0.28), transparent 55%),
-    radial-gradient(ellipse 48% 42% at 50% 48%, rgba(255, 252, 250, 0.55), transparent 70%),
+    radial-gradient(ellipse 70% 55% at 12% 18%, rgba(170, 155, 195, 0.4), transparent 62%),
+    radial-gradient(ellipse 65% 50% at 90% 10%, rgba(120, 105, 155, 0.34), transparent 58%),
+    radial-gradient(ellipse 48% 42% at 50% 48%, rgba(255, 252, 250, 0.5), transparent 70%),
     var(--wash-image);
-  background-size: cover, cover, cover, cover, cover, cover;
+  background-size: cover, cover, cover, cover;
   background-position: center;
   background-attachment: scroll;
   background-repeat: no-repeat;
@@ -36,11 +35,12 @@ body:has(.app--immersive) #root {
   position: fixed;
   inset: 0;
   z-index: 0;
-  opacity: 0.14;
-  background-image: radial-gradient(rgba(72, 58, 88, 0.045) 0.6px, transparent 0.7px);
-  background-size: 3px 3px;
-  mix-blend-mode: soft-light;
+  opacity: 0.08;
+  background-image: radial-gradient(rgba(72, 58, 88, 0.04) 0.55px, transparent 0.65px);
+  background-size: 4px 4px;
+  mix-blend-mode: normal;
   contain: strict;
+  pointer-events: none;
 }
 
 /* Soft center veil like AV negative space */
@@ -327,7 +327,7 @@ body:has(.app--immersive) #root {
   background:
     radial-gradient(ellipse 50% 70% at 30% 50%, rgba(150, 120, 170, 0.55), transparent 70%),
     radial-gradient(ellipse 55% 70% at 70% 50%, rgba(120, 140, 170, 0.4), transparent 70%);
-  filter: blur(0.5px);
+  filter: none;
   opacity: 0.85;
   pointer-events: none;
 }
@@ -1402,7 +1402,8 @@ html[data-tab-switching] .app--immersive .pigment-turbulence {
 }
 
 html[data-tab-switching] .app--immersive .pigment-turbulence {
-  opacity: 0.35;
+  opacity: 0 !important;
+  visibility: hidden !important;
 }
 
 /* Permanently drop leftover App.css blurs that thrash on every paint */

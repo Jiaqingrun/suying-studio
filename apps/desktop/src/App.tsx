@@ -15,6 +15,7 @@ import { brandFromProfile, type BrandLogoState } from "./BrandLogoPanel";
 import { CommandPalette, type CmdItem } from "./shell/CommandPalette";
 import { AppDialog } from "./shell/AppDialog";
 import { AppShell } from "./shell/AppShell";
+import { FrozenTab } from "./shell/FrozenTab";
 import { CarrierInstallWizard } from "./CarrierInstallWizard";
 import {
   ensureNotificationPermission,
@@ -158,13 +159,13 @@ function App() {
     if (tabSwitchClearRef.current != null) {
       window.clearTimeout(tabSwitchClearRef.current);
     }
-    // Two frames for paint settle, then brief hold so chrome blur doesn't thrash mid-switch.
+    // Hold freeze until after paint + short settle (residual switch jank).
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         tabSwitchClearRef.current = window.setTimeout(() => {
           delete root.dataset.tabSwitching;
           tabSwitchClearRef.current = null;
-        }, 120);
+        }, 220);
       });
     });
   }, []);
@@ -202,11 +203,6 @@ function App() {
       ) {
         setOpsSection(opts.section as OpsSection);
       }
-      if (typeof window !== "undefined") {
-        const query = new URLSearchParams({ tab: t });
-        if (opts?.section) query.set("section", opts.section);
-        window.history.replaceState(null, "", `#${query.toString()}`);
-      }
       if (opts?.guideTarget) {
         const spotlightWhenMounted = (attemptsLeft: number) => {
           const el = document.querySelector<HTMLElement>(`[data-guide="${opts.guideTarget}"]`);
@@ -223,33 +219,44 @@ function App() {
         window.setTimeout(() => spotlightWhenMounted(20), 50);
       }
     });
+    // Hash update after commit — not on the critical switch path.
+    if (typeof window !== "undefined") {
+      const query = new URLSearchParams({ tab: t });
+      if (opts?.section) query.set("section", opts.section);
+      const hash = `#${query.toString()}`;
+      requestAnimationFrame(() => {
+        if (window.location.hash !== hash) {
+          window.history.replaceState(null, "", hash);
+        }
+      });
+    }
   }, [markTabSwitching]);
 
-  // Idle premount remaining tabs so first visit isn't a cold heavy mount on click.
+  // Warm only adjacent light tabs — avoid mounting all heavies (settings/produce)
+  // which made every App poll walk nine huge subtrees.
   useEffect(() => {
-    const order = TABS.map(([id]) => id).filter((id) => id !== "overview");
+    const warm: Tab[] = ["review", "publish", "data"];
     let cancelled = false;
     let idleId: number | null = null;
     let timeoutId: number | null = null;
     let idx = 0;
 
-    const schedule = (cb: () => void, delay = 0) => {
+    const schedule = (cb: () => void) => {
       if (typeof window.requestIdleCallback === "function") {
-        idleId = window.requestIdleCallback(() => cb(), { timeout: 900 + delay });
+        idleId = window.requestIdleCallback(() => cb(), { timeout: 1500 });
       } else {
-        timeoutId = window.setTimeout(cb, 280 + delay);
+        timeoutId = window.setTimeout(cb, 500);
       }
     };
 
     const mountNext = () => {
-      if (cancelled || idx >= order.length) return;
-      const next = order[idx++];
+      if (cancelled || idx >= warm.length) return;
+      const next = warm[idx++];
       setMountedTabs((tabs) => (tabs.includes(next) ? tabs : [...tabs, next]));
-      schedule(mountNext, idx * 40);
+      schedule(mountNext);
     };
 
-    // Wait for first paint / overview settle before premounting heavies.
-    timeoutId = window.setTimeout(() => schedule(mountNext), 700);
+    timeoutId = window.setTimeout(() => schedule(mountNext), 1200);
     return () => {
       cancelled = true;
       if (idleId != null && typeof window.cancelIdleCallback === "function") {
@@ -3179,6 +3186,7 @@ function App() {
       <main className="main-stage">
         {mountedTabs.includes("overview") && (
           <div className="tab-pane" hidden={tab !== "overview"} aria-hidden={tab !== "overview"}>
+            <FrozenTab frozen={tab !== "overview"}>
             <OverviewPage
             pipelineNodes={pipelineNodes}
             pathBlocked={pathBlocked}
@@ -3207,10 +3215,12 @@ function App() {
             onWorkspaceToggleAuto={(v) => void onWorkspaceToggleAuto(v)}
             onWorkspaceSyncNow={() => void runWorkspaceSync("manual")}
             />
+            </FrozenTab>
           </div>
         )}
         {mountedTabs.includes("produce") && (
           <div className="tab-pane" hidden={tab !== "produce"} aria-hidden={tab !== "produce"}>
+            <FrozenTab frozen={tab !== "produce"}>
             <ProductionPage
             workspace={produceWorkspace}
             onWorkspaceChange={setProduceWorkspace}
@@ -3299,10 +3309,12 @@ function App() {
               }
             }}
             />
+            </FrozenTab>
           </div>
         )}
         {mountedTabs.includes("rules") && (
           <div className="tab-pane" hidden={tab !== "rules"} aria-hidden={tab !== "rules"}>
+            <FrozenTab frozen={tab !== "rules"}>
             <section className="page-stack rules-page">
               <VideoRuleWorkbench
                 notify={notify}
@@ -3324,10 +3336,12 @@ function App() {
                 }}
               />
             </section>
+            </FrozenTab>
           </div>
         )}
         {mountedTabs.includes("review") && (
           <div className="tab-pane" hidden={tab !== "review"} aria-hidden={tab !== "review"}>
+            <FrozenTab frozen={tab !== "review"}>
             <ReviewPage
             active={tab === "review"}
             setTab={goTab}
@@ -3356,10 +3370,12 @@ function App() {
             decideReview={decideReview}
             rerenderOnly={rerenderOnly}
             />
+            </FrozenTab>
           </div>
         )}
         {mountedTabs.includes("publish") && (
           <div className="tab-pane" hidden={tab !== "publish"} aria-hidden={tab !== "publish"}>
+            <FrozenTab frozen={tab !== "publish"}>
             <PublishPage
             workspace={publishWorkspace}
             onWorkspaceChange={setPublishWorkspace}
@@ -3412,10 +3428,12 @@ function App() {
             reachOpenItem={reachOpenItem}
             reachMarkPublished={reachMarkPublished}
             />
+            </FrozenTab>
           </div>
         )}
         {mountedTabs.includes("messages") && (
           <div className="tab-pane" hidden={tab !== "messages"} aria-hidden={tab !== "messages"}>
+            <FrozenTab frozen={tab !== "messages"}>
             <MessagesPage
             accounts={reachMessageAccounts}
             messages={reachMessages}
@@ -3461,10 +3479,12 @@ function App() {
             contentReplyDraftMessageId={contentReplyDraftMessageId}
             onContentCopyReplyDraft={copyContentReplyDraft}
             />
+            </FrozenTab>
           </div>
         )}
         {mountedTabs.includes("data") && (
           <div className="tab-pane" hidden={tab !== "data"} aria-hidden={tab !== "data"}>
+            <FrozenTab frozen={tab !== "data"}>
             <DataCenterPage
             setTab={goTab}
             report={report}
@@ -3478,10 +3498,12 @@ function App() {
             activeCustomerId={activeCustomerId}
             setTitlePoolSummary={setTitlePoolSummary}
             />
+            </FrozenTab>
           </div>
         )}
         {mountedTabs.includes("ops") && (
           <div className="tab-pane" hidden={tab !== "ops"} aria-hidden={tab !== "ops"}>
+            <FrozenTab frozen={tab !== "ops"}>
             <OpsPage
             section={opsSection}
             onSectionChange={setOpsSection}
@@ -3530,10 +3552,12 @@ function App() {
               });
             }}
             />
+            </FrozenTab>
           </div>
         )}
         {mountedTabs.includes("settings") && (
           <div className="tab-pane" hidden={tab !== "settings"} aria-hidden={tab !== "settings"}>
+            <FrozenTab frozen={tab !== "settings"}>
             <SettingsPage
             section={settingsSection}
             onSectionChange={setSettingsSection}
@@ -3596,6 +3620,7 @@ function App() {
               notify("高级配置已锁定", "ok");
             }}
             />
+            </FrozenTab>
           </div>
         )}
       </main>
