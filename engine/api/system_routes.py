@@ -570,24 +570,27 @@ def post_manual_resume(body: ManualResumeBody | None = None) -> dict[str, Any]:
     prepared = coordinator.prepare_manual_resume(reasons=body.reasons)
     if prepared.get("state") != "RESUMING":
         return prepared
-    path_ok, disk_ok = _path_and_disk_ok()
-    checked = coordinator.apply_resume_after_checks(
-        path_ok=path_ok,
-        disk_ok=disk_ok,
-        policy=policy,
-    )
-    if not checked.get("restore_ready"):
-        return checked
-    restored = restore_units()
-    if restored.get("errors"):
-        _audit_system(
-            "manual_resume_failed",
-            "恢复检查未通过",
-            level="error",
-            details={"reasons": body.reasons, "errors": restored.get("errors")},
+    # Share wake-path lock so manual resume cannot interleave restore_units /
+    # complete_resume with did_wake / health-retry threads.
+    with _resume_async_lock:
+        path_ok, disk_ok = _path_and_disk_ok()
+        checked = coordinator.apply_resume_after_checks(
+            path_ok=path_ok,
+            disk_ok=disk_ok,
+            policy=policy,
         )
-        return coordinator.snapshot()
-    result = coordinator.complete_resume()
+        if not checked.get("restore_ready"):
+            return checked
+        restored = restore_units()
+        if restored.get("errors"):
+            _audit_system(
+                "manual_resume_failed",
+                "恢复检查未通过",
+                level="error",
+                details={"reasons": body.reasons, "errors": restored.get("errors")},
+            )
+            return coordinator.snapshot()
+        result = coordinator.complete_resume()
     _audit_system(
         "manual_resume_completed",
         "速影任务已恢复",

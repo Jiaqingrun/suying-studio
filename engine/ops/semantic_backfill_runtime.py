@@ -48,7 +48,24 @@ class SemanticBackfillRuntime:
         if not allow_semantic_full_backfill_env():
             return
         with self._lock:
+            alive = bool(self._thread and self._thread.is_alive())
+            # Healthy & not stopping: no-op. If ``_stop`` is set while the thread
+            # is still winding down (join timeout), drain before respawn — otherwise
+            # clearing ``_stop`` would revive the orphan alongside a new worker.
+            if alive and not self._stop.is_set():
+                return
+            old = self._thread
+        if alive or self._stop.is_set():
+            self.stop()
+            if old and old.is_alive():
+                old.join(timeout=5)
+        with self._lock:
+            if self._thread and self._thread.is_alive() and not self._stop.is_set():
+                return
             if self._thread and self._thread.is_alive():
+                log.warning(
+                    "semantic backfill prior worker still alive after stop; refusing dual start"
+                )
                 return
             self._stop.clear()
             self._thread = threading.Thread(
@@ -66,7 +83,8 @@ class SemanticBackfillRuntime:
         if t and t.is_alive():
             t.join(timeout=join_timeout)
         with self._lock:
-            if self._thread is t:
+            # Keep the ref while the thread is still alive so ensure_started can drain.
+            if self._thread is t and (t is None or not t.is_alive()):
                 self._thread = None
         log.info("semantic full-backfill worker stop requested")
 
