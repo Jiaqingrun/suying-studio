@@ -68,11 +68,12 @@ body:has(.app--immersive) #root {
 .app--immersive .rail {
   margin: 0 0 0 14px;
   border-radius: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.52);
-  border-right: 1px solid rgba(255, 255, 255, 0.36);
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  border-bottom-color: rgba(255, 255, 255, 0.28);
+  border-right-color: rgba(255, 255, 255, 0.38);
   background: var(--glass-chrome-fill) !important;
   box-shadow: var(--glass-chrome-edge);
-  /* 清玻璃：近清晰折射，别厚磨砂 */
+  /* 真玻璃：近清晰折射 */
   backdrop-filter: var(--glass);
   -webkit-backdrop-filter: var(--glass);
   overflow: visible;
@@ -82,8 +83,8 @@ body:has(.app--immersive) #root {
 .app--immersive .topbar {
   margin: 0 0 0 0;
   border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.52);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.36);
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  border-bottom-color: rgba(255, 255, 255, 0.28);
   background: var(--glass-chrome-fill) !important;
   backdrop-filter: var(--glass);
   -webkit-backdrop-filter: var(--glass);
@@ -212,7 +213,7 @@ body:has(.app--immersive) #root {
   letter-spacing: 0.04em;
 }
 
-/* ========== Surfaces — clear glass cards (透亮清玻璃，非磨砂乳白) ========== */
+/* ========== Surfaces — 真玻璃卡（透亮+厚度边，非磨砂乳白） ========== */
 .app--immersive .panel,
 .app--immersive .page-section,
 .app--immersive .review-card,
@@ -226,9 +227,10 @@ body:has(.app--immersive) #root {
 .app--immersive .page-stack > .panel,
 .app--immersive .pipeline-board,
 .app--immersive .overview-pipeline {
-  background: rgba(255, 255, 255, 0.07) !important;
-  border: 1px solid rgba(255, 255, 255, 0.46) !important;
-  box-shadow: var(--shadow-card) !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.52) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.28) !important;
+  box-shadow: var(--glass-pane-edge) !important;
   border-radius: var(--radius) !important;
   backdrop-filter: var(--glass);
   -webkit-backdrop-filter: var(--glass);
@@ -250,7 +252,7 @@ body:has(.app--immersive) #root {
 }
 
 .app--immersive .stat {
-  background: rgba(255, 255, 255, 0.1) !important;
+  background: rgba(255, 255, 255, 0.055) !important;
   overflow: hidden;
 }
 
@@ -479,15 +481,11 @@ body:has(.app--immersive) #root {
 }
 
 .app--immersive .av-card {
-  background: rgba(255, 255, 255, 0.055) !important;
-  border: 1px solid rgba(255, 255, 255, 0.48) !important;
+  background: rgba(255, 255, 255, 0.035) !important;
+  border: 1px solid rgba(255, 255, 255, 0.55) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.28) !important;
   border-radius: 26px !important;
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.65) inset,
-    1px 0 0 rgba(170, 220, 255, 0.1) inset,
-    -1px 0 0 rgba(255, 190, 220, 0.08) inset,
-    0 0 0 1px rgba(255, 255, 255, 0.22),
-    0 14px 36px rgba(90, 70, 120, 0.045) !important;
+  box-shadow: var(--glass-pane-edge-float) !important;
   backdrop-filter: var(--glass);
   -webkit-backdrop-filter: var(--glass);
   padding: 22px 24px 18px;
@@ -655,12 +653,13 @@ body:has(.app--immersive) #root {
   gap: 0;
   max-width: min(1100px, 100%);
   margin: 18px auto 12px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid var(--line-glass);
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-bottom-color: rgba(255, 255, 255, 0.28);
   border-radius: 22px;
   backdrop-filter: var(--glass);
   -webkit-backdrop-filter: var(--glass);
-  box-shadow: var(--shadow-float);
+  box-shadow: var(--glass-pane-edge-float);
   overflow: hidden;
 }
 
@@ -831,7 +830,7 @@ body:has(.app--immersive) #root {
 }
 
 .app--immersive .panel {
-  background: rgba(255, 255, 255, 0.065) !important;
+  background: rgba(255, 255, 255, 0.035) !important;
   background-image: none !important;
   overflow: visible !important;
   isolation: auto !important;
@@ -851,17 +850,20 @@ body:has(.app--immersive) #root {
 .app--immersive .status-chip,
 .app--immersive .topbar .chip,
 .app--immersive .topbar .pill {
-  background: rgba(255, 255, 255, 0.1) !important;
+  background: rgba(255, 255, 255, 0.06) !important;
   backdrop-filter: var(--glass);
   -webkit-backdrop-filter: var(--glass);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.55) inset;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.75) inset,
+    0 -1px 0 rgba(50, 40, 70, 0.08) inset,
+    0 0 0 1px rgba(255, 255, 255, 0.4);
 }
 
 .app--immersive .banner,
 .app--immersive .banner-ok,
 .app--immersive .banner.error,
 .app--immersive .alert-strip {
-  background: rgba(255, 255, 255, 0.08) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
   backdrop-filter: var(--glass);
   -webkit-backdrop-filter: var(--glass);
 }
@@ -869,13 +871,13 @@ body:has(.app--immersive) #root {
 .app--immersive .banner.warn,
 .app--immersive [class*="warn-banner"],
 .app--immersive .device-warn {
-  background: rgba(255, 246, 220, 0.28) !important;
+  background: rgba(255, 246, 220, 0.22) !important;
 }
 
 /* Active nav pill: soft clear glaze, not solid block */
 .app--immersive .nav-btn.active {
-  background: rgba(255, 255, 255, 0.16) !important;
-  border-color: rgba(255, 255, 255, 0.48);
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-color: rgba(255, 255, 255, 0.5);
 }
 
 /* Soften app stage bg so wash edge color matches glass tint */
@@ -909,21 +911,22 @@ body:has(.app--immersive) #root {
 }
 
 .app--immersive .av-card {
-  background: rgba(255, 255, 255, 0.05) !important;
-  border: 1px solid rgba(255, 255, 255, 0.46) !important;
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.62) inset,
-    1px 0 0 rgba(170, 220, 255, 0.1) inset,
-    -1px 0 0 rgba(255, 190, 220, 0.08) inset,
-    0 16px 40px rgba(80, 60, 110, 0.05) !important;
+  background: rgba(255, 255, 255, 0.03) !important;
+  border: 1px solid rgba(255, 255, 255, 0.55) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.28) !important;
+  box-shadow: var(--glass-pane-edge-float) !important;
+  backdrop-filter: var(--glass) !important;
+  -webkit-backdrop-filter: var(--glass) !important;
 }
 
 /* Feature bar: clear floating glass on wash */
 .app--immersive .av-feature-bar {
-  background: rgba(255, 255, 255, 0.055) !important;
+  background: rgba(255, 255, 255, 0.03) !important;
   backdrop-filter: var(--glass) !important;
   -webkit-backdrop-filter: var(--glass) !important;
-  border: 1px solid rgba(255, 255, 255, 0.46) !important;
+  border: 1px solid rgba(255, 255, 255, 0.55) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.28) !important;
+  box-shadow: var(--glass-pane-edge-float) !important;
   margin-top: 8px !important;
 }
 
@@ -931,7 +934,7 @@ body:has(.app--immersive) #root {
 .app--immersive .overview-page .page-section,
 .app--immersive .overview-page .pipeline,
 .app--immersive .overview-page .empty-state {
-  background: rgba(255, 255, 255, 0.055) !important;
+  background: rgba(255, 255, 255, 0.03) !important;
 }
 
 .app--immersive .rail {
@@ -948,90 +951,154 @@ body:has(.app--immersive) #root {
   box-shadow: var(--glass-chrome-edge) !important;
 }
 
-/* Thin specular + slight edge dispersion — clear glass, not milky frosting */
+/* ========== 真玻璃反光层：顶沿高光条 + 角落亮斑 + 厚度边 ========== */
+.app--immersive .rail,
+.app--immersive .topbar,
+.app--immersive .av-card,
+.app--immersive .av-feature-bar,
+.app--immersive .rail-health {
+  position: relative;
+}
+
+/* rail 保持 overflow:visible（导航/脚部弹出）；其余玻璃板可裁切高光 */
+.app--immersive .topbar,
+.app--immersive .av-card,
+.app--immersive .av-feature-bar,
+.app--immersive .rail-health {
+  overflow: hidden;
+}
+
 .app--immersive .rail::before,
 .app--immersive .topbar::before,
 .app--immersive .av-card::before,
-.app--immersive .av-feature-bar::before {
+.app--immersive .av-feature-bar::before,
+.app--immersive .rail-health::before {
   content: "";
   pointer-events: none;
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: linear-gradient(
-    118deg,
-    rgba(255, 255, 255, 0.42) 0%,
-    rgba(255, 255, 255, 0.08) 18%,
-    transparent 42%,
-    rgba(170, 210, 255, 0.05) 72%,
-    rgba(255, 190, 220, 0.04) 100%
-  );
-  opacity: 0.85;
   z-index: 0;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.72) 0%,
+      rgba(255, 255, 255, 0.28) 6%,
+      rgba(255, 255, 255, 0.06) 14%,
+      transparent 28%
+    ),
+    radial-gradient(
+      ellipse 42% 28% at 12% 0%,
+      rgba(255, 255, 255, 0.55) 0%,
+      transparent 70%
+    ),
+    linear-gradient(
+      115deg,
+      rgba(255, 255, 255, 0.18) 0%,
+      transparent 22%,
+      transparent 55%,
+      rgba(180, 220, 255, 0.06) 78%,
+      rgba(255, 200, 230, 0.05) 100%
+    );
 }
 
 .app--immersive .rail::after,
-.app--immersive .topbar::after {
+.app--immersive .topbar::after,
+.app--immersive .av-card::after,
+.app--immersive .av-feature-bar::after {
   content: "";
   pointer-events: none;
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  box-shadow:
-    inset 1px 0 0 rgba(170, 220, 255, 0.18),
-    inset -1px 0 0 rgba(255, 190, 220, 0.12);
   z-index: 0;
+  background:
+    linear-gradient(
+      105deg,
+      transparent 0%,
+      transparent 38%,
+      rgba(255, 255, 255, 0.22) 49%,
+      rgba(255, 255, 255, 0.05) 52%,
+      transparent 62%,
+      transparent 100%
+    );
+  background-size: 220% 100%;
+  background-position: 120% 0;
+  box-shadow:
+    inset 1.5px 0 0 rgba(180, 220, 255, 0.32),
+    inset -1.5px 0 0 rgba(255, 200, 230, 0.18);
+  animation: glass-sheen 9.5s ease-in-out infinite;
+  opacity: 0.85;
+}
+
+@keyframes glass-sheen {
+  0%,
+  18% {
+    background-position: 120% 0;
+  }
+  55%,
+  100% {
+    background-position: -40% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app--immersive .rail::after,
+  .app--immersive .topbar::after,
+  .app--immersive .av-card::after,
+  .app--immersive .av-feature-bar::after {
+    animation: none !important;
+    background-position: 55% 0;
+    opacity: 0.45;
+  }
 }
 
 .app--immersive .rail > *,
 .app--immersive .topbar > *,
 .app--immersive .av-card > *,
-.app--immersive .av-feature-bar > * {
+.app--immersive .av-feature-bar > *,
+.app--immersive .rail-health > * {
   position: relative;
   z-index: 1;
 }
 
-.app--immersive .rail,
-.app--immersive .topbar,
-.app--immersive .av-card,
-.app--immersive .av-feature-bar {
-  position: relative;
-}
-
-/* Rail foot / runtime status — same clear-glass vocabulary */
+/* Rail foot / runtime status — same true-glass vocabulary */
 .app--immersive .rail-foot {
   background: linear-gradient(
     180deg,
     transparent 0%,
-    rgba(255, 255, 255, 0.04) 18%,
-    rgba(255, 255, 255, 0.07) 100%
+    rgba(255, 255, 255, 0.02) 18%,
+    rgba(255, 255, 255, 0.045) 100%
   ) !important;
-  border-top: 1px solid rgba(255, 255, 255, 0.32) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.38) !important;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.35) inset;
 }
 
 .app--immersive .rail-health {
-  background: rgba(255, 255, 255, 0.08) !important;
-  border: 1px solid rgba(255, 255, 255, 0.42) !important;
+  background: rgba(255, 255, 255, 0.045) !important;
+  border: 1px solid rgba(255, 255, 255, 0.5) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.28) !important;
   backdrop-filter: var(--glass);
   -webkit-backdrop-filter: var(--glass);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.55) inset,
-    1px 0 0 rgba(170, 220, 255, 0.1) inset;
+  box-shadow: var(--glass-pane-edge);
   color: var(--text-dim);
 }
 
 .app--immersive .rail-foot .toggle,
 .app--immersive .rail-foot > button {
-  background: rgba(255, 255, 255, 0.08) !important;
-  border: 1px solid rgba(255, 255, 255, 0.4) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.48) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.28) !important;
   backdrop-filter: var(--glass);
   -webkit-backdrop-filter: var(--glass);
   color: var(--text);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.7) inset,
+    0 -1px 0 rgba(50, 40, 70, 0.1) inset;
 }
 
 .app--immersive .rail-foot > button:hover {
-  background: rgba(255, 255, 255, 0.16) !important;
+  background: rgba(255, 255, 255, 0.12) !important;
 }
 
 .app--immersive .foot-label {
@@ -1047,10 +1114,10 @@ body:has(.app--immersive) #root {
   height: 100vh;
   pointer-events: none;
   z-index: 0 !important;
-  opacity: 0.78;
+  opacity: 0.7;
   mix-blend-mode: normal;
   /* Keep veil soft but don't fog the clear glass above it */
-  filter: blur(0.6px) saturate(1.04);
+  filter: blur(0.5px) saturate(1.03);
   /* Canvas already fades; mask makes the whole plate dissolve into paper */
   -webkit-mask-image: radial-gradient(
     ellipse 62% 54% at 54% 44%,
