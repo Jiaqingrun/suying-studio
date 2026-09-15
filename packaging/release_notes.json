@@ -916,6 +916,16 @@
         "Overview ActivityTicker 尊重 active；ops_auth compare_digest 长度门闩",
         "覆盖安装仅换 App；不改 L17 / 清玻璃 / FrozenTab 策略；词包仍搁置"
       ]
+    },
+    "0.8.34": {
+      "title": "审片媒体预览与全产品空态修复",
+      "summary": "修审片三类实机问题：缺文件不再显示 ? 破帧、视频 asset→HTTP 回退、主预览区竖屏铺满；API 过滤失效封面路径；生产素材库空态；发布台同款视频回退。不含客户词包与 L17。",
+      "highlights": [
+        "mediaPreview localOk/preferHttp；MediaVideo/CoverThumb 失败回退文案而非 WebKit ?",
+        "审片主区 portrait/landscape 几何 + object-fit:cover；缺文件态铺满容器",
+        "list/output_cover_paths 仅返回磁盘仍在的封面；生产素材库 EmptyState",
+        "vitest mediaPreview 4 项；覆盖安装仅换 App；L17/清玻璃/FrozenTab/B3 未动"
+      ]
     }
   }
 }
