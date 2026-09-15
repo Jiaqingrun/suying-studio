@@ -23,7 +23,7 @@ else
 fi
 while IFS= read -r line || [[ -n "$line" ]]; do
   [[ -z "$line" ]] && continue
-  if echo "$line" | grep -qE '删|废止|过时|历史|不再|不得再写'; then
+  if echo "$line" | grep -qE '删|废止|过时|历史|不再|不得再写|禁止回潮|不得再写'; then
     continue
   fi
   echo "FAIL: $line" >&2

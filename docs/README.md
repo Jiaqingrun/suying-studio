@@ -28,7 +28,7 @@
 1. 跑 `./scripts/check-legacy-cleanup-gate.sh`（已挂入 `gate_package_regression.sh` 与 `release-to-t2s.sh` 开头）
 2. 人工过一遍：L20 三处同义 · L19 交付拓扑 · 安装路径非 Desktop 交付 · 视觉不以「毛玻璃」为现行 · `DEV_LOCK` 不写死过期版号 · L17 无授权不改
 
-禁止回潮句示例：现行入口「仅节奏润色」；根 README / 安装文把 `Desktop/速影.app` 写成正式交付落点。
+禁止回潮：现行入口不得再写「仅节奏润色」类过时 Ollama 底线；根 README / 安装文不得把桌面 `速影.app` 路径写成正式交付落点。
 
 ## 2. 产品与工程合同
 
