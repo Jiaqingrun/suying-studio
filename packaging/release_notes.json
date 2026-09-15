@@ -786,6 +786,16 @@
         "kickstart/控制面与 CarrierOpsStrip 改读 /readiness（约 800ms 预算）",
         "覆盖安装仅换 App，不冲片库/词池/登录态"
       ]
+    },
+    "0.8.21": {
+      "title": "中心蜂窝星云湍流重做",
+      "summary": "按参考图把中心 pigment 重做成细密六角蜂窝星云：噪声驱动的紫/品红云团与电青高光，柔和径向淡出；取消发暗的 multiply，改用 normal 保持发光感。",
+      "highlights": [
+        "PigmentTurbulence 改为六角网格 + 分层噪声星云（海军蓝→紫→品红→青）",
+        "固定视口、整体缓转；边缘柔和融入水彩底，不再发黑发脏",
+        "mix-blend-mode 改为 normal，去掉 muddy multiply",
+        "覆盖安装仅换 App，不冲片库/词池/登录态"
+      ]
     }
   }
 }
