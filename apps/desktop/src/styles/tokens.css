@@ -7,13 +7,14 @@
   --bg-1: #f3eef4;
   --bg-2: #faf7fb;
   --bg-3: #ffffff;
-  --surface-0: rgba(255, 255, 255, 0.28);
-  --surface-1: rgba(255, 255, 255, 0.40);
-  --surface-2: rgba(255, 255, 255, 0.48);
-  --surface-3: rgba(255, 255, 255, 0.62);
+  /* Clear glass — low fill, high see-through (not frosted milk) */
+  --surface-0: rgba(255, 255, 255, 0.12);
+  --surface-1: rgba(255, 255, 255, 0.18);
+  --surface-2: rgba(255, 255, 255, 0.24);
+  --surface-3: rgba(255, 255, 255, 0.32);
   --line: rgba(72, 58, 88, 0.1);
   --line-strong: rgba(72, 58, 88, 0.18);
-  --line-glass: rgba(255, 255, 255, 0.72);
+  --line-glass: rgba(255, 255, 255, 0.55);
   --text: #2a2630;
   --text-dim: #5a5464;
   --text-mute: #8a8494;
@@ -81,21 +82,22 @@
   --z-topbar: 30;
   --z-float: 40;
   --z-modal: 100;
-  --glass: blur(32px) saturate(1.45);
-  --glass-strong: blur(52px) saturate(1.7) brightness(1.04);
+  /* 透亮：轻 blur + 高通透，靠描边/高光成玻璃，不是厚磨砂 */
+  --glass: blur(12px) saturate(1.2);
+  --glass-strong: blur(16px) saturate(1.25);
   --glass-chrome-fill:
     linear-gradient(
       155deg,
-      rgba(255, 255, 255, 0.58) 0%,
-      rgba(255, 255, 255, 0.22) 38%,
-      rgba(210, 196, 230, 0.2) 100%
+      rgba(255, 255, 255, 0.28) 0%,
+      rgba(255, 255, 255, 0.08) 42%,
+      rgba(210, 196, 230, 0.06) 100%
     ),
-    rgba(248, 244, 252, 0.28);
+    rgba(255, 255, 255, 0.1);
   --glass-chrome-edge:
-    0 1px 0 rgba(255, 255, 255, 0.88) inset,
-    0 -1px 0 rgba(90, 70, 120, 0.06) inset,
-    0 0 0 1px rgba(255, 255, 255, 0.45),
-    0 16px 48px rgba(70, 50, 100, 0.1);
+    0 1px 0 rgba(255, 255, 255, 0.7) inset,
+    0 -1px 0 rgba(90, 70, 120, 0.04) inset,
+    0 0 0 1px rgba(255, 255, 255, 0.42),
+    0 10px 28px rgba(70, 50, 100, 0.06);
 
   /* Exact AV wash asset */
   /* pigment-only wash (v2: no concept-UI ghosts in the texture) */

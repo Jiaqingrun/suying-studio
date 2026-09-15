@@ -1,22 +1,27 @@
 import { useEffect, useRef } from "react";
 
 type Particle = {
-  x: number;
-  y: number;
+  /** Base orbit radius from cluster center */
+  orbit: number;
+  /** Angular phase around the cluster */
+  phase: number;
+  /** Angular speed (rad/s), signed */
+  spin: number;
+  /** Vertical squash of orbit ellipse */
+  squash: number;
+  /** Soft radial wobble */
+  wobble: number;
+  wobbleSpeed: number;
   r: number;
   hue: number;
   sat: number;
   light: number;
   alpha: number;
-  spin: number;
-  orbit: number;
-  phase: number;
-  drift: number;
 };
 
 /**
- * Soft pigment turbulence behind the right-hand board.
- * Slow orbital swirl + gentle color bloom — decorative only.
+ * Central pigment vortex behind the right-hand board.
+ * Particles stay gathered as one slow-turning cluster — not scattered.
  */
 export function PigmentTurbulence() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -37,29 +42,34 @@ export function PigmentTurbulence() {
     let t0 = performance.now();
 
     const palette = [
-      { hue: 295, sat: 70, light: 56 }, // plum
-      { hue: 335, sat: 68, light: 60 }, // rose
-      { hue: 195, sat: 72, light: 54 }, // cyan mist
-      { hue: 48, sat: 78, light: 56 }, // gold
-      { hue: 162, sat: 62, light: 50 }, // teal
-      { hue: 268, sat: 66, light: 62 }, // lilac
+      { hue: 295, sat: 72, light: 58 },
+      { hue: 335, sat: 70, light: 62 },
+      { hue: 195, sat: 74, light: 56 },
+      { hue: 48, sat: 78, light: 58 },
+      { hue: 162, sat: 64, light: 52 },
+      { hue: 268, sat: 68, light: 64 },
     ];
 
-    const seed = (count: number) => {
+    const seed = () => {
+      // Tight cluster — count scales gently with board size but stays compact
+      const count = Math.max(36, Math.min(64, Math.floor((w * h) / 28000)));
+      const maxOrbit = Math.min(w, h) * 0.22;
       particles = Array.from({ length: count }, (_, i) => {
         const c = palette[i % palette.length];
+        // Bias toward core: most mass near center, few outer filaments
+        const ring = Math.pow(Math.random(), 0.55);
         return {
-          x: Math.random() * w,
-          y: Math.random() * h,
-          r: 28 + Math.random() * 72,
-          hue: c.hue + (Math.random() * 18 - 9),
-          sat: c.sat + (Math.random() * 10 - 5),
-          light: c.light + (Math.random() * 8 - 4),
-          alpha: 0.2 + Math.random() * 0.28,
-          spin: (Math.random() * 0.22 + 0.06) * (Math.random() < 0.5 ? -1 : 1),
-          orbit: 24 + Math.random() * 70,
+          orbit: maxOrbit * (0.12 + ring * 0.88),
           phase: Math.random() * Math.PI * 2,
-          drift: 0.12 + Math.random() * 0.35,
+          spin: (0.12 + Math.random() * 0.18) * (Math.random() < 0.35 ? -1 : 1),
+          squash: 0.72 + Math.random() * 0.22,
+          wobble: 4 + Math.random() * 10,
+          wobbleSpeed: 0.35 + Math.random() * 0.55,
+          r: 14 + Math.random() * 36 * (1 - ring * 0.45),
+          hue: c.hue + (Math.random() * 16 - 8),
+          sat: c.sat + (Math.random() * 8 - 4),
+          light: c.light + (Math.random() * 6 - 3),
+          alpha: 0.18 + Math.random() * 0.22,
         };
       });
     };
@@ -76,43 +86,48 @@ export function PigmentTurbulence() {
       canvas.style.width = `${w}px`;
       canvas.style.height = `${h}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      seed(Math.max(48, Math.floor((w * h) / 18000)));
+      seed();
     };
 
-    const paintStatic = () => {
+    const clusterCenter = () => ({
+      // Slightly right of geometric center — sits in the open board well
+      cx: w * 0.56,
+      cy: h * 0.48,
+    });
+
+    const paintFrame = (t: number) => {
+      ctx.globalCompositeOperation = "source-over";
       ctx.clearRect(0, 0, w, h);
+      ctx.globalCompositeOperation = "lighter";
+
+      const { cx, cy } = clusterCenter();
+      // Whole cluster slowly breathes + turns
+      const clusterSpin = t * 0.085;
+      const breath = 1 + 0.04 * Math.sin(t * 0.4);
+
+      // Soft core bloom so the mass reads as one body
+      const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.min(w, h) * 0.2);
+      core.addColorStop(0, "hsla(290 55% 62% / 0.16)");
+      core.addColorStop(0.45, "hsla(210 50% 58% / 0.08)");
+      core.addColorStop(1, "hsla(48 60% 55% / 0)");
+      ctx.fillStyle = core;
+      ctx.beginPath();
+      ctx.arc(cx, cy, Math.min(w, h) * 0.2, 0, Math.PI * 2);
+      ctx.fill();
+
       for (const p of particles) {
-        drawBlob(ctx, p.x, p.y, p.r, p.hue, p.sat, p.light, p.alpha * 0.85);
+        const ang = p.phase + clusterSpin * p.spin + t * p.spin * 0.15;
+        const wob = Math.sin(t * p.wobbleSpeed + p.phase) * p.wobble;
+        const rad = (p.orbit + wob) * breath;
+        const x = cx + Math.cos(ang) * rad;
+        const y = cy + Math.sin(ang) * rad * p.squash;
+        drawBlob(ctx, x, y, p.r * (0.9 + 0.1 * Math.sin(t * 0.8 + p.phase)), p.hue, p.sat, p.light, p.alpha);
       }
     };
 
     const tick = (now: number) => {
       if (!running) return;
-      const t = (now - t0) / 1000;
-      ctx.globalCompositeOperation = "source-over";
-      ctx.clearRect(0, 0, w, h);
-      ctx.globalCompositeOperation = "lighter";
-      const cx = w * 0.58;
-      const cy = h * 0.46;
-      const fieldAngle = t * 0.045;
-
-      for (const p of particles) {
-        const ox = Math.cos(fieldAngle + p.phase) * p.orbit;
-        const oy = Math.sin(fieldAngle * 0.86 + p.phase * 1.3) * p.orbit * 0.72;
-        const swirl = Math.sin(t * p.drift + p.phase) * 10;
-        const px = p.x + ox + swirl;
-        const py = p.y + oy + Math.cos(t * p.drift * 0.7 + p.phase) * 8;
-
-        // Slow collective rotation around board center
-        const dx = px - cx;
-        const dy = py - cy;
-        const ang = fieldAngle * 0.35 * p.spin;
-        const rx = cx + dx * Math.cos(ang) - dy * Math.sin(ang);
-        const ry = cy + dx * Math.sin(ang) + dy * Math.cos(ang);
-
-        drawBlob(ctx, rx, ry, p.r * (0.92 + 0.08 * Math.sin(t + p.phase)), p.hue, p.sat, p.light, p.alpha);
-      }
-
+      paintFrame((now - t0) / 1000);
       raf = requestAnimationFrame(tick);
     };
 
@@ -120,10 +135,8 @@ export function PigmentTurbulence() {
     const ro = new ResizeObserver(resize);
     if (canvas.parentElement) ro.observe(canvas.parentElement);
 
-    ctx.globalCompositeOperation = "lighter";
-
     if (reduceMotion) {
-      paintStatic();
+      paintFrame(0);
     } else {
       raf = requestAnimationFrame(tick);
     }
@@ -150,7 +163,7 @@ function drawBlob(
 ) {
   const g = ctx.createRadialGradient(x, y, 0, x, y, r);
   g.addColorStop(0, `hsla(${hue} ${sat}% ${light}% / ${alpha})`);
-  g.addColorStop(0.45, `hsla(${hue + 12} ${sat - 6}% ${light + 4}% / ${alpha * 0.45})`);
+  g.addColorStop(0.4, `hsla(${hue + 10} ${sat - 4}% ${light + 4}% / ${alpha * 0.4})`);
   g.addColorStop(1, `hsla(${hue} ${sat}% ${light}% / 0)`);
   ctx.fillStyle = g;
   ctx.beginPath();
