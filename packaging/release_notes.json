@@ -905,6 +905,17 @@
         "DEV_LOCK 主线指针；docs/README 改锁发版前小节",
         "覆盖安装仅换 App；不改 L17 / 清玻璃主路径"
       ]
+    },
+    "0.8.33": {
+      "title": "Worker/Watcher 重启自愈与唤醒串行锁",
+      "summary": "B1/B2：JobWorker 代际复活、IngestWatcher 拒双 Observer、唤醒/手动恢复共享 resume 锁；租约心跳接线 ollama/tts；FrozenTab ActivityTicker 离页暂停；不含客户词包与 L17。",
+      "highlights": [
+        "JobWorker generation revive + IngestWatcher dual-start refuse（配单测）",
+        "system_routes wake/health-retry/手动 resume 串行锁；system token 时序安全比较",
+        "ollama_heavy / TTS 持锁期间 heartbeat，防 sweep 误夺；semantic backfill 同款重启自愈",
+        "Overview ActivityTicker 尊重 active；ops_auth compare_digest 长度门闩",
+        "覆盖安装仅换 App；不改 L17 / 清玻璃 / FrozenTab 策略；词包仍搁置"
+      ]
     }
   }
 }
