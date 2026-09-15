@@ -81,8 +81,21 @@
   --z-topbar: 30;
   --z-float: 40;
   --z-modal: 100;
-  --glass: blur(28px) saturate(1.35);
-  --glass-strong: blur(36px) saturate(1.4);
+  --glass: blur(32px) saturate(1.45);
+  --glass-strong: blur(52px) saturate(1.7) brightness(1.04);
+  --glass-chrome-fill:
+    linear-gradient(
+      155deg,
+      rgba(255, 255, 255, 0.58) 0%,
+      rgba(255, 255, 255, 0.22) 38%,
+      rgba(210, 196, 230, 0.2) 100%
+    ),
+    rgba(248, 244, 252, 0.28);
+  --glass-chrome-edge:
+    0 1px 0 rgba(255, 255, 255, 0.88) inset,
+    0 -1px 0 rgba(90, 70, 120, 0.06) inset,
+    0 0 0 1px rgba(255, 255, 255, 0.45),
+    0 16px 48px rgba(70, 50, 100, 0.1);
 
   /* Exact AV wash asset */
   /* pigment-only wash (v2: no concept-UI ghosts in the texture) */

@@ -3,6 +3,7 @@ import type { LucideIcon } from "lucide-react";
 import type { LayoutDensity, Tab } from "../types";
 import { TABS, TAB_BLURB, NAV_MIND_GROUPS } from "../types";
 import { AvFeatureBar } from "./AvFeatureBar";
+import { PigmentTurbulence } from "./PigmentTurbulence";
 
 type NavBadge = Partial<Record<Tab, number>>;
 
@@ -85,7 +86,8 @@ export function AppShell({
       </header>
 
       <div className="workspace">
-        {children}
+        <PigmentTurbulence />
+        <div className="workspace-stage">{children}</div>
         <AvFeatureBar />
       </div>
     </div>
