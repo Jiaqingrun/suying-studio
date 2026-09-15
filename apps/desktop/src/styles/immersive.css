@@ -354,13 +354,13 @@ body:has(.app--immersive) #root {
 .app--immersive .topbar-actions .chip,
 .app--immersive .topbar-actions .pill,
 .app--immersive .status-chip {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--glass-cell);
   border: 1px solid rgba(255, 255, 255, 0.42);
   border-radius: var(--radius-pill);
   color: var(--text-dim);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.35) inset;
+  box-shadow: var(--glass-cell-edge);
 }
 
 /* ========== Buttons — soft ghost / plum primary ========== */
@@ -402,8 +402,8 @@ body:has(.app--immersive) #root {
 
 .app--immersive .segment-btn.active,
 .app--immersive .segment-nav .active {
-  background: rgba(110, 97, 124, 0.12);
-  color: var(--text);
+  background: var(--glass-cell-strong);
+  color: var(--accent-strong);
   box-shadow: inset 0 0 0 1px var(--accent-line);
   border-radius: var(--radius-pill);
 }
@@ -417,7 +417,8 @@ body:has(.app--immersive) #root {
 .app--immersive em.badge-mute,
 .app--immersive em.badge-warn {
   border-radius: var(--radius-pill) !important;
-  border: 0 !important;
+  border: 1px solid rgba(255, 255, 255, 0.4) !important;
+  background: var(--glass-cell) !important;
   font-style: normal;
   font-size: 0.72rem;
   padding: 4px 10px;
@@ -426,19 +427,22 @@ body:has(.app--immersive) #root {
 
 .app--immersive em.badge-ok,
 .app--immersive .pill.ok {
-  background: rgba(79, 143, 110, 0.16) !important;
+  background: var(--glass-cell) !important;
+  border: 1px solid rgba(79, 143, 110, 0.45) !important;
   color: #2f6b4c !important;
 }
 
 .app--immersive em.badge-warn,
 .app--immersive .pill.warn {
-  background: rgba(184, 137, 74, 0.16) !important;
+  background: var(--glass-cell) !important;
+  border: 1px solid rgba(184, 137, 74, 0.5) !important;
   color: #8a6230 !important;
 }
 
 .app--immersive em.badge-mute,
 .app--immersive .pill.info {
-  background: rgba(110, 97, 124, 0.12) !important;
+  background: var(--glass-cell) !important;
+  border: 1px solid rgba(110, 97, 124, 0.35) !important;
   color: #554a60 !important;
 }
 
@@ -459,7 +463,8 @@ body:has(.app--immersive) #root {
 .app--immersive .alert-strip,
 .app--immersive [class*="warn-banner"],
 .app--immersive .device-warn {
-  background: rgba(255, 246, 220, 0.78) !important;
+  background: var(--glass-cell) !important;
+  border-color: rgba(184, 137, 74, 0.55) !important;
   color: #6a5430 !important;
 }
 
@@ -843,18 +848,16 @@ body:has(.app--immersive) #root {
   isolation: auto !important;
 }
 
-/* Inner KPI / nested chips — edge only, no backdrop */
+/* Inner KPI / nested chips — unified clear glass cell */
 .app--immersive .stat,
 .app--immersive .overview-kpi-strip .stat,
 .app--immersive .status-chip,
 .app--immersive .topbar .chip,
 .app--immersive .topbar .pill {
-  background: rgba(255, 255, 255, 0.015) !important;
+  background: var(--glass-cell) !important;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.35) inset,
-    0 0 0 0.5px rgba(255, 255, 255, 0.28);
+  box-shadow: var(--glass-cell-edge);
 }
 
 .app--immersive .banner,
@@ -869,7 +872,8 @@ body:has(.app--immersive) #root {
 .app--immersive .banner.warn,
 .app--immersive [class*="warn-banner"],
 .app--immersive .device-warn {
-  background: rgba(255, 246, 220, 0.22) !important;
+  background: var(--glass-cell) !important;
+  border-color: rgba(184, 137, 74, 0.55) !important;
 }
 
 /* Active nav pill: soft clear glaze, not solid block */
@@ -1066,6 +1070,261 @@ body:has(.app--immersive) #root {
 
 .app--immersive .foot-label {
   color: var(--text-dim);
+}
+
+/* ========== 全站统一清玻璃单元格（禁差异色底涂料） ==========
+ * 区分靠：描边权重 / 数字字色 / 选中态，不靠换底色
+ */
+.app--immersive .pipeline-node,
+.app--immersive .status-strip-item,
+.app--immersive .pulse-chip,
+.app--immersive .message-kpi,
+.app--immersive .workspace-sync-chip,
+.app--immersive .message-scan-status,
+.app--immersive .rule-fx-chip,
+.app--immersive .vector-control .vector-status-chip,
+.app--immersive .in-page-nav button,
+.app--immersive .segment-btn,
+.app--immersive .human-alert-card,
+.app--immersive .section-header,
+.app--immersive .window-grid > *,
+.app--immersive .cover-slot,
+.app--immersive .just-done-card,
+.app--immersive .ops-panel,
+.app--immersive .empty-state {
+  background: var(--glass-cell) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: var(--glass-cell-edge) !important;
+}
+
+.app--immersive .pipeline-node {
+  border: 1px solid rgba(255, 255, 255, 0.48) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.22) !important;
+  color: var(--text);
+}
+
+.app--immersive .pipeline-node:hover {
+  border-color: rgba(255, 255, 255, 0.62) !important;
+  background: var(--glass-cell-strong) !important;
+}
+
+.app--immersive .pipeline-node.is-warn {
+  border-color: rgba(184, 137, 74, 0.55) !important;
+  background: var(--glass-cell) !important;
+}
+
+.app--immersive .pipeline-node.is-blocked {
+  border-color: rgba(184, 90, 104, 0.55) !important;
+  background: var(--glass-cell) !important;
+}
+
+.app--immersive .pipeline-count {
+  color: var(--accent-strong);
+}
+
+.app--immersive .pipeline-node.is-warn .pipeline-count {
+  color: var(--warn);
+}
+
+.app--immersive .pipeline-node.is-blocked .pipeline-count {
+  color: var(--danger);
+}
+
+.app--immersive .status-strip-item {
+  border: 1px solid rgba(255, 255, 255, 0.48) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.22) !important;
+  border-radius: 14px !important;
+}
+
+.app--immersive .status-strip-item.ok {
+  border-color: rgba(79, 143, 110, 0.42) !important;
+}
+
+.app--immersive .status-strip-item.warn,
+.app--immersive .status-strip-item.danger {
+  border-color: rgba(184, 137, 74, 0.5) !important;
+}
+
+.app--immersive .status-strip-item.danger {
+  border-color: rgba(184, 90, 104, 0.5) !important;
+}
+
+.app--immersive .status-strip-item.ok strong {
+  color: var(--ok);
+}
+
+.app--immersive .status-strip-item.warn strong {
+  color: var(--warn);
+}
+
+.app--immersive .status-strip-item.danger strong {
+  color: var(--danger);
+}
+
+.app--immersive .pulse-chip {
+  border: 1px solid rgba(255, 255, 255, 0.45) !important;
+  color: var(--text-dim) !important;
+}
+
+.app--immersive .pulse-chip:hover,
+.app--immersive .pulse-chip--flash {
+  background: var(--glass-cell-strong) !important;
+  border-color: rgba(255, 255, 255, 0.62) !important;
+  color: var(--text) !important;
+}
+
+.app--immersive .message-kpi {
+  border: 1px solid rgba(255, 255, 255, 0.45) !important;
+}
+
+.app--immersive .message-kpi.is-warn,
+.app--immersive .message-kpi.is-accent {
+  background: var(--glass-cell) !important;
+}
+
+.app--immersive .message-kpi.is-warn {
+  border-color: rgba(184, 137, 74, 0.5) !important;
+}
+
+.app--immersive .message-kpi.is-accent {
+  border-color: rgba(110, 97, 124, 0.45) !important;
+}
+
+.app--immersive .workspace-sync-chip.tone-ok,
+.app--immersive .workspace-sync-chip.tone-warn,
+.app--immersive .workspace-sync-chip.tone-err,
+.app--immersive .workspace-sync-chip.tone-info {
+  background: var(--glass-cell) !important;
+}
+
+.app--immersive .workspace-sync-chip.tone-ok {
+  border-color: rgba(79, 143, 110, 0.5) !important;
+  color: var(--ok) !important;
+}
+
+.app--immersive .workspace-sync-chip.tone-warn {
+  border-color: rgba(184, 137, 74, 0.5) !important;
+  color: var(--warn) !important;
+}
+
+.app--immersive .workspace-sync-chip.tone-err {
+  border-color: rgba(184, 90, 104, 0.5) !important;
+  color: var(--danger) !important;
+}
+
+.app--immersive .message-scan-status,
+.app--immersive .message-scan-status.is-error {
+  background: var(--glass-cell) !important;
+  border: 1px solid rgba(255, 255, 255, 0.45) !important;
+  color: var(--text-dim) !important;
+}
+
+.app--immersive .message-scan-status.is-error {
+  border-color: rgba(184, 90, 104, 0.5) !important;
+  color: var(--danger) !important;
+}
+
+.app--immersive .human-alert-card {
+  border: 1px solid rgba(184, 137, 74, 0.5) !important;
+  border-left-width: 3px !important;
+  border-left-color: var(--warn) !important;
+}
+
+.app--immersive .section-header {
+  border-bottom: 1px solid rgba(72, 58, 88, 0.08) !important;
+  box-shadow: none !important;
+}
+
+.app--immersive .banner.error,
+.app--immersive .banner.ok,
+.app--immersive .banner-ok,
+.app--immersive .banner.info,
+.app--immersive .banner.warn {
+  background: var(--glass-cell) !important;
+}
+
+.app--immersive .banner.error {
+  border-color: rgba(184, 90, 104, 0.5) !important;
+  color: #8a3a48 !important;
+}
+
+.app--immersive .banner.ok,
+.app--immersive .banner-ok {
+  border-color: rgba(79, 143, 110, 0.5) !important;
+  color: #2f6b4c !important;
+}
+
+.app--immersive .banner.info {
+  border-color: rgba(106, 135, 166, 0.5) !important;
+  color: #3d5a78 !important;
+}
+
+.app--immersive .in-page-nav button {
+  border: 1px solid transparent !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+.app--immersive .in-page-nav button.active {
+  background: var(--glass-cell) !important;
+  border-color: rgba(110, 97, 124, 0.45) !important;
+  color: var(--accent-strong) !important;
+  box-shadow: var(--glass-cell-edge) !important;
+}
+
+.app--immersive .segment-btn {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app--immersive .segment-btn:hover {
+  background: var(--glass-cell) !important;
+  color: var(--text) !important;
+}
+
+.app--immersive .segment-btn.active {
+  background: var(--glass-cell-strong) !important;
+  color: var(--accent-strong) !important;
+  border-color: rgba(110, 97, 124, 0.5) !important;
+  box-shadow: inset 0 0 0 1px var(--accent-line) !important;
+}
+
+.app--immersive .rule-fx-chip {
+  border: 1px solid rgba(255, 255, 255, 0.45) !important;
+}
+
+.app--immersive .rule-fx-chip.is-active {
+  background: var(--glass-cell-strong) !important;
+  border-color: rgba(110, 97, 124, 0.55) !important;
+  outline: none !important;
+  color: var(--accent-strong);
+  font-weight: 650;
+}
+
+.app--immersive .status-chip.ok,
+.app--immersive .status-chip.bad {
+  background: var(--glass-cell) !important;
+}
+
+.app--immersive .status-chip.ok {
+  border-color: rgba(79, 143, 110, 0.5) !important;
+  color: var(--ok) !important;
+}
+
+.app--immersive .status-chip.bad {
+  border-color: rgba(184, 90, 104, 0.5) !important;
+  color: var(--danger) !important;
+}
+
+.app--immersive .page-section-attention {
+  background: var(--glass-cell) !important;
+  border-color: rgba(184, 137, 74, 0.5) !important;
+}
+
+.app--immersive .page-section-success {
+  background: var(--glass-cell) !important;
+  border-color: rgba(79, 143, 110, 0.45) !important;
 }
 
 /* Static silk nebula — no live filter/will-change thrash */

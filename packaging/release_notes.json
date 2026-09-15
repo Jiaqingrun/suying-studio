@@ -836,6 +836,15 @@
         "关闭 glass-sheen；中心星云改为 resize 静态烘焙，去掉 CSS filter/will-change",
         "覆盖安装仅换 App，不冲片库/词池/登录态"
       ]
+    },
+    "0.8.26": {
+      "title": "统一清玻璃单元格",
+      "summary": "针对总览「混剪剩余」chip 与「可用成片」卡的蓝灰差异底：全站 chip/KPI/状态条统一为清玻璃填充，区分改靠描边与字色，不再各组件另套色底。",
+      "highlights": [
+        "新增 --glass-cell / --glass-cell-edge；pipeline-node、status-strip-item 统一清玻璃",
+        "消息 KPI、pulse-chip、workspace-sync、banner/badge 态色改为描边+字色",
+        "选中态靠边框与强调字色，不靠涂料底；覆盖安装仅换 App"
+      ]
     }
   }
 }

@@ -84,6 +84,12 @@
   --glass-fill-strong: rgba(255, 255, 255, 0.02);
   --glass-chrome-fill: transparent;
   --glass-chrome-fill-strong: transparent;
+  /* 全站单元格统一清玻璃填充（chip/KPI/卡）：禁止各组件另套色底 */
+  --glass-cell: rgba(255, 255, 255, 0.015);
+  --glass-cell-strong: rgba(255, 255, 255, 0.02);
+  --glass-cell-edge:
+    0 1px 0 rgba(255, 255, 255, 0.35) inset,
+    0 0 0 0.5px rgba(255, 255, 255, 0.28);
   /* 轻量边光（砍多层 inset + 大阴影栈） */
   --glass-pane-edge:
     0 1px 0 rgba(255, 255, 255, 0.42) inset,
