@@ -130,8 +130,8 @@ export function OverviewPage({
   return (
     <section className="page-stack overview-page">
       <PageHeader
-        title="审片 · 发布"
-        blurb="精选影像 · 专业审校 · 优雅发布"
+        title="总览"
+        blurb="今日产线 · 待办与刚完成；跳转生产 / 审片 / 发布"
         actions={
           <WorkspaceSyncControl
             phase={workspacePhase}
@@ -147,27 +147,63 @@ export function OverviewPage({
         }
       />
       <AvReviewPublishGallery
-        tasks={(recentOutputs || []).slice(0, 3).map((o) => {
-          const oid = Number(o.id);
-          const label = outputDisplayLabel(o) || "成片";
-          let thumb: string | null = null;
-          try {
-            const coverPath = Array.isArray(o.cover_paths)
-              ? String(o.cover_paths[0] || "")
-              : String(o.cover_path || "");
-            thumb = previewCoverSrc(oid, 0, coverPath || null) || null;
-          } catch {
-            thumb = null;
-          }
-          return {
-            id: String(oid),
-            title: label,
-            meta: "成片 · 待处理",
-            status: "待审校",
-            statusTone: "pending" as const,
-            thumb,
-          };
-        })}
+        tasks={(recentOutputs || [])
+          .filter((o) => {
+            const reviewStatus = o.review_status;
+            return (
+              o.state === "review" &&
+              (reviewStatus == null ||
+                reviewStatus === "uncertain" ||
+                reviewStatus === "pending" ||
+                o.needs_human === true)
+            );
+          })
+          .slice(0, 3)
+          .map((o) => {
+            const oid = Number(o.id);
+            const label = outputDisplayLabel(o) || "成片";
+            const st = String(o.review_status || o.status || "pending");
+            const tone =
+              st.includes("pass") || st.includes("ok") || st === "approved"
+                ? ("ok" as const)
+                : st.includes("revise") || st.includes("reject")
+                  ? ("revise" as const)
+                  : ("pending" as const);
+            const status = tone === "ok" ? "已通过" : tone === "revise" ? "修订中" : "待审校";
+            let thumb: string | null = null;
+            try {
+              const coverPath = Array.isArray(o.cover_paths)
+                ? String(o.cover_paths[0] || "")
+                : String(o.cover_path || "");
+              thumb = previewCoverSrc(oid, 0, coverPath || null) || null;
+            } catch {
+              thumb = null;
+            }
+            return {
+              id: String(oid),
+              title: label,
+              meta: o.duration_label
+                ? String(o.duration_label)
+                : o.shot_count != null
+                  ? `${o.shot_count} 镜头`
+                  : "待人工",
+              status,
+              statusTone: tone,
+              thumb,
+            };
+          })}
+        publishTitle={
+          opsReport
+            ? `今日新发 ${opsReport.published_today}`
+            : report
+              ? `可用成片 ${report.ready_available ?? "—"}`
+              : "发布工作台"
+        }
+        publishMeta={
+          opsReport
+            ? `可用成片 ${opsReport.ready_available} · 待人工 ${opsReport.uncertain_open}`
+            : "前往发布页处理成片与触达"
+        }
         onOpenAllTasks={() => setTab("review")}
         onOpenPublish={() => setTab("publish")}
       />

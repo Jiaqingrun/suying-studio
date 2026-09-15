@@ -770,17 +770,64 @@ body:has(.app--immersive) #root {
   letter-spacing: 0.14em;
 }
 
-/* Notify / dialogs */
+/* Notify / dialogs — beat App.css solid tint fills (#fef2f2 / amber gradients) */
 .app--immersive .notify-toast,
-.app--immersive .notify-banner,
-.app--immersive .celebrate,
+.app--immersive .notify-toast.notify-card--error,
+.app--immersive .notify-toast.notify-card--warn,
+.app--immersive .notify-toast.notify-card--ok,
+.app--immersive .notify-toast.notify-card--info,
+.app--immersive .notify-celebrate,
 .app--immersive .app-dialog {
-  background: rgba(255, 255, 255, 0.02) !important;
+  background: var(--glass-cell-strong) !important;
+  background-image: none !important;
   color: var(--text) !important;
   border: 1px solid var(--line-glass) !important;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   box-shadow: var(--shadow-float);
+}
+
+.app--immersive .notify-toast.notify-card--error {
+  border-color: rgba(184, 90, 104, 0.5) !important;
+  color: #8a3a48 !important;
+}
+
+.app--immersive .notify-toast.notify-card--warn,
+.app--immersive .notify-celebrate {
+  border-color: rgba(184, 137, 74, 0.55) !important;
+  color: #6a5430 !important;
+}
+
+.app--immersive .notify-toast.notify-card--ok {
+  border-color: rgba(79, 143, 110, 0.5) !important;
+  color: #2f6b4c !important;
+}
+
+.app--immersive .notify-toast.notify-card--info {
+  border-color: rgba(106, 135, 166, 0.5) !important;
+  color: #3d5a78 !important;
+}
+
+.app--immersive .advanced-lock {
+  background: var(--glass-cell) !important;
+  background-image: none !important;
+  border: 1px solid rgba(184, 137, 74, 0.4) !important;
+  box-shadow: var(--glass-cell-edge);
+}
+
+.app--immersive .meta .err,
+.app--immersive .meta .warn {
+  background: var(--glass-cell) !important;
+}
+
+.app--immersive .meta .err {
+  border-color: rgba(184, 90, 104, 0.45) !important;
+  color: #8a3a48 !important;
+}
+
+.app--immersive .meta .warn {
+  border-color: rgba(184, 137, 74, 0.5) !important;
+  color: #6a5430 !important;
 }
 
 /* Tab switch: no pane-rise — animation was a major switch jank source */

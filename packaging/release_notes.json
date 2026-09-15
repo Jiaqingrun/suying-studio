@@ -865,6 +865,16 @@
         "水彩层减层、纸噪去 mix-blend；切页隐藏中心星云",
         "覆盖安装仅换 App"
       ]
+    },
+    "0.8.29": {
+      "title": "三轮瑕疵审查收口",
+      "summary": "流畅度确认后做三轮 UI 瑕疵/bug 审查：主链文案与真数据、叠加面 Escape/清玻璃、九页回归；不改 L17/engine，保留 FrozenTab。",
+      "highlights": [
+        "总览标题与待人工画廊对齐真队列；发布角标改 readyCount",
+        "消息 InPageNav、Dialog Escape、通知/庆祝/高级锁清玻璃盖过 #fef2f2",
+        "生产空态；密度文案中文化；tsc + 20 tests 通过",
+        "覆盖安装仅换 App"
+      ]
     }
   }
 }

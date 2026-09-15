@@ -42,13 +42,31 @@ export function AppDialog(props: Props) {
     okRef.current?.focus();
   }, [props.open, props.mode]);
 
+  useEffect(() => {
+    if (!props.open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        props.onCancel();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [props.open, props.onCancel]);
+
   if (!props.open) return null;
 
   const isPrompt = props.mode === "prompt";
 
   return (
-    <div className="app-dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="app-dialog-title">
-      <div className="app-dialog">
+    <div
+      className="app-dialog-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="app-dialog-title"
+      onClick={props.onCancel}
+    >
+      <div className="app-dialog" onClick={(e) => e.stopPropagation()}>
         <h3 id="app-dialog-title">{props.title}</h3>
         <p className="app-dialog-body">{props.body}</p>
         {isPrompt ? (
@@ -59,7 +77,10 @@ export function AppDialog(props: Props) {
             placeholder={props.placeholder}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && value.trim()) {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                props.onCancel();
+              } else if (e.key === "Enter" && value.trim()) {
                 props.onConfirm(value.trim());
               }
             }}

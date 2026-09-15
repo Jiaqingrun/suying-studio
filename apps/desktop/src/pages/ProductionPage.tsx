@@ -7,7 +7,7 @@ import { openMediaTarget } from "../openMediaTarget";
 import { uiStatusLabel } from "../reviewLabels";
 import { SemanticAnalysisProgress } from "../SemanticAnalysisProgress";
 import { briefResult, dryRunSummary } from "../shell/briefResult";
-import { PageHeader, SegmentNav, StepFooter } from "../shell/PageChrome";
+import { PageHeader, SegmentNav, StepFooter, EmptyState } from "../shell/PageChrome";
 import {
   SCENE_TOUR_UI,
   ASSET_FOLDER_OPTIONS,
@@ -853,6 +853,9 @@ export function ProductionPage({
               })}
             </tbody>
           </table>
+          {!jobs.length ? (
+            <EmptyState title="暂无生产任务" body="用上方主按钮创建日更或精品任务后会出现在此队列。" />
+          ) : null}
           <h3 className="section-title">内容日历</h3>
           <div className="grid3">
             <label>

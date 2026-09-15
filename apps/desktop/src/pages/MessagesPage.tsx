@@ -119,6 +119,7 @@ export function MessagesPage({
   const [ntfyServer, setNtfyServer] = useState("");
   const [ntfyTopic, setNtfyTopic] = useState("");
   const [notificationBusy, setNotificationBusy] = useState(false);
+  const [navActive, setNavActive] = useState("notification-channels");
 
   useEffect(() => {
     setNtfyEnabled(Boolean(ntfyConfig?.enabled));
@@ -133,7 +134,8 @@ export function MessagesPage({
         blurb="回话 · 视频/软文消息隔离；仅草稿，跳官方页人工发送"
       />
       <InPageNav
-        active="notification-channels"
+        active={navActive}
+        onChange={setNavActive}
         items={[
           { id: "notification-channels", label: "通知通道" },
           {

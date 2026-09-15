@@ -1239,7 +1239,7 @@ export function SettingsPage({
             <>
               <h3 className="section-title">布局密度</h3>
               <p className="hint" style={{ marginBottom: 10 }}>
-                auto 随窗口宽度；comfort 偏宽松；compact 压缩间距。仅影响本机界面。
+                「自动」随窗口宽度；「舒适」偏宽松；「紧凑」压缩间距。仅影响本机界面。
               </p>
               <div className="actions">
                 {(

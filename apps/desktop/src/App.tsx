@@ -528,7 +528,6 @@ function App() {
   const scheduleBaselineRef = useRef({ autoDaily: false, autoHour: 9 });
 
   const [cmdOpen, setCmdOpen] = useState(false);
-  const density = layout.density === "compact" ? "compact" : "command";
   const [cinemaMode, setCinemaMode] = useState(false);
   const [reviewFocusId, setReviewFocusId] = useState<number | null>(null);
   const [dialog, setDialog] = useState<
@@ -663,11 +662,11 @@ function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem("suying.density.v1", density);
+      localStorage.setItem("suying.density.v1", layout.density);
     } catch {
       /* ignore */
     }
-  }, [density]);
+  }, [layout.density]);
 
   useEffect(() => {
     try {
@@ -3045,7 +3044,7 @@ function App() {
       tabIcons={TAB_ICONS}
       badges={{
         review: pendingReviewCount,
-        publish: Number(reachInbox?.unread_count ?? 0),
+        publish: readyCount,
         messages: reachMessageUnread + contentMessageUnread,
       }}
       brandSlot={

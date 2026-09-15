@@ -28,8 +28,8 @@ function toneClass(tone?: Task["statusTone"]) {
 /** AV 概念图中央双卡：审片任务列表 + 发布圆形水彩图腾（数据仍走真源） */
 export function AvReviewPublishGallery({
   tasks,
-  publishTitle = "暮色长安 · 正式版",
-  publishMeta = "画廊已公开 · 4K · 05:48",
+  publishTitle = "发布工作台",
+  publishMeta = "前往处理成片与触达",
   onOpenAllTasks,
   onOpenPublish,
   onOpenGallery,
@@ -82,7 +82,7 @@ export function AvReviewPublishGallery({
             <p>画廊触达 · 优雅归档</p>
           </div>
           <button type="button" className="av-card-action" onClick={onOpenPublish}>
-            已发布
+            去发布
           </button>
         </div>
         <div className="av-publish-orb" aria-hidden>
@@ -97,7 +97,7 @@ export function AvReviewPublishGallery({
           <span>{publishMeta}</span>
           <div>
             <button type="button" className="ghost-btn" onClick={onOpenGallery ?? onOpenPublish}>
-              访问画廊
+              打开发布页
             </button>
           </div>
         </div>

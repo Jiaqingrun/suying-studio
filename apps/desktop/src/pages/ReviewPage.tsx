@@ -258,8 +258,8 @@ export function ReviewPage({
   return (
     <section className="page-stack review-page">
       <PageHeader
-        title="审片 · 发布"
-        blurb="精选影像 · 专业审校 · 优雅发布"
+        title="审片"
+        blurb="人工抽检 · 门禁复验 · 证据冲突处理"
         actions={<span className="count">{pendingCount} 条待人工</span>}
       />
       <AvReviewPublishGallery
