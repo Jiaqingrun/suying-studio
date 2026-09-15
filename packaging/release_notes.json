@@ -895,6 +895,16 @@
         "ResourceGate touch/heartbeat；R1/R2 对抗单测入仓",
         "覆盖安装仅换 App，不冲片库/词池/登录态；不改 L17"
       ]
+    },
+    "0.8.32": {
+      "title": "P3 防回归与 FrozenTab 离页轮询收口",
+      "summary": "遗留清理收尾：rg 合同门禁挂入发版前检；运维/生产/发布等页离开 Tab 后停止控制面轮询，延续 LogsPage FrozenTab 契约；清玻璃与 L17 未改。",
+      "highlights": [
+        "scripts/check-legacy-cleanup-gate.sh（挂 gate_package_regression / release-to-t2s）",
+        "Ops 督导 / VectorControl / CarrierOpsStrip / 生产管线 / 发布批次尊重 active",
+        "DEV_LOCK 主线指针；docs/README 改锁发版前小节",
+        "覆盖安装仅换 App；不改 L17 / 清玻璃主路径"
+      ]
     }
   }
 }
