@@ -85,8 +85,10 @@ export function AppShell({
         <div className="topbar-actions">{topbarActions}</div>
       </header>
 
+      {/* Fixed to viewport — must not live inside scrolling workspace */}
+      <PigmentTurbulence />
+
       <div className="workspace">
-        <PigmentTurbulence />
         <div className="workspace-stage">{children}</div>
         <AvFeatureBar />
       </div>

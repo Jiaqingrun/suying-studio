@@ -999,31 +999,37 @@ body:has(.app--immersive) #root {
   color: var(--text-dim);
 }
 
-/* Right board pigment turbulence */
-.app--immersive .workspace {
-  position: relative !important;
+/* Pigment nebula — viewport-fixed so it never scrolls with page content */
+.app--immersive .pigment-turbulence {
+  position: fixed !important;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 1;
+  mix-blend-mode: plus-lighter;
 }
 
-.app--immersive .pigment-turbulence {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 0;
-  opacity: 0.95;
-  mix-blend-mode: plus-lighter;
+.app--immersive .workspace {
+  position: relative !important;
+  z-index: 2;
 }
 
 .app--immersive .workspace-stage,
 .app--immersive .av-feature-bar {
   position: relative;
-  z-index: 1;
+  z-index: 2;
+}
+
+.app--immersive .rail,
+.app--immersive .topbar {
+  z-index: 4;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .app--immersive .pigment-turbulence {
-    opacity: 0.45;
+    opacity: 0.55;
     mix-blend-mode: soft-light;
   }
 }
