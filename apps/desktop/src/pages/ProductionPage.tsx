@@ -1030,6 +1030,24 @@ export function ProductionPage({
               ))}
             </tbody>
           </table>
+          {assets.length === 0 ? (
+            <EmptyState
+              title="暂无素材"
+              body="先全量扫描片库，或到设置确认片库路径已挂载。"
+              actionLabel="全量扫描"
+              onAction={() => {
+                setActionBusy("scanFull");
+                api
+                  .scanAssets(0)
+                  .then((r) => {
+                    notify(briefResult("全量扫描已触发", r), "ok");
+                    return refreshAll();
+                  })
+                  .catch((e: unknown) => notify(String(e), "err"))
+                  .finally(() => setActionBusy(null));
+              }}
+            />
+          ) : null}
         </>
       ) : null}
 

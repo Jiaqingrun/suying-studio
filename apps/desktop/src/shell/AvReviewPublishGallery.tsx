@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 type Task = {
   id: string;
@@ -23,6 +23,12 @@ function toneClass(tone?: Task["statusTone"]) {
   if (tone === "ok") return "pill ok";
   if (tone === "revise") return "pill warn";
   return "pill info";
+}
+
+function GalleryThumb({ src }: { src: string }) {
+  const [ok, setOk] = useState(true);
+  if (!ok) return <div className="av-thumb" aria-hidden />;
+  return <img className="av-thumb" src={src} alt="" onError={() => setOk(false)} />;
 }
 
 /** AV 概念图中央双卡：审片任务列表 + 发布圆形水彩图腾（数据仍走真源） */
@@ -54,11 +60,7 @@ export function AvReviewPublishGallery({
         ) : (
           tasks.slice(0, 3).map((t) => (
             <div key={t.id} className="av-task-row">
-              {t.thumb ? (
-                <img className="av-thumb" src={t.thumb} alt="" />
-              ) : (
-                <div className="av-thumb" aria-hidden />
-              )}
+              {t.thumb ? <GalleryThumb src={t.thumb} /> : <div className="av-thumb" aria-hidden />}
               <div className="av-task-meta">
                 <strong>{t.title}</strong>
                 <span>{t.meta}</span>

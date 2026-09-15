@@ -175,7 +175,13 @@ export function OverviewPage({
               const coverPath = Array.isArray(o.cover_paths)
                 ? String(o.cover_paths[0] || "")
                 : String(o.cover_path || "");
-              thumb = previewCoverSrc(oid, 0, coverPath || null) || null;
+              const mediaOk = o.media_ok !== false;
+              thumb = coverPath
+                ? previewCoverSrc(oid, 0, coverPath, null, {
+                    localOk: mediaOk,
+                    preferHttp: !mediaOk,
+                  }) || null
+                : null;
             } catch {
               thumb = null;
             }

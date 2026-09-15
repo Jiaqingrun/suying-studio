@@ -153,6 +153,8 @@ def list_outputs(
             if noncompliant_tts and not violation:
                 continue
             media_ok = bool(r.output_path and Path(r.output_path).is_file())
+            # Drop stale cover paths so UI does not request broken asset:// / 404 frames.
+            covers = [c for c in covers if isinstance(c, str) and c.strip() and Path(c).is_file()]
             last_review = session.scalars(
                 select(ReviewItem)
                 .where(

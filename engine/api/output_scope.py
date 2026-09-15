@@ -33,7 +33,16 @@ def output_cover_paths(out: RenderOutput) -> list[str]:
             covers = [str(c) for c in (data.get("covers") or []) if c]
         except Exception:
             covers = []
-    return covers
+    # Prefer on-disk frames only; stale sidecar paths must not reach the UI as broken "?".
+    existing: list[str] = []
+    for raw in covers:
+        try:
+            p = Path(str(raw)).expanduser()
+            if p.is_file():
+                existing.append(str(p))
+        except OSError:
+            continue
+    return existing
 
 
 def media_allow_roots(session: Session | None = None) -> list[Path]:

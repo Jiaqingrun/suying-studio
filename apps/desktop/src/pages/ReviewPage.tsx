@@ -7,7 +7,8 @@ import {
   bindOutputFilePointerDown,
   outputDragHtmlEnabled,
 } from "../mediaDrag";
-import { previewCoverSrc, previewVideoSrc } from "../mediaPreview";
+import { CoverThumb, MediaVideo } from "../MediaVideo";
+import { previewCoverSrc } from "../mediaPreview";
 import { outputDisplayLabel } from "../displayId";
 import { openMediaTarget } from "../openMediaTarget";
 import {
@@ -280,7 +281,13 @@ export function ReviewPage({
           let thumb: string | null = null;
           try {
             const coverPath = Array.isArray(o.cover_paths) ? String(o.cover_paths[0] || "") : String(o.cover_path || "");
-            thumb = previewCoverSrc(oid, 0, coverPath || null) || null;
+            const mediaOk = o.media_ok !== false;
+            thumb = coverPath
+              ? previewCoverSrc(oid, 0, coverPath, null, {
+                  localOk: mediaOk,
+                  preferHttp: !mediaOk,
+                }) || null
+              : null;
           } catch {
             thumb = null;
           }
@@ -583,50 +590,63 @@ export function ReviewPage({
                 </div>
               ) : null}
               <div className="review-preview">
-                {mediaOk && active && focused ? (
-                  <div className="review-media-col">
-                    <video
-                      key={`v-${mediaEpoch}-${oid}`}
-                      className="review-video"
-                      controls
-                      preload="metadata"
-                      playsInline
-                      src={previewVideoSrc(
-                        oid,
-                        videoPath,
-                        `${activeCustomerId ?? 0}-${mediaEpoch}`,
-                      )}
-                      draggable={outputDragHtmlEnabled()}
-                      onDragStart={
-                        outputDragHtmlEnabled()
-                          ? (e) =>
-                              bindOutputFileDrag(e, {
-                                id: oid,
-                                path: videoPath,
-                                mediaOk,
-                                onError: (m) => notify(m, "err"),
-                              })
-                          : undefined
-                      }
-                      onError={() =>
-                        notify(
-                          `${label} 预览失败：可点「打开文件位置」直接打开文件；若持续失败请重启 App`,
-                          "warn",
-                        )
-                      }
-                    />
-                  </div>
-                ) : mediaOk ? (
-                  <div className="review-video review-video-placeholder" role="status">
-                    <strong>点击预览</strong>
-                    <span>{active ? "仅加载当前选中的成片" : "切回审片页后可预览"}</span>
-                  </div>
-                ) : (
-                  <div className="review-video missing">
-                    <p>成片文件不在磁盘</p>
-                    <p className="hint">路径失效或未同步，无法预览；可重渲生成</p>
-                  </div>
-                )}
+                {(() => {
+                  const orientation =
+                    String(o.orientation || "portrait").toLowerCase() === "landscape"
+                      ? "landscape"
+                      : "portrait";
+                  const mediaColClass = `review-media-col review-media-col--${orientation}`;
+                  const bust = `${activeCustomerId ?? 0}-${mediaEpoch}`;
+                  if (mediaOk && active && focused) {
+                    return (
+                      <div className={mediaColClass}>
+                        <MediaVideo
+                          outputId={oid}
+                          localPath={videoPath}
+                          bust={bust}
+                          localOk
+                          className="review-video"
+                          draggable={outputDragHtmlEnabled()}
+                          onDragStart={
+                            outputDragHtmlEnabled()
+                              ? (e) =>
+                                  bindOutputFileDrag(e, {
+                                    id: oid,
+                                    path: videoPath,
+                                    mediaOk,
+                                    onError: (m) => notify(m, "err"),
+                                  })
+                              : undefined
+                          }
+                          onFatalError={() =>
+                            notify(
+                              `${label} 预览失败：可点「打开文件位置」直接打开文件；若持续失败请重启 App`,
+                              "warn",
+                            )
+                          }
+                        />
+                      </div>
+                    );
+                  }
+                  if (mediaOk) {
+                    return (
+                      <div className={mediaColClass}>
+                        <div className="review-video review-video-placeholder" role="status">
+                          <strong>点击预览</strong>
+                          <span>{active ? "仅加载当前选中的成片" : "切回审片页后可预览"}</span>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className={mediaColClass}>
+                      <div className="review-video missing">
+                        <p>成片文件不在磁盘</p>
+                        <p className="hint">路径失效或未同步，无法预览；可重渲生成或归档出队</p>
+                      </div>
+                    </div>
+                  );
+                })()}
                 <div className="review-side-dock" data-guide={`review-dock-${oid}`}>
                   <div
                     className="publish-drag-zone"
@@ -755,46 +775,44 @@ export function ReviewPage({
                       </button>
                     ) : null}
                   </div>
-                  {covers.length > 0 ? (
-                    <div className="review-side-covers" aria-label="封面预览">
-                      {covers.slice(0, REVIEW_COVER_SLOTS).map((coverPath, i) => {
-                        const path =
-                          typeof coverPath === "string" && coverPath.trim()
-                            ? coverPath
-                            : null;
-                        if (!path) return null;
-                        return (
-                          <button
-                            key={`${mediaEpoch}-${oid}-cover-${i}`}
-                            type="button"
-                            className="review-cover-slot"
-                            title={`预览封面 ${i + 1}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setCoverLightbox({
-                                oid,
-                                index: i,
-                                path,
-                                label: `${label} · 封面 ${i + 1}`,
-                              });
-                            }}
-                          >
-                            <img
-                              src={previewCoverSrc(
-                                oid,
-                                i,
-                                path,
-                                `${activeCustomerId ?? 0}-${mediaEpoch}`,
-                              )}
-                              alt={`封面 ${i + 1}`}
-                              className="cover-thumb"
-                              draggable={false}
-                            />
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : null}
+                  <div className="review-side-covers" aria-label="封面预览">
+                    {Array.from({ length: REVIEW_COVER_SLOTS }, (_, i) => {
+                      const raw = covers[i];
+                      const path =
+                        typeof raw === "string" && raw.trim() ? raw.trim() : null;
+                      const bust = `${activeCustomerId ?? 0}-${mediaEpoch}`;
+                      return (
+                        <button
+                          key={`${mediaEpoch}-${oid}-cover-${i}`}
+                          type="button"
+                          className="review-cover-slot"
+                          title={path ? `预览封面 ${i + 1}` : `预览帧 ${i + 1} 不可用`}
+                          disabled={!path}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!path) return;
+                            setCoverLightbox({
+                              oid,
+                              index: i,
+                              path,
+                              label: `${label} · 封面 ${i + 1}`,
+                            });
+                          }}
+                        >
+                          <CoverThumb
+                            outputId={oid}
+                            index={i}
+                            localPath={path}
+                            bust={bust}
+                            localOk={mediaOk}
+                            className="cover-thumb"
+                            alt={`封面 ${i + 1}`}
+                            fallbackLabel={path ? "帧缺失" : "无帧"}
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </article>
@@ -828,15 +846,15 @@ export function ReviewPage({
                     关闭
                   </button>
                 </div>
-                <img
-                  src={previewCoverSrc(
-                    coverLightbox.oid,
-                    coverLightbox.index,
-                    coverLightbox.path,
-                    `${activeCustomerId ?? 0}-${mediaEpoch}`,
-                  )}
-                  alt={coverLightbox.label}
+                <CoverThumb
+                  outputId={coverLightbox.oid}
+                  index={coverLightbox.index}
+                  localPath={coverLightbox.path}
+                  bust={`${activeCustomerId ?? 0}-${mediaEpoch}`}
+                  localOk
                   className="review-cover-lightbox-img"
+                  alt={coverLightbox.label}
+                  fallbackLabel="封面加载失败"
                 />
               </div>
             </div>,
