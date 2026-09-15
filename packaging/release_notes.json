@@ -826,6 +826,16 @@
         "顶沿高光条 + 角落亮斑 + glass-sheen（尊重 reduced-motion）",
         "覆盖安装仅换 App，不冲片库/词池/登录态"
       ]
+    },
+    "0.8.25": {
+      "title": "超透玻璃与流畅瘦身",
+      "summary": "玻璃改为近零模糊、几乎无色填充，肉眼可见背后水彩；砍掉多层 backdrop-filter、glass-sheen 持续动画与中心星云实时绘制，优先 transform/opacity 与静态化以减卡顿。",
+      "highlights": [
+        "--glass 0.5px / --glass-strong 0.8px；chrome fill 透明；白填充 ≤0.02",
+        "backdrop-filter 仅保留侧栏/顶栏/双卡/底栏；其余面板/芯片/弹层改为边框玻璃",
+        "关闭 glass-sheen；中心星云改为 resize 静态烘焙，去掉 CSS filter/will-change",
+        "覆盖安装仅换 App，不冲片库/词池/登录态"
+      ]
     }
   }
 }
