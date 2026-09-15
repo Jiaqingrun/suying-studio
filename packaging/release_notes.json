@@ -885,6 +885,16 @@
         "SoundBed mute 与 playAlertSound 同步；workspace reconnect 45s 超时",
         "覆盖安装仅换 App"
       ]
+    },
+    "0.8.31": {
+      "title": "运维鉴权与 fail-closed 最小集",
+      "summary": "A8=C→A：从 main WIP 审合 ops_auth 最小集——共享 Ops-Token、媒体流路径禁越界、ntfy 密钥外卷 fail-closed、资源槽租约心跳；不含词包/L17。",
+      "highlights": [
+        "破坏性 /ops 写接口与 force-release 统一 require_ops_token",
+        "成片/封面流 assert_streamable_media_path；ntfy secrets 读不 mkdir、写拒绝缺失外卷",
+        "ResourceGate touch/heartbeat；R1/R2 对抗单测入仓",
+        "覆盖安装仅换 App，不冲片库/词池/登录态；不改 L17"
+      ]
     }
   }
 }
