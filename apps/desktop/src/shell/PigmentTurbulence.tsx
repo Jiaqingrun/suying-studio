@@ -37,12 +37,12 @@ export function PigmentTurbulence() {
     let t0 = performance.now();
 
     const palette = [
-      { hue: 290, sat: 58, light: 58 }, // plum
-      { hue: 330, sat: 52, light: 62 }, // rose
-      { hue: 198, sat: 55, light: 56 }, // mist blue
-      { hue: 42, sat: 62, light: 58 }, // soft gold
-      { hue: 168, sat: 48, light: 52 }, // teal wash
-      { hue: 265, sat: 55, light: 64 }, // lilac
+      { hue: 295, sat: 70, light: 56 }, // plum
+      { hue: 335, sat: 68, light: 60 }, // rose
+      { hue: 195, sat: 72, light: 54 }, // cyan mist
+      { hue: 48, sat: 78, light: 56 }, // gold
+      { hue: 162, sat: 62, light: 50 }, // teal
+      { hue: 268, sat: 66, light: 62 }, // lilac
     ];
 
     const seed = (count: number) => {
@@ -51,13 +51,13 @@ export function PigmentTurbulence() {
         return {
           x: Math.random() * w,
           y: Math.random() * h,
-          r: 18 + Math.random() * 54,
+          r: 28 + Math.random() * 72,
           hue: c.hue + (Math.random() * 18 - 9),
           sat: c.sat + (Math.random() * 10 - 5),
           light: c.light + (Math.random() * 8 - 4),
-          alpha: 0.14 + Math.random() * 0.22,
+          alpha: 0.2 + Math.random() * 0.28,
           spin: (Math.random() * 0.22 + 0.06) * (Math.random() < 0.5 ? -1 : 1),
-          orbit: 18 + Math.random() * 56,
+          orbit: 24 + Math.random() * 70,
           phase: Math.random() * Math.PI * 2,
           drift: 0.12 + Math.random() * 0.35,
         };

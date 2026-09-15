@@ -72,10 +72,10 @@ body:has(.app--immersive) #root {
   border-right: 1px solid rgba(255, 255, 255, 0.5);
   background: var(--glass-chrome-fill) !important;
   box-shadow: var(--glass-chrome-edge);
-  backdrop-filter: var(--glass-strong);
-  -webkit-backdrop-filter: var(--glass-strong);
+  backdrop-filter: blur(56px) saturate(1.75) brightness(1.05);
+  -webkit-backdrop-filter: blur(56px) saturate(1.75) brightness(1.05);
   overflow: visible;
-  isolation: isolate;
+  /* do NOT isolate — isolation kills backdrop-filter sampling of the wash */
 }
 
 .app--immersive .topbar {
@@ -84,10 +84,9 @@ body:has(.app--immersive) #root {
   border: 1px solid rgba(255, 255, 255, 0.62);
   border-bottom: 1px solid rgba(255, 255, 255, 0.5);
   background: var(--glass-chrome-fill) !important;
-  backdrop-filter: var(--glass-strong);
-  -webkit-backdrop-filter: var(--glass-strong);
+  backdrop-filter: blur(56px) saturate(1.75) brightness(1.05);
+  -webkit-backdrop-filter: blur(56px) saturate(1.75) brightness(1.05);
   box-shadow: var(--glass-chrome-edge);
-  isolation: isolate;
 }
 
 .app--immersive .workspace {
@@ -1001,7 +1000,6 @@ body:has(.app--immersive) #root {
 /* Right board pigment turbulence */
 .app--immersive .workspace {
   position: relative !important;
-  isolation: isolate;
 }
 
 .app--immersive .pigment-turbulence {
@@ -1011,8 +1009,8 @@ body:has(.app--immersive) #root {
   height: 100%;
   pointer-events: none;
   z-index: 0;
-  opacity: 0.85;
-  mix-blend-mode: screen;
+  opacity: 0.95;
+  mix-blend-mode: plus-lighter;
 }
 
 .app--immersive .workspace-stage,
