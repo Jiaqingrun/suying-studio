@@ -5,8 +5,8 @@ body:has(.app--immersive) #root {
 }
 
 /* 速影 · AV 水彩概念图高度还原层
- * 对照 AV-watercolor-uhd：全幅水彩纸底、乳白毛玻璃浮卡、宋体主标题、底栏四格语汇
- * 不改 .lang-combo* 定位/Portal 语义
+ * 对照 AV-watercolor-uhd：全幅水彩纸底、透亮清玻璃浮卡（现行非磨砂毛玻璃）、宋体主标题、底栏四格语汇
+ * 不改 .lang-combo* 定位/Portal/外观（L17 · A7=A）
  */
 
 /* ========== Stage: full-bleed watercolor paper ========== */
