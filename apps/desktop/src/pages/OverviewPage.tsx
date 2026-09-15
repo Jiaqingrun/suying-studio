@@ -408,7 +408,7 @@ export function OverviewPage({
         )}
       </PageSection>
 
-      <ActivityTicker items={activityItems} onJump={setTab} />
+      <ActivityTicker items={activityItems} paused={!active} onJump={setTab} />
       <StepFooter current="overview" onJump={setTab} />
     </section>
   );

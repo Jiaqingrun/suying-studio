@@ -408,7 +408,7 @@ class JobWorker:
                 ).all()
                 job = next((c for c in candidates if job_next_attempt_ready(c)), None)
                 if not job:
-                    time.sleep(1.0)
+                    self._stop.wait(1.0)
                     continue
                 token = f"job:{job.id}"
                 # "render" is no longer held for the whole job — only acquired

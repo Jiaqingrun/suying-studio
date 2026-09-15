@@ -945,7 +945,9 @@ def prepare_narration_for_plan(
                         raise TimeoutError(f"tts_slot_wait_timeout ({tts_wait_deadline_sec:.0f}s)")
                     _time.sleep(0.25)
                 try:
-                    narr = _synth_under_slot()
+                    # Renew lease during long clone/edge synth so 600s sweep cannot steal mid-job.
+                    with resource_gate.heartbeat("tts", tts_token, interval_sec=45.0):
+                        narr = _synth_under_slot()
                 finally:
                     resource_gate.release("tts", tts_token)
             else:
