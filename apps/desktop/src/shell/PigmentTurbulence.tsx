@@ -1,23 +1,17 @@
 import { useEffect, useRef } from "react";
 
-type Particle = {
-  ring: number;
-  phase: number;
-  spinBias: number;
-  arm: number;
-  wobble: number;
-  wobbleSpeed: number;
-  rx: number;
-  ry: number;
-  hue: number;
-  sat: number;
-  light: number;
-  alpha: number;
+type HexCell = {
+  x: number;
+  y: number;
+  /** unit offset in noise space */
+  nx: number;
+  ny: number;
 };
 
 /**
- * Fixed pigment swirl: visible colored ink blots that turn as one lobed mass.
- * Multiply stain + dark mid-tones (no white cores, no additive glow).
+ * Fixed center nebula: fine hexagonal mesh tinted by layered noise.
+ * Reference look — deep navy cells, violet/magenta clouds, cyan hotspots.
+ * Soft radial falloff into the watercolor wash (no muddy multiply blot).
  */
 export function PigmentTurbulence() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -34,19 +28,15 @@ export function PigmentTurbulence() {
     let w = 0;
     let h = 0;
     let dpr = 1;
-    let particles: Particle[] = [];
+    let cells: HexCell[] = [];
+    let hexR = 5.5;
+    let hexPath: Path2D | null = null;
     let t0 = performance.now();
     let railW = 220;
-
-    // Darker pigment so multiply actually stains the wash
-    const palette = [
-      { hue: 312, sat: 72, light: 36 },
-      { hue: 345, sat: 68, light: 38 },
-      { hue: 200, sat: 70, light: 34 },
-      { hue: 28, sat: 74, light: 38 },
-      { hue: 162, sat: 60, light: 32 },
-      { hue: 272, sat: 66, light: 36 },
-    ];
+    let cx = 0;
+    let cy = 0;
+    let fieldRx = 0;
+    let fieldRy = 0;
 
     const readRail = () => {
       const rail = document.querySelector(".app--immersive .rail") as HTMLElement | null;
@@ -60,48 +50,54 @@ export function PigmentTurbulence() {
       }
     };
 
-    const clusterGeom = () => {
-      const wellL = railW;
-      const wellW = Math.max(320, w - wellL);
-      return {
-        cx: wellL + wellW * 0.5,
-        cy: h * 0.44,
-        bodyR: Math.min(wellW, h) * 0.28,
-      };
-    };
-
-    const lobeRadius = (theta: number, bodyR: number, spin: number) => {
-      const a = theta + spin;
-      const lobes =
-        0.55 +
-        0.28 * Math.sin(2 * a + 0.15) +
-        0.15 * Math.sin(3 * a - 0.6) +
-        0.1 * Math.cos(5 * a + 0.9);
-      return bodyR * Math.max(0.34, lobes);
+    const buildHexPath = (r: number) => {
+      const p = new Path2D();
+      for (let i = 0; i < 6; i++) {
+        const a = (Math.PI / 180) * (60 * i - 30);
+        const x = Math.cos(a) * r;
+        const y = Math.sin(a) * r;
+        if (i === 0) p.moveTo(x, y);
+        else p.lineTo(x, y);
+      }
+      p.closePath();
+      return p;
     };
 
     const seed = () => {
-      const { bodyR } = clusterGeom();
-      const count = Math.max(70, Math.min(100, Math.floor((bodyR * bodyR) / 240)));
-      particles = Array.from({ length: count }, (_, i) => {
-        const c = palette[i % palette.length];
-        const ring = Math.pow(Math.random(), 1.25);
-        const base = bodyR * (0.14 + Math.random() * 0.2) * (1.05 - ring * 0.3);
-        return {
-          ring,
-          phase: Math.random() * Math.PI * 2,
-          spinBias: (0.02 + Math.random() * 0.05) * (Math.random() < 0.45 ? -1 : 1),
-          arm: Math.floor(Math.random() * 3),
-          wobble: bodyR * (0.012 + Math.random() * 0.028),
-          wobbleSpeed: 0.35 + Math.random() * 0.5,
-          rx: base,
-          ry: base * (0.55 + Math.random() * 0.45),
-          hue: c.hue + (Math.random() * 14 - 7),
-          sat: c.sat + (Math.random() * 8 - 4),
-          light: c.light + (Math.random() * 5 - 2),
-          alpha: 0.45 + Math.random() * 0.28 * (1.15 - ring),
-        };
-      });
+      const wellL = railW;
+      const wellW = Math.max(320, w - wellL);
+      cx = wellL + wellW * 0.5;
+      cy = h * 0.44;
+      const body = Math.min(wellW, h) * 0.34;
+      fieldRx = body * 1.35;
+      fieldRy = body * 1.05;
+      hexR = Math.max(4.2, Math.min(6.4, body / 48));
+      hexPath = buildHexPath(hexR * 0.92);
+
+      const stepX = hexR * 1.75;
+      const stepY = hexR * Math.sqrt(3) * 0.92;
+      const list: HexCell[] = [];
+      const x0 = cx - fieldRx;
+      const x1 = cx + fieldRx;
+      const y0 = cy - fieldRy;
+      const y1 = cy + fieldRy;
+
+      let row = 0;
+      for (let y = y0; y <= y1; y += stepY, row++) {
+        const xOff = row % 2 === 0 ? 0 : stepX * 0.5;
+        for (let x = x0 + xOff; x <= x1; x += stepX) {
+          const dx = (x - cx) / fieldRx;
+          const dy = (y - cy) / fieldRy;
+          if (dx * dx + dy * dy > 1.05) continue;
+          list.push({
+            x,
+            y,
+            nx: (x - cx) * 0.018,
+            ny: (y - cy) * 0.018,
+          });
+        }
+      }
+      cells = list;
     };
 
     const resize = () => {
@@ -117,66 +113,50 @@ export function PigmentTurbulence() {
       seed();
     };
 
-    const paintWashBody = (cx: number, cy: number, bodyR: number, spin: number, t: number) => {
-      const breath = 1 + 0.03 * Math.sin(t * 0.35);
-      const steps = 60;
-      ctx.beginPath();
-      for (let i = 0; i <= steps; i++) {
-        const th = (i / steps) * Math.PI * 2;
-        const rr = lobeRadius(th, bodyR, spin) * breath;
-        const x = cx + Math.cos(th) * rr;
-        const y = cy + Math.sin(th) * rr * 0.86;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.closePath();
-
-      // Colored body — dark midtones, no pale center
-      const pool = ctx.createRadialGradient(cx, cy, bodyR * 0.08, cx, cy, bodyR * 1.05);
-      pool.addColorStop(0, "hsla(318 70% 38% / 0.55)");
-      pool.addColorStop(0.3, "hsla(205 68% 36% / 0.48)");
-      pool.addColorStop(0.55, "hsla(28 72% 38% / 0.4)");
-      pool.addColorStop(0.78, "hsla(270 60% 40% / 0.28)");
-      pool.addColorStop(1, "hsla(300 45% 42% / 0)");
-      ctx.fillStyle = pool;
-      ctx.fill();
-
-      // Offset blot for depth
-      const blot = ctx.createRadialGradient(
-        cx + bodyR * 0.18,
-        cy - bodyR * 0.1,
-        0,
-        cx + bodyR * 0.1,
-        cy,
-        bodyR * 0.55,
-      );
-      blot.addColorStop(0, "hsla(345 68% 36% / 0.42)");
-      blot.addColorStop(0.55, "hsla(280 58% 38% / 0.22)");
-      blot.addColorStop(1, "hsla(280 50% 40% / 0)");
-      ctx.fillStyle = blot;
-      ctx.beginPath();
-      ctx.ellipse(cx + bodyR * 0.08, cy - bodyR * 0.04, bodyR * 0.48, bodyR * 0.36, spin * 0.4, 0, Math.PI * 2);
-      ctx.fill();
-    };
-
     const paintFrame = (t: number) => {
       ctx.globalCompositeOperation = "source-over";
       ctx.clearRect(0, 0, w, h);
+      if (!hexPath || cells.length === 0) return;
 
-      const { cx, cy, bodyR } = clusterGeom();
-      const clusterSpin = t * 0.085;
-      const breath = 1 + 0.025 * Math.sin(t * 0.38);
+      // Slow domain drift — one cohesive flowing mass
+      const driftX = t * 0.11;
+      const driftY = t * 0.07;
+      const swirl = t * 0.085;
+      const breath = 1 + 0.04 * Math.sin(t * 0.4);
 
-      paintWashBody(cx, cy, bodyR, clusterSpin, t);
+      for (const cell of cells) {
+        const dx = (cell.x - cx) / fieldRx;
+        const dy = (cell.y - cy) / fieldRy;
+        const rr = Math.sqrt(dx * dx + dy * dy);
+        // Soft vignette — keep edges airy into the wash
+        const radial = Math.max(0, 1 - smoothstep(0.42, 1.02, rr / breath));
+        if (radial < 0.02) continue;
 
-      for (const p of particles) {
-        const ang = p.phase + clusterSpin + t * p.spinBias + p.arm * 0.4;
-        const envelope = lobeRadius(ang, bodyR, clusterSpin);
-        const wob = Math.sin(t * p.wobbleSpeed + p.phase) * p.wobble;
-        const rad = Math.min(envelope * 0.92, p.ring * envelope + wob) * breath;
-        const x = cx + Math.cos(ang) * rad;
-        const y = cy + Math.sin(ang) * rad * 0.86;
-        drawBlot(ctx, x, y, p.rx, p.ry, ang * 0.3, p.hue, p.sat, p.light, p.alpha);
+        // Polar swirl so the cloud turns as one body
+        const ang = Math.atan2(dy, dx) + swirl * (0.55 + rr * 0.35);
+        const rad = rr * (0.85 + 0.12 * Math.sin(ang * 2.2 + t * 0.3));
+        const wx = Math.cos(ang) * rad * 3.2 + driftX;
+        const wy = Math.sin(ang) * rad * 3.2 + driftY;
+
+        const n1 = fbm(cell.nx * 1.1 + wx, cell.ny * 1.1 + wy, 4);
+        const n2 = fbm(cell.nx * 2.4 - wy * 0.6, cell.ny * 2.4 + wx * 0.5, 3);
+        const n3 = fbm(cell.nx * 0.55 + driftY * 0.4, cell.ny * 0.55 - driftX * 0.3, 3);
+        // Turbulent density: bright cores on dark honeycomb
+        let v = n1 * 0.55 + n2 * 0.28 + (1 - n3) * 0.17;
+        v = Math.pow(clamp01(v), 1.15);
+        // Punch a luminous core near center
+        const core = Math.pow(Math.max(0, 1 - rr * 1.15), 1.6) * 0.35;
+        v = clamp01(v * 0.78 + core + n2 * 0.12);
+
+        const energy = v * radial;
+        if (energy < 0.06) continue;
+
+        const { r, g, b, a } = nebulaRgba(energy, n2, radial);
+        ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
+        ctx.save();
+        ctx.translate(cell.x, cell.y);
+        ctx.fill(hexPath);
+        ctx.restore();
       }
     };
 
@@ -202,29 +182,105 @@ export function PigmentTurbulence() {
   return <canvas ref={canvasRef} className="pigment-turbulence" aria-hidden="true" />;
 }
 
-/** Soft ellipse blot — alpha falls off, hue stays (no white hot-spot). */
-function drawBlot(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  rx: number,
-  ry: number,
-  rot: number,
-  hue: number,
-  sat: number,
-  light: number,
-  alpha: number,
-) {
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(rot);
-  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, Math.max(rx, ry));
-  g.addColorStop(0, `hsla(${hue} ${sat}% ${light}% / ${alpha})`);
-  g.addColorStop(0.55, `hsla(${hue + 6} ${sat - 4}% ${light + 2}% / ${alpha * 0.55})`);
-  g.addColorStop(1, `hsla(${hue} ${sat}% ${light}% / 0)`);
-  ctx.fillStyle = g;
-  ctx.beginPath();
-  ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
+function clamp01(v: number) {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+function smoothstep(e0: number, e1: number, x: number) {
+  const t = clamp01((x - e0) / (e1 - e0));
+  return t * t * (3 - 2 * t);
+}
+
+/** Hash-based value noise — cheap, stable, good enough for honeycomb tint. */
+function hash2(ix: number, iy: number) {
+  const n = Math.sin(ix * 127.1 + iy * 311.7) * 43758.5453123;
+  return n - Math.floor(n);
+}
+
+function valueNoise(x: number, y: number) {
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const fx = x - x0;
+  const fy = y - y0;
+  const ux = fx * fx * (3 - 2 * fx);
+  const uy = fy * fy * (3 - 2 * fy);
+  const a = hash2(x0, y0);
+  const b = hash2(x0 + 1, y0);
+  const c = hash2(x0, y0 + 1);
+  const d = hash2(x0 + 1, y0 + 1);
+  return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
+}
+
+function fbm(x: number, y: number, octaves: number) {
+  let amp = 0.5;
+  let freq = 1;
+  let sum = 0;
+  let norm = 0;
+  for (let i = 0; i < octaves; i++) {
+    sum += amp * valueNoise(x * freq, y * freq);
+    norm += amp;
+    amp *= 0.5;
+    freq *= 2.02;
+  }
+  return sum / norm;
+}
+
+/**
+ * Color ramp matching the hex nebula reference:
+ * deep navy → royal violet → magenta → electric cyan.
+ */
+function nebulaRgba(energy: number, tint: number, radial: number) {
+  // Stops as [e, r, g, b]
+  const stops: Array<[number, number, number, number]> = [
+    [0.0, 4, 6, 22],
+    [0.18, 18, 12, 58],
+    [0.36, 58, 24, 140],
+    [0.52, 138, 36, 210],
+    [0.68, 190, 55, 230],
+    [0.82, 90, 140, 255],
+    [1.0, 40, 240, 255],
+  ];
+
+  let r = stops[0][1];
+  let g = stops[0][2];
+  let b = stops[0][3];
+  for (let i = 0; i < stops.length - 1; i++) {
+    const a = stops[i];
+    const c = stops[i + 1];
+    if (energy >= a[0] && energy <= c[0]) {
+      const t = (energy - a[0]) / (c[0] - a[0] || 1);
+      r = a[1] + (c[1] - a[1]) * t;
+      g = a[2] + (c[2] - a[2]) * t;
+      b = a[3] + (c[3] - a[3]) * t;
+      break;
+    }
+    if (energy > c[0]) {
+      r = c[1];
+      g = c[2];
+      b = c[3];
+    }
+  }
+
+  // Magenta bias in mid cloud, cyan bias on peaks
+  if (energy > 0.35 && energy < 0.72) {
+    r = Math.min(255, r + tint * 36);
+    b = Math.min(255, b + (1 - tint) * 18);
+  } else if (energy >= 0.72) {
+    g = Math.min(255, g + tint * 28);
+    b = Math.min(255, b + 20);
+  }
+
+  // Opaque enough in the core to read as honeycomb, soft on rim
+  const a =
+    energy < 0.2
+      ? 0.18 + energy * 1.1
+      : energy < 0.55
+        ? 0.42 + energy * 0.55
+        : 0.72 + energy * 0.22;
+  return {
+    r: Math.round(r),
+    g: Math.round(g),
+    b: Math.round(b),
+    a: Math.min(0.94, a * (0.55 + radial * 0.55)),
+  };
 }

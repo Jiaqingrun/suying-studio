@@ -999,16 +999,17 @@ body:has(.app--immersive) #root {
   color: var(--text-dim);
 }
 
-/* Pigment swirl — fixed to viewport; must sit UNDER cards but OVER wash */
+/* Hex nebula — fixed to viewport; UNDER cards, OVER wash; normal blend keeps violet/cyan luminous */
+.app.app--immersive > .pigment-turbulence,
 .app--immersive .pigment-turbulence {
   position: fixed !important;
   inset: 0;
   width: 100vw;
   height: 100vh;
   pointer-events: none;
-  z-index: 0;
-  opacity: 1;
-  mix-blend-mode: multiply;
+  z-index: 0 !important;
+  opacity: 0.92;
+  mix-blend-mode: normal;
 }
 
 .app--immersive .workspace {
@@ -1030,7 +1031,7 @@ body:has(.app--immersive) #root {
 
 @media (prefers-reduced-motion: reduce) {
   .app--immersive .pigment-turbulence {
-    opacity: 0.7;
-    mix-blend-mode: multiply;
+    opacity: 0.78;
+    mix-blend-mode: normal;
   }
 }
