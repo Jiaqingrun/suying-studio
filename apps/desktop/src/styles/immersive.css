@@ -73,8 +73,8 @@ body:has(.app--immersive) #root {
   background: var(--glass-chrome-fill) !important;
   box-shadow: var(--glass-chrome-edge);
   /* 透亮：轻雾化，别厚磨砂 */
-  backdrop-filter: blur(14px) saturate(1.2);
-  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  backdrop-filter: blur(10px) saturate(1.12);
+  -webkit-backdrop-filter: blur(10px) saturate(1.12);
   overflow: visible;
   /* do NOT isolate — isolation kills backdrop-filter sampling of the wash */
 }
@@ -85,8 +85,8 @@ body:has(.app--immersive) #root {
   border: 1px solid rgba(255, 255, 255, 0.48);
   border-bottom: 1px solid rgba(255, 255, 255, 0.38);
   background: var(--glass-chrome-fill) !important;
-  backdrop-filter: blur(14px) saturate(1.2);
-  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  backdrop-filter: blur(10px) saturate(1.12);
+  -webkit-backdrop-filter: blur(10px) saturate(1.12);
   box-shadow: var(--glass-chrome-edge);
 }
 
@@ -225,7 +225,7 @@ body:has(.app--immersive) #root {
 .app--immersive .page-stack > .panel,
 .app--immersive .pipeline-board,
 .app--immersive .overview-pipeline {
-  background: rgba(255, 255, 255, 0.18) !important;
+  background: rgba(255, 255, 255, 0.12) !important;
   border: 1px solid rgba(255, 255, 255, 0.42) !important;
   box-shadow: var(--shadow-card) !important;
   border-radius: var(--radius) !important;
@@ -472,7 +472,7 @@ body:has(.app--immersive) #root {
 }
 
 .app--immersive .av-card {
-  background: rgba(255, 255, 255, 0.14) !important;
+  background: rgba(255, 255, 255, 0.09) !important;
   border: 1px solid rgba(255, 255, 255, 0.4) !important;
   border-radius: 26px !important;
   box-shadow:
@@ -817,7 +817,7 @@ body:has(.app--immersive) #root {
 }
 
 .app--immersive .panel {
-  background: rgba(255, 255, 255, 0.16) !important;
+  background: rgba(255, 255, 255, 0.1) !important;
   background-image: none !important;
   overflow: visible !important;
   isolation: auto !important;
@@ -846,7 +846,7 @@ body:has(.app--immersive) #root {
 .app--immersive .banner-ok,
 .app--immersive .banner.error,
 .app--immersive .alert-strip {
-  background: rgba(255, 255, 255, 0.18) !important;
+  background: rgba(255, 255, 255, 0.12) !important;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }
@@ -894,7 +894,7 @@ body:has(.app--immersive) #root {
 }
 
 .app--immersive .av-card {
-  background: rgba(255, 255, 255, 0.16) !important;
+  background: rgba(255, 255, 255, 0.1) !important;
   border: 1px solid rgba(255, 255, 255, 0.4) !important;
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.4) inset,
@@ -903,9 +903,9 @@ body:has(.app--immersive) #root {
 
 /* Feature bar: clear floating glass on wash */
 .app--immersive .av-feature-bar {
-  background: rgba(255, 255, 255, 0.14) !important;
-  backdrop-filter: blur(14px) saturate(1.2) !important;
-  -webkit-backdrop-filter: blur(14px) saturate(1.2) !important;
+  background: rgba(255, 255, 255, 0.09) !important;
+  backdrop-filter: blur(10px) saturate(1.12) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(1.12) !important;
   border: 1px solid rgba(255, 255, 255, 0.4) !important;
   margin-top: 8px !important;
 }
@@ -914,20 +914,20 @@ body:has(.app--immersive) #root {
 .app--immersive .overview-page .page-section,
 .app--immersive .overview-page .pipeline,
 .app--immersive .overview-page .empty-state {
-  background: rgba(255, 255, 255, 0.14) !important;
+  background: rgba(255, 255, 255, 0.09) !important;
 }
 
 .app--immersive .rail {
   background: var(--glass-chrome-fill) !important;
-  backdrop-filter: blur(14px) saturate(1.2) !important;
-  -webkit-backdrop-filter: blur(14px) saturate(1.2) !important;
+  backdrop-filter: blur(10px) saturate(1.12) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(1.12) !important;
   box-shadow: var(--glass-chrome-edge) !important;
 }
 
 .app--immersive .topbar {
   background: var(--glass-chrome-fill) !important;
-  backdrop-filter: blur(14px) saturate(1.2) !important;
-  -webkit-backdrop-filter: blur(14px) saturate(1.2) !important;
+  backdrop-filter: blur(10px) saturate(1.12) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(1.12) !important;
   box-shadow: var(--glass-chrome-edge) !important;
 }
 
