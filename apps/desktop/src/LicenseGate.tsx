@@ -132,10 +132,10 @@ export function LicenseGate({ children }: Props) {
   // GCustomerUX: while checking, show neutral splash — never flash the unauthorized card.
   if (status === null) {
     return (
-      <main className="license-gate license-gate--checking" aria-busy="true" aria-label="正在校验授权">
+      <main className="license-gate license-gate--checking license-gate--immersive" aria-busy="true" aria-label="正在校验授权">
         <section className="license-splash">
           <LicenseBrand compact />
-          <p className="muted">正在启动…</p>
+          <p className="muted">正在铺开水彩工作台…</p>
         </section>
       </main>
     );
@@ -153,7 +153,7 @@ export function LicenseGate({ children }: Props) {
       .filter(Boolean)
       .join(" · ");
     return (
-      <main className="license-gate">
+      <main className="license-gate license-gate--immersive">
         <section className="license-card">
           <LicenseBrand />
           <p className="eyebrow">授权状态</p>
@@ -190,7 +190,7 @@ export function LicenseGate({ children }: Props) {
 
   if (status.license_kind === "trial" && status.ops_unlock_allowed) {
     return (
-      <main className="license-gate">
+      <main className="license-gate license-gate--immersive">
         <section className="license-card">
           <LicenseBrand />
           <p className="eyebrow">体验期已结束</p>
@@ -251,7 +251,7 @@ export function LicenseGate({ children }: Props) {
   }
 
   return (
-    <main className="license-gate">
+    <main className="license-gate license-gate--immersive">
       <section className="license-card">
         <LicenseBrand />
         <p className="eyebrow">单机授权</p>

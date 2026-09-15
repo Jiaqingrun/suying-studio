@@ -20,12 +20,12 @@ import { SystemEventControlPanel } from "./SettingsPage";
 
 const OPS_SEGMENTS: Array<{ id: OpsSection; label: string }> = [
   { id: "ai", label: "本地 AI" },
-  { id: "services", label: "服务" },
+  { id: "services", label: "引擎服务" },
   { id: "backup", label: "数据保护" },
   { id: "carrier", label: "T2S 载体" },
-  { id: "logs", label: "日志" },
-  { id: "health", label: "健康" },
-  { id: "advanced", label: "高级" },
+  { id: "logs", label: "运行日志" },
+  { id: "health", label: "路径健康" },
+  { id: "advanced", label: "高级运维" },
 ];
 
 export interface OpsPageProps {
@@ -34,6 +34,8 @@ export interface OpsPageProps {
   setTab: (t: Tab, opts?: { settings?: SettingsSection; ops?: OpsSection }) => void;
   notify: NotifyFn;
   askConfirm?: AskConfirmFn;
+  /** False when FrozenTab hides this page — stop log polling. */
+  active?: boolean;
   actionBusy: string | null;
   setActionBusy: (v: string | null) => void;
   refreshAll: () => Promise<void>;
@@ -126,6 +128,7 @@ export function OpsPage({
   setTab,
   notify,
   askConfirm,
+  active = true,
   actionBusy,
   setActionBusy,
   refreshAll,
@@ -175,9 +178,10 @@ export function OpsPage({
   }, [section]);
 
   useEffect(() => {
-    if (section !== "services") return;
+    if (!active || section !== "services") return;
     let cancelled = false;
     const tick = () => {
+      if (cancelled || document.visibilityState !== "visible") return;
       void getEngineSupervisor().then((s) => {
         if (!cancelled) setSuperv(s);
       });
@@ -188,7 +192,7 @@ export function OpsPage({
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [section, engineOn, engineBusy]);
+  }, [active, section, engineOn, engineBusy]);
 
   const mediaSources = Array.isArray(syncStatus?.media_sources)
     ? (syncStatus.media_sources as Array<Record<string, string>>)
@@ -203,7 +207,7 @@ export function OpsPage({
     <section className="page-stack ops-page">
       <PageHeader
         title="运维"
-        blurb="本机服务、本地 AI 与载体同步。首装路径与危险配置请到「设置 · 高级」。"
+        blurb="养机器 · 引擎、本地 AI、载体与健康。客户级配置请到「设置」。"
         actions={
           <>
             <button type="button" onClick={() => onSectionChange("logs")}>查看日志</button>
@@ -265,7 +269,7 @@ export function OpsPage({
                     : "当前设备暂未安装画面分析能力，点击可查看原因"}
                 </span>
               </div>
-              <VectorControl notify={notify} />
+              <VectorControl notify={notify} pageActive={active} />
               <p className="hint" style={{ marginBottom: 10 }}>
                 本地 AI 用于理解画面和改写旁白。点击推荐安装即可，速影会按本机性能选择合适版本。
               </p>
@@ -598,7 +602,9 @@ export function OpsPage({
             </>
           )}
 
-          {section === "logs" && <LogsPage embedded onNavigate={onLogNavigate} />}
+          {section === "logs" && (
+            <LogsPage embedded active={active} onNavigate={onLogNavigate} />
+          )}
 
           {section === "advanced" && <AdvancedOpsPanel notify={notify} />}
 
@@ -850,7 +856,7 @@ export function OpsPage({
                   </button>
                 </div>
               ) : null}
-              <CarrierOpsStrip />
+              <CarrierOpsStrip pageActive={active} />
             </>
           )}
 

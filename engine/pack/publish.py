@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import shutil
 import subprocess
@@ -12,6 +13,8 @@ from typing import Any
 
 from engine.reach.business_scope import VIDEO_PLATFORMS
 
+
+logger = logging.getLogger(__name__)
 
 PLATFORMS = tuple(sorted(VIDEO_PLATFORMS))
 OPTIONAL_ARTICLE_PLATFORMS = ("wechat_mp",)
@@ -607,8 +610,11 @@ def export_publish_pack(
                     (dest / "subtitle.zh.srt").write_text(timed, encoding="utf-8")
                 else:
                     files["subtitle_zh_TW"] = srt_name
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "publish_pack zh narration/TTS failed (continuing without pack-side VO): %s",
+                exc,
+            )
 
     variants: dict[str, Any] = {}
     foreign_srts: dict[str, str] = {}
@@ -689,8 +695,12 @@ def export_publish_pack(
                 if timed.strip():
                     (dest / srt_name).write_text(timed, encoding="utf-8")
                     foreign_srts[loc] = timed
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "publish_pack locale=%s narration/TTS failed (variant continues without VO): %s",
+                    loc,
+                    exc,
+                )
         variants[loc] = variant_meta
 
     # Primary subtitle pointer by subtitle_lang

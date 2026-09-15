@@ -1,14 +1,12 @@
-/* 速影 — Bright Control Deck（亮色指挥舱） */
+/* 速影 — AV 水彩底工作室（水彩洗色 + 透亮玻璃） */
 
 @import "tailwindcss" source(none);
 @source "./";
 @import "./styles/tokens.css";
+@import "./styles/immersive.css";
 
 :root {
-  /* tokens.css 已定义主色；此处保留兼容旧选择器的别名 */
-  --radius: 10px;
-  --header-h: 56px;
-  --rail-w: 248px;
+  /* tokens.css 已定义主色；勿覆盖 AV --radius */
 }
 
 * {
@@ -26,7 +24,7 @@ body {
   margin: 0;
   font-family: var(--font-sans);
   color: var(--text);
-  background: var(--bg-0);
+  background: transparent;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -45,17 +43,7 @@ textarea {
   display: grid;
   grid-template-columns: var(--rail-w) 1fr;
   grid-template-rows: var(--header-h) minmax(0, 1fr);
-  background:
-    radial-gradient(1000px 500px at 0% -10%, rgba(184, 69, 50, 0.055), transparent 55%),
-    radial-gradient(800px 400px at 100% 0%, rgba(196, 122, 20, 0.045), transparent 50%),
-    linear-gradient(180deg, #faf6f0 0%, var(--bg-0) 42%, #eee7dd 100%),
-    repeating-linear-gradient(
-      0deg,
-      transparent,
-      transparent 23px,
-      rgba(15, 23, 42, 0.015) 23px,
-      rgba(15, 23, 42, 0.015) 24px
-    );
+  background: transparent;
 }
 
 .app[data-density="compact"] .panel,
@@ -74,15 +62,7 @@ textarea {
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--line);
-  background:
-    linear-gradient(180deg, rgba(255, 252, 247, 0.97), rgba(238, 231, 221, 0.98)),
-    repeating-linear-gradient(
-      0deg,
-      transparent,
-      transparent 23px,
-      rgba(15, 23, 42, 0.02) 23px,
-      rgba(15, 23, 42, 0.02) 24px
-    );
+  background: var(--surface-0);
   padding: 0 0 16px;
   min-height: 0;
 }
@@ -111,7 +91,7 @@ textarea {
 }
 
 .brand-name {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-weight: 600;
   font-size: 1.25rem;
   letter-spacing: 0.12em;
@@ -498,6 +478,19 @@ textarea {
   overflow: auto;
   padding: 18px 20px 36px;
 }
+
+/* Layout stage only — never a frosted plate (AV wash must show through) */
+.main-stage {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+
 
 .tab-pane[hidden] {
   display: none !important;
@@ -1148,6 +1141,23 @@ pre {
   gap: 0;
   width: 100%;
   min-width: 0;
+  position: relative;
+  background: #0f172a;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  /* 主预览区固定几何，避免缺文件/占位时塌成矮条、有片时不满 */
+  min-height: 420px;
+  max-height: min(72vh, 640px);
+}
+
+.review-media-col--portrait {
+  aspect-ratio: 9 / 16;
+}
+
+.review-media-col--landscape {
+  aspect-ratio: 16 / 9;
+  min-height: 240px;
 }
 
 .review-side-dock {
@@ -1320,19 +1330,29 @@ button.linkish,
 
 .review-video {
   width: 100%;
-  max-height: 520px;
+  height: 100%;
+  max-height: none;
+  min-height: 0;
+  flex: 1 1 auto;
   background: #0f172a;
-  border-radius: var(--radius);
-  border: 1px solid var(--line);
-  object-fit: contain;
+  border-radius: 0;
+  border: 0;
+  /* 铺满预览容器；竖屏成片不再大块留黑边 */
+  object-fit: cover;
+  display: block;
 }
 
 .review-video.missing {
   display: flex;
   flex-direction: column;
   justify-content: center;
+  align-items: center;
+  text-align: center;
   gap: 6px;
-  min-height: 200px;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+  flex: 1 1 auto;
   padding: 16px;
   color: var(--text-mute);
   font-size: 0.85rem;
@@ -1342,8 +1362,13 @@ button.linkish,
   display: flex;
   flex-direction: column;
   justify-content: center;
+  align-items: center;
+  text-align: center;
   gap: 6px;
-  min-height: 200px;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+  flex: 1 1 auto;
   padding: 16px;
   color: var(--text-mute);
   font-size: 0.85rem;
@@ -1352,6 +1377,22 @@ button.linkish,
 
 .review-video-placeholder strong {
   color: var(--text-dim);
+}
+
+.cover-thumb-fallback {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  min-height: 72px;
+  padding: 6px;
+  box-sizing: border-box;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-mute);
+  background: var(--bg-3, #1e293b);
+  text-align: center;
+  line-height: 1.3;
 }
 
 .badge-warn {
@@ -2130,15 +2171,18 @@ button.linkish,
 .publish-video {
   width: 100%;
   max-height: 420px;
+  min-height: 220px;
   background: #000;
   border-radius: var(--radius);
   border: 1px solid var(--line);
+  object-fit: cover;
+  display: block;
 }
 
 .publish-video.missing {
   display: grid;
   place-items: center;
-  min-height: 180px;
+  min-height: 220px;
   color: var(--text-mute);
 }
 

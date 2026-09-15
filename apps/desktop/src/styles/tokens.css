@@ -1,49 +1,59 @@
-/* 速影 · 暖宣纸主题（M 系列 Retina · 密度分档） */
+/* 速影 · AV 水彩底（严格对齐概念图 AV-watercolor-uhd）
+ * 水彩洗色纸底 + 透亮清玻璃卡 + 炭黑正文 + 宋体大标题
+ */
 :root {
-  /* Paper / ink */
-  --bg-0: #f3eee6;
-  --bg-1: #ebe4da;
-  --bg-2: #e2d8cc;
-  --bg-3: #d6caba;
-  --surface-0: #f7f2ea;
-  --surface-1: rgba(255, 252, 247, 0.92);
-  --surface-2: rgba(255, 255, 255, 0.78);
-  --line: rgba(46, 36, 28, 0.1);
-  --line-strong: rgba(46, 36, 28, 0.18);
-  --text: #2a211a;
-  --text-dim: #5a4c40;
-  --text-mute: #8a7a6a;
+  /* Paper / wash — match AV: cream center, lavender/dusty-violet edges */
+  --bg-0: #ebe6ef;
+  --bg-1: #f3eef4;
+  --bg-2: #faf7fb;
+  --bg-3: #ffffff;
+  /* Clear glass — near-clear refraction (not frosted milk) */
+  --surface-0: rgba(255, 255, 255, 0.01);
+  --surface-1: rgba(255, 255, 255, 0.015);
+  --surface-2: rgba(255, 255, 255, 0.02);
+  --surface-3: rgba(255, 255, 255, 0.03);
+  --line: rgba(72, 58, 88, 0.1);
+  --line-strong: rgba(72, 58, 88, 0.18);
+  --line-glass: rgba(255, 255, 255, 0.62);
+  --text: #2a2630;
+  --text-dim: #5a5464;
+  --text-mute: #8a8494;
 
-  /* Cinnabar accent */
-  --accent: #b84532;
-  --accent-strong: #9e3929;
-  --accent-ink: #ffffff;
-  --accent-dim: rgba(184, 69, 50, 0.12);
-  --accent-line: rgba(184, 69, 50, 0.42);
+  /* Soft plum ink — AV accent, never neon cyan / candy purple */
+  --accent: #6e617c;
+  --accent-strong: #554a60;
+  --accent-ink: #faf8fb;
+  --accent-dim: rgba(110, 97, 124, 0.12);
+  --accent-line: rgba(110, 97, 124, 0.32);
+  --accent-soft: #c8bcd4;
+  --accent-wash: rgba(180, 160, 195, 0.35);
 
-  /* Status */
-  --warn: #c47a14;
-  --warn-dim: rgba(196, 122, 20, 0.12);
-  --danger: #c62828;
-  --danger-dim: rgba(198, 40, 40, 0.12);
-  --ok: #2f7a4f;
-  --ok-dim: rgba(47, 122, 79, 0.12);
-  --info: #3d6b8a;
-  --info-dim: rgba(61, 107, 138, 0.12);
-  --amber: #c47a14;
+  --hud-amber: #b8894a;
+  --hud-blue: #6a87a6;
+  --hud-mag: #9a6b82;
 
-  /* Brand (video lock) */
+  --warn: #b8894a;
+  --warn-dim: rgba(184, 137, 74, 0.16);
+  --danger: #b85a68;
+  --danger-dim: rgba(184, 90, 104, 0.14);
+  --ok: #4f8f6e;
+  --ok-dim: rgba(79, 143, 110, 0.14);
+  --info: #6a87a6;
+  --info-dim: rgba(106, 135, 166, 0.14);
+  --amber: #b8894a;
+
   --brand-red: #e10600;
   --brand-yellow: #ffe600;
 
-  /* Type */
-  --font-sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "SF Pro Text", "Segoe UI", sans-serif;
+  /* 真中文：标题宋体 / 正文苹方黑体 */
+  --font-display: "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", serif;
+  --font-sans: "PingFang SC", "Hiragino Sans GB", "Heiti SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
   --font-mono: "SF Mono", "Menlo", "Consolas", ui-monospace, monospace;
 
-  /* Density tokens — standard default; overridden by [data-density] */
-  --radius: 12px;
-  --radius-sm: 8px;
-  --header-h: 56px;
+  --radius: 22px;
+  --radius-sm: 14px;
+  --radius-pill: 999px;
+  --header-h: 64px;
   --rail-w: 220px;
   --space-1: 4px;
   --space-2: 8px;
@@ -52,62 +62,103 @@
   --space-5: 24px;
   --space-6: 32px;
   --font-body: 14px;
-  --font-title: 1.05rem;
+  --font-title: 1.08rem;
   --font-caption: 12px;
-  --btn-h: 34px;
+  --btn-h: 36px;
   --hit-min: 36px;
-  --card-pad: 18px;
-  --shadow-card: 0 2px 10px rgba(42, 33, 26, 0.06);
-  --content-max: 1400px;
+  --card-pad: 22px;
+  --shadow-soft: 0 1.5px 0 rgba(255, 255, 255, 0.9) inset;
+  /* 真玻璃板：外描边 + 内高光厚度 + 底沿暗唇 + 轻浮起 */
+  --shadow-card: var(--glass-pane-edge);
+  --shadow-float: var(--glass-pane-edge-float);
+  --content-max: 1280px;
+
+  --z-rail: 20;
+  --z-topbar: 30;
+  --z-float: 40;
+  --z-modal: 100;
+  /* 超透玻璃：blur≈0，填充接近无色；只靠边框/高光读出玻璃，禁止乳白磨砂 */
+  --glass: blur(0.5px) saturate(1.04);
+  --glass-strong: blur(0.8px) saturate(1.06);
+  --glass-fill: rgba(255, 255, 255, 0.012);
+  --glass-fill-strong: rgba(255, 255, 255, 0.02);
+  --glass-chrome-fill: transparent;
+  --glass-chrome-fill-strong: transparent;
+  /* 全站单元格统一清玻璃填充（chip/KPI/卡）：禁止各组件另套色底 */
+  --glass-cell: rgba(255, 255, 255, 0.015);
+  --glass-cell-strong: rgba(255, 255, 255, 0.02);
+  --glass-cell-edge:
+    0 1px 0 rgba(255, 255, 255, 0.35) inset,
+    0 0 0 0.5px rgba(255, 255, 255, 0.28);
+  /* 轻量边光（砍多层 inset + 大阴影栈） */
+  --glass-pane-edge:
+    0 1px 0 rgba(255, 255, 255, 0.42) inset,
+    0 0 0 0.5px rgba(255, 255, 255, 0.28) inset,
+    0 4px 14px rgba(60, 40, 90, 0.035);
+  --glass-pane-edge-float:
+    0 1px 0 rgba(255, 255, 255, 0.48) inset,
+    0 0 0 0.5px rgba(255, 255, 255, 0.32) inset,
+    0 8px 22px rgba(60, 40, 90, 0.045);
+  --glass-chrome-edge: var(--glass-pane-edge-float);
+
+  /* Exact AV wash asset */
+  /* pigment-only wash (v2: no concept-UI ghosts in the texture) */
+  --wash-image: url("/watercolor-wash.jpg?v=fuse4");
+  --wash-image-sm: url("/watercolor-wash-sm.jpg?v=fuse4");
+  --vol-light:
+    radial-gradient(ellipse 50% 42% at 50% 44%, rgba(255, 255, 255, 0.18), transparent 72%);
+
+  --motion-duration: 360ms;
+  --motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-slow: 900ms;
+  --parallax: 4px;
 }
 
-/* Compact: more content, readable floor */
 :root[data-density="compact"],
 .app[data-density="compact"] {
-  --rail-w: 176px;
-  --header-h: 48px;
+  --rail-w: 188px;
+  --header-h: 52px;
   --space-3: 8px;
   --space-4: 10px;
   --space-5: 14px;
   --space-6: 20px;
   --font-body: 13px;
-  --font-title: 0.95rem;
+  --font-title: 0.98rem;
   --font-caption: 11px;
   --btn-h: 32px;
-  --hit-min: 36px;
-  --card-pad: 12px;
-  --radius: 10px;
+  --card-pad: 14px;
+  --radius: 18px;
 }
 
-/* Wide: more columns / breathing room without giant type */
 :root[data-density="wide"],
 .app[data-density="wide"] {
-  --rail-w: 248px;
-  --header-h: 58px;
+  --rail-w: 240px;
+  --header-h: 68px;
   --space-4: 18px;
   --space-5: 28px;
   --space-6: 36px;
-  --font-body: 14px;
-  --font-title: 1.1rem;
-  --card-pad: 22px;
-  --content-max: 1680px;
+  --font-title: 1.12rem;
+  --card-pad: 24px;
+  --content-max: 1480px;
 }
 
 @theme {
-  --color-deck-bg: #f3eee6;
-  --color-deck-panel: #ebe4da;
-  --color-deck-ink: #2a211a;
-  --color-deck-muted: #5a4c40;
-  --color-deck-accent: #b84532;
-  --color-deck-danger: #c62828;
-  --color-deck-warn: #c47a14;
-  --color-deck-ok: #2f7a4f;
-  --font-sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
+  --color-deck-bg: #ebe6ef;
+  --color-deck-panel: #faf7fb;
+  --color-deck-ink: #2a2630;
+  --color-deck-muted: #5a5464;
+  --color-deck-accent: #6e617c;
+  --color-deck-danger: #b85a68;
+  --color-deck-warn: #b8894a;
+  --color-deck-ok: #4f8f6e;
+  --font-sans: "PingFang SC", "Hiragino Sans GB", "Heiti SC", "Noto Sans SC", sans-serif;
   --font-mono: "SF Mono", "Menlo", ui-monospace, monospace;
 }
 
 @media (prefers-reduced-motion: reduce) {
   :root {
     --motion-duration: 0ms;
+    --motion-slow: 0ms;
+    --parallax: 0px;
   }
 }

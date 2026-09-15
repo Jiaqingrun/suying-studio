@@ -308,16 +308,34 @@ class JobWorker:
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self._running_job_id: int | None = None
+        # Bumped on every start/stop so a quiesce join timeout cannot leave a
+        # winding-down loop as the only "alive" worker, then exit into a dead engine.
+        self._generation = 0
 
     def start(self) -> None:
-        if self._thread and self._thread.is_alive():
+        # Healthy & already running: no-op. If ``_stop`` is set while the thread is
+        # still winding down, fall through and drain — otherwise start() returned
+        # early, the old loop exited on ``_stop``, and production stayed dead.
+        if self.is_alive() and not self._stop.is_set():
             return
+        if self._thread and self._thread.is_alive():
+            self._stop.set()
+            self._generation += 1
+            self._thread.join(timeout=5)
+        self._generation += 1
+        gen = self._generation
         self._stop.clear()
-        self._thread = threading.Thread(target=self._loop, daemon=True, name="montage-job-worker")
+        self._thread = threading.Thread(
+            target=self._loop,
+            args=(gen,),
+            daemon=True,
+            name="montage-job-worker",
+        )
         self._thread.start()
 
     def stop(self) -> None:
         self._stop.set()
+        self._generation += 1
         if self._thread:
             self._thread.join(timeout=5)
 
@@ -328,8 +346,8 @@ class JobWorker:
         with self._lock:
             return self._running_job_id
 
-    def _loop(self) -> None:
-        while not self._stop.is_set():
+    def _loop(self, gen: int) -> None:
+        while not self._stop.is_set() and gen == self._generation:
             from engine.runtime.pause_coordinator import coordinator as pause_coordinator
             from engine.runtime.resource_gate import gate as resource_gate
 
@@ -359,8 +377,11 @@ class JobWorker:
                         session.commit()
                 finally:
                     session.close()
-                time.sleep(0.5)
+                self._stop.wait(0.5)
                 continue
+
+            if gen != self._generation:
+                return
 
             settings = load_settings()
             session = get_session()
@@ -387,7 +408,7 @@ class JobWorker:
                 ).all()
                 job = next((c for c in candidates if job_next_attempt_ready(c)), None)
                 if not job:
-                    time.sleep(1.0)
+                    self._stop.wait(1.0)
                     continue
                 token = f"job:{job.id}"
                 # "render" is no longer held for the whole job — only acquired
@@ -473,7 +494,7 @@ class JobWorker:
                         session.commit()
             finally:
                 session.close()
-            time.sleep(0.2)
+            self._stop.wait(0.2)
 
     def _process_job(self, session: Session, settings: AppSettings, job: Job) -> None:
         from engine.catalog.db import Customer

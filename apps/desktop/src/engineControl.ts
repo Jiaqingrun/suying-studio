@@ -77,9 +77,10 @@ export function offlineClassLabel(st: EngineStatus | null | undefined): string {
     case "starting":
       return "引擎正在启动";
     case "control_plane_not_ready":
+    case "control_plane": // legacy readiness token; prefer control_plane_not_ready
       return "服务在线，业务未就绪";
     case "listen_unhealthy":
-      return "端口在听但健康检查失败";
+      return "端口在听但控制面探针失败";
     case "not_listening":
       return "引擎未监听";
     case "no_agent":
@@ -92,6 +93,10 @@ export function offlineClassLabel(st: EngineStatus | null | undefined): string {
       return "工作区未就绪";
     case "integrity":
       return "运行时完整性失败";
+    case "boot_failed":
+      return "引擎启动失败";
+    case "not_ready":
+      return "业务未就绪";
     default:
       if (st?.control_plane && !st.healthy) return "服务在线，业务未就绪";
       if (st?.running) return "服务状态异常";

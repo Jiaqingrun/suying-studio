@@ -9,13 +9,13 @@
 
 ## 0. 一句话
 
-正式一体包指针以 `~/Suying/releases/LAST_PUBLISH.json` 为准（现行 **0.8.11 / release_seq=90**）。**主力客户 = 始峰五金（北京始峰伟业）**；**臻享丽人降级为非成交、不默认日更**；**禁止**用仓库 seed 覆盖已适配生产规则、**禁止**阶段 X 夹带、**禁止**把 life-service / 臻享规则灌进始峰或 xlf。
+正式一体包指针以 `~/Suying/releases/LAST_PUBLISH.json` 为准（**勿**在本表写死版号；历史曾锚 0.8.11 / seq=90，现行见 LAST_PUBLISH / `packaging/release_notes.json`）。**主力客户 = 始峰五金（北京始峰伟业）**；**臻享丽人降级为非成交、不默认日更**；**禁止**用仓库 seed 覆盖已适配生产规则、**禁止**阶段 X 夹带、**禁止**把 life-service / 臻享规则灌进始峰或 xlf。
 
 | 条件 | 允许 |
 |------|------|
-| 现在 | **始峰日更稳态**（轮换 38+90）；本机/T2S **0.8.11 / seq=90** |
+| 现在 | **始峰日更稳态**（轮换 38+90）；本机/T2S 版本以 **LAST_PUBLISH** 为准 |
 | 需你当面确认 | xlf `deploy-remote`；阶段 X 具体名；新 Gate |
-| 历史流水 | 2026-08 臻享 ABCD / GVP 为人眼与包装验收档案，**不再**指导默认运营 |
+| 历史流水 | 2026-08 臻享 ABCD / GVP 为人眼与包装验收档案，**不再**指导默认运营；0.8.11/seq=90 为历史关账锚点 |
 | 未来新功能 | 当面改 DEV_LOCK 开新 Gate |
 
 ---
@@ -229,7 +229,8 @@
 | 2026-08-12 | **xlf 再删演示域**：演示客户 + 零分叉演示客户 · 始峰 id=1/规则16/rev15 未动 · `xlf-demo-customers-removed.txt` |
 | 2026-08-13 | **0.7.29 审片封面三格+居中预览**：本机安装 + T2S seq73 + xlf `--skip-models` · 始峰规则未改 |
 | 2026-09-13 | **始峰词池 r23**：合入豆包公开调研 machine.json（hooks/标题/library/keywords）；优先配送+产品面；面积/现货类清洗；identity/facts 未动；live+DB 已 install；configs seed 已同步 |
-| 2026-09-08 | **运营改锚**：用户确认臻享非成交；主力=始峰五金/北京始峰伟业；轮换收回 38+90；极限计划证据 `~/Suying/logs/extreme-plan-shifeng-20260908/`；正式包指针 0.8.11/seq=90 |
+| 2026-09-08 | **运营改锚**：用户确认臻享非成交；主力=始峰五金/北京始峰伟业；轮换收回 38+90；极限计划证据 `~/Suying/logs/extreme-plan-shifeng-20260908/`；正式包指针当时 0.8.11/seq=90（现为历史关账锚点；现行见 LAST_PUBLISH） |
+| 2026-09-16 | **A4=B 对齐**：本表不再写死现行版号；指针只认 `~/Suying/releases/LAST_PUBLISH.json` / `packaging/release_notes.json` |
 
 ---
 

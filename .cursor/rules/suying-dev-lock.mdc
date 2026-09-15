@@ -16,9 +16,9 @@ alwaysApply: true
 - 反检测卖点 / 未授权矩阵养号 / 自动过验证码
 - 无真实客户片库时把媒体复检项标完成；或把外置盘当作生产硬依赖重新引入
 - **L18**：禁止再改 Local-first 主盘工作区拓扑（`~/Suying/data` + `~/Movies/速影工作区`、`external_required` 默认 false、自动同步主盘、外置仅路径覆盖）；禁止回退外置盘为默认真相（见 `HARD_LOCKS` L18、`V8_STORAGE`）
-- **L17**：无授权改 `LangCombobox` / `.lang-combo*`；禁止回退卡片内 absolute 弹层或靠拆祖先 overflow 修裁切（见 `HARD_LOCKS` L17、`DEVELOPMENT_STANDARDS` §5.2.1）
-- **L19**：无授权改本地 F5 就绪 / 试听链路（`voice_clone`、`POST /voice/packs/preview`、设置页音色试听）；禁止 core 包冒充 clone；见 `HARD_LOCKS` L19、`VOICE_CLONE.md`
-- **L20**：无授权改生活服务旁白合同：黄金底稿 + Ollama 仅节奏润色、倾听用词、服务禁词与 hook 加权；见 `HARD_LOCKS` L20、`docs/SERVICE_NARRATION_LOCK.md`
+- **L17**：无授权改 `LangCombobox` / `.lang-combo*`（含视觉皮肤/外观）；禁止回退卡片内 absolute 弹层或靠拆祖先 overflow 修裁切（见 `HARD_LOCKS` L17、`DEVELOPMENT_STANDARDS` §5.2.1；A7=A）
+- **L19**：无授权改本地 F5 就绪 / 试听链路（`voice_clone`、`POST /voice/packs/preview`、设置页音色试听）；禁止 core 包冒充 clone；交付主路径 = core + App 外 F5 Kit；见 `HARD_LOCKS` L19、`VOICE_CLONE.md`
+- **L20**：无授权改生活服务旁白合同：L20 v2 受控多样改写 + 近窗去重、倾听用词、服务禁词与 hook 加权（禁止回退黄金硬锁）；见 `HARD_LOCKS` L20、`docs/SERVICE_NARRATION_LOCK.md`
 
 ## 每项完成
 

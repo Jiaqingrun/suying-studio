@@ -13,13 +13,22 @@
 | 1a2 | [`READY_GATE.md`](READY_GATE.md) | 进成品库总门禁 |
 | 1a3 | [`PAPER_SLIP_LOCK.md`](PAPER_SLIP_LOCK.md) | 纸片滚动避重 |
 | 1b | [`NARRATION_SUBTITLE_LOCK.md`](NARRATION_SUBTITLE_LOCK.md) | 旁白×字幕对齐 |
-| 1b2 | [`SERVICE_NARRATION_LOCK.md`](SERVICE_NARRATION_LOCK.md) | **L20**：生活服务黄金底稿 + Ollama 仅节奏润色（已冻结） |
+| 1b2 | [`SERVICE_NARRATION_LOCK.md`](SERVICE_NARRATION_LOCK.md) | **L20 v2**：装配遵服务禁词与倾听口径；Ollama 受控多样改写 + 近窗去重（`use_golden_base_lock` 关闭为授权态） |
 | 1b3 | [`SCENE_TOUR_LOCK.md`](SCENE_TOUR_LOCK.md) | **跟镜精品**：`scene_tour` 片型合同（与 L20 日更并列；不改黄金底稿） |
 | 1c | [`EMOJI_STICKER_LOCK.md`](EMOJI_STICKER_LOCK.md) | 表情贴纸硬规则 |
 | 1d | [`QUALITY_LOCK.md`](QUALITY_LOCK.md) | 虚焦/模糊不入库 |
 | 1d2 | [`ORIENTATION_LOCK.md`](ORIENTATION_LOCK.md) | 横竖屏显示尺寸双源硬审核 |
 | 1e | [`SEMANTIC_OBJECT_VECTOR_LOCK.md`](SEMANTIC_OBJECT_VECTOR_LOCK.md) | 语义证据 / 物品 / 向量运营（GSemanticOps） |
 | 1f | [`VOICE_CLONE.md`](VOICE_CLONE.md) | 可选本地克隆 TTS（**L19**：就绪+试听冻结；**core + App 外 F5 Kit** 交付） |
+
+### 改锁 / 发版前（P3 防回归）
+
+发版或改 HARD_LOCKS / AGENTS / 根 README 前：
+
+1. 跑 `./scripts/check-legacy-cleanup-gate.sh`（已挂入 `gate_package_regression.sh` 与 `release-to-t2s.sh` 开头）
+2. 人工过一遍：L20 三处同义 · L19 交付拓扑 · 安装路径非 Desktop 交付 · 视觉不以「毛玻璃」为现行 · `DEV_LOCK` 不写死过期版号 · L17 无授权不改
+
+禁止回潮：现行入口不得再写「仅节奏润色」类过时 Ollama 底线；根 README / 安装文不得把桌面 `速影.app` 路径写成正式交付落点。
 
 ## 2. 产品与工程合同
 

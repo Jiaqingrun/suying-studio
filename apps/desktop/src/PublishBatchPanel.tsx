@@ -14,6 +14,8 @@ type Props = {
   activeCustomerId: number | null;
   notify: (text: string, kind?: "ok" | "err" | "info" | "warn") => void;
   onRefresh: () => void;
+  /** False when FrozenTab hides publish — stop run polling. */
+  pageActive?: boolean;
 };
 
 const RUN_STORAGE_KEY = "suying_publish_run_id";
@@ -22,6 +24,7 @@ export function PublishBatchPanel({
   activeCustomerId,
   notify,
   onRefresh,
+  pageActive = true,
 }: Props) {
   const storageKey = `${RUN_STORAGE_KEY}:${activeCustomerId ?? "none"}`;
   const [runId, setRunId] = useState(() => localStorage.getItem(storageKey) || "");
@@ -89,9 +92,10 @@ export function PublishBatchPanel({
   }, []);
 
   useEffect(() => {
+    if (!pageActive) return;
     let cancelled = false;
     const poll = async () => {
-      if (cancelled || refreshInFlight.current) return;
+      if (cancelled || document.visibilityState !== "visible" || refreshInFlight.current) return;
       refreshInFlight.current = true;
       try {
         await Promise.all([refreshRun(), refreshPanels()]);
@@ -111,7 +115,7 @@ export function PublishBatchPanel({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [refreshPanels, refreshRun, runStatus?.status]);
+  }, [pageActive, refreshPanels, refreshRun, runStatus?.status]);
 
   useEffect(() => {
     const restored = localStorage.getItem(storageKey) || "";

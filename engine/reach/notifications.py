@@ -45,7 +45,21 @@ class NtfyPublicConfig:
 
 
 def _secrets_path() -> Path:
-    path = load_settings().paths.data_root / "secrets" / "reach-notifications.json"
+    return load_settings().paths.data_root / "secrets" / "reach-notifications.json"
+
+
+def _ensure_secrets_dir() -> Path:
+    """Create secrets/ only when the workspace already allows layout (fail-closed)."""
+    from engine.config.workspace import probe_workspace
+
+    settings = load_settings()
+    probe = probe_workspace(settings)
+    data_root = Path(settings.paths.data_root)
+    if not probe.can_mkdir:
+        raise ValueError("工作区不可写，拒绝落盘通知密钥")
+    if probe.is_external and not data_root.is_dir():
+        raise ValueError("外接工作区不存在，拒绝创建 secrets")
+    path = _secrets_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         path.parent.chmod(0o700)
@@ -55,6 +69,7 @@ def _secrets_path() -> Path:
 
 
 def _read_all() -> dict[str, Any]:
+    # Read-only: never mkdir — missing external must not invent an empty tree.
     path = _secrets_path()
     if not path.is_file():
         return {}
@@ -66,6 +81,7 @@ def _read_all() -> dict[str, Any]:
 
 
 def _write_all(value: dict[str, Any]) -> None:
+    _ensure_secrets_dir()
     path = _secrets_path()
     tmp = path.with_suffix(".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)

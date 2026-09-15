@@ -12,6 +12,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from enum import Enum
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Callable
 
@@ -426,12 +427,21 @@ def heavy_request(
         }
 
     try:
-        result = run_cancelable_post(
-            path=path,
-            payload=payload,
-            timeout_sec=timeout_sec,
-            cancel_event=cancel_event,
-        )
+        # Keep lease alive across long narration/embed so worker sweep (120s)
+        # cannot steal ollama_heavy mid-request.
+        try:
+            from engine.runtime.resource_gate import gate as resource_gate
+
+            hb_cm = resource_gate.heartbeat("ollama_heavy", token, interval_sec=30.0)
+        except Exception:  # noqa: BLE001
+            hb_cm = nullcontext()
+        with hb_cm:
+            result = run_cancelable_post(
+                path=path,
+                payload=payload,
+                timeout_sec=timeout_sec,
+                cancel_event=cancel_event,
+            )
         result["kind"] = kind
         result["model"] = model
         result["token"] = token

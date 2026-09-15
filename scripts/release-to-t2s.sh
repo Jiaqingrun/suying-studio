@@ -36,6 +36,9 @@ mkdir -p "$RELEASE_ROOT"
 export SUYING_RELEASE_ROOT="$RELEASE_ROOT"
 export RUNTIME_FLAVOR
 
+echo "==> Preflight: legacy cleanup gate（P3）"
+bash "${ROOT}/scripts/check-legacy-cleanup-gate.sh"
+
 if [[ "$SKIP_BUMP" != "1" ]]; then
   echo "==> Bump version (${BUMP})"
   python3 "${ROOT}/scripts/bump_app_version.py" --bump "$BUMP"

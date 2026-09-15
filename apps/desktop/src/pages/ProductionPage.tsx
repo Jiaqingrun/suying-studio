@@ -7,7 +7,7 @@ import { openMediaTarget } from "../openMediaTarget";
 import { uiStatusLabel } from "../reviewLabels";
 import { SemanticAnalysisProgress } from "../SemanticAnalysisProgress";
 import { briefResult, dryRunSummary } from "../shell/briefResult";
-import { PageHeader, SegmentNav, StepFooter } from "../shell/PageChrome";
+import { PageHeader, SegmentNav, StepFooter, EmptyState } from "../shell/PageChrome";
 import {
   SCENE_TOUR_UI,
   ASSET_FOLDER_OPTIONS,
@@ -28,6 +28,8 @@ export interface ProductionPageProps {
   setTab: (t: Tab) => void;
   customerName: string;
   activeCustomerId?: number | null;
+  /** False when FrozenTab hides this page — stop pipeline polling. */
+  active?: boolean;
   productionOrientation: "portrait" | "landscape";
   setProductionOrientation: (value: "portrait" | "landscape") => void;
   brandLogo: BrandLogoState;
@@ -162,6 +164,7 @@ export function ProductionPage({
   setTab,
   customerName,
   activeCustomerId = null,
+  active = true,
   productionOrientation,
   setProductionOrientation,
   brandLogo,
@@ -339,8 +342,10 @@ export function ProductionPage({
     : "已关闭轮换，将使用当前启用规则";
 
   useEffect(() => {
+    if (!active) return;
     let cancelled = false;
     const tick = async () => {
+      if (cancelled || document.visibilityState !== "visible") return;
       try {
         const snap = await api.jobsPipeline();
         if (!cancelled) {
@@ -365,20 +370,20 @@ export function ProductionPage({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [activeCustomerId]);
+  }, [active, activeCustomerId]);
 
   return (
     <section className="page-stack production-page">
       <PageHeader
         title="生产"
-        blurb="主按钮「生成跟镜精品」走画面跟述；日常日更仍可用次要入口。门禁通过后自动过审出包"
+        blurb="做片子 · 任务队列与素材库；主按钮「生成跟镜精品」走画面跟述"
       />
       <SegmentNav
         ariaLabel="生产分区"
         value={workspace}
         onChange={onWorkspaceChange}
         items={[
-          { id: "tasks", label: "任务" },
+          { id: "tasks", label: "任务队列" },
           { id: "assets", label: "素材库", badge: assets.length },
         ]}
       />
@@ -853,6 +858,9 @@ export function ProductionPage({
               })}
             </tbody>
           </table>
+          {!jobs.length ? (
+            <EmptyState title="暂无生产任务" body="用上方主按钮创建日更或精品任务后会出现在此队列。" />
+          ) : null}
           <h3 className="section-title">内容日历</h3>
           <div className="grid3">
             <label>
@@ -1022,6 +1030,24 @@ export function ProductionPage({
               ))}
             </tbody>
           </table>
+          {assets.length === 0 ? (
+            <EmptyState
+              title="暂无素材"
+              body="先全量扫描片库，或到设置确认片库路径已挂载。"
+              actionLabel="全量扫描"
+              onAction={() => {
+                setActionBusy("scanFull");
+                api
+                  .scanAssets(0)
+                  .then((r) => {
+                    notify(briefResult("全量扫描已触发", r), "ok");
+                    return refreshAll();
+                  })
+                  .catch((e: unknown) => notify(String(e), "err"))
+                  .finally(() => setActionBusy(null));
+              }}
+            />
+          ) : null}
         </>
       ) : null}
 

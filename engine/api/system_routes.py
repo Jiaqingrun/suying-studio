@@ -21,6 +21,10 @@ log = logging.getLogger("montage.system_routes")
 
 router = APIRouter(tags=["system"])
 
+# Serialize wake/health-retry resume so concurrent did_wake + path-retry cannot
+# double-run restore_units / complete_resume mid-transition.
+_resume_async_lock = threading.Lock()
+
 
 class SystemEventBody(BaseModel):
     event_id: str
@@ -146,31 +150,34 @@ def _after_pause_async(timeout_sec: float, policy: SystemEventControl) -> None:
 
 
 def _after_resume_async(policy: SystemEventControl) -> None:
-    try:
-        # Sleep/wake can leave Homebrew/App Ollama in STAT=T while 11434 still
-        # LISTENs; unfreeze before production units resume embeddings.
+    with _resume_async_lock:
         try:
-            from engine.catalog.ollama_status import schedule_ollama_status_refresh
-            from engine.ops.ollama_service import resume_stopped_ollama_processes
+            # Sleep/wake can leave Homebrew/App Ollama in STAT=T while 11434 still
+            # LISTENs; unfreeze before production units resume embeddings.
+            try:
+                from engine.catalog.ollama_status import schedule_ollama_status_refresh
+                from engine.ops.ollama_service import resume_stopped_ollama_processes
 
-            cont = resume_stopped_ollama_processes(force=True)
-            if cont.get("resumed_pids"):
-                _audit_system(
-                    "ollama_sigcont",
-                    "唤醒后恢复挂起的 Ollama 进程",
-                    details={"resumed_pids": cont.get("resumed_pids")},
-                )
-            schedule_ollama_status_refresh(force_cont=True)
-        except Exception:
-            log.exception("wake-path ollama SIGCONT / status refresh failed")
-        path_ok, disk_ok = _path_and_disk_ok()
-        state = coordinator.apply_resume_after_checks(path_ok=path_ok, disk_ok=disk_ok, policy=policy)
-        if state.get("restore_ready"):
-            restored = restore_units()
-            if not restored.get("errors"):
-                coordinator.complete_resume()
-    except Exception as e:  # noqa: BLE001
-        coordinator.mark_blocked(["resume_failed"], error=str(e))
+                cont = resume_stopped_ollama_processes(force=True)
+                if cont.get("resumed_pids"):
+                    _audit_system(
+                        "ollama_sigcont",
+                        "唤醒后恢复挂起的 Ollama 进程",
+                        details={"resumed_pids": cont.get("resumed_pids")},
+                    )
+                schedule_ollama_status_refresh(force_cont=True)
+            except Exception:
+                log.exception("wake-path ollama SIGCONT / status refresh failed")
+            path_ok, disk_ok = _path_and_disk_ok()
+            state = coordinator.apply_resume_after_checks(
+                path_ok=path_ok, disk_ok=disk_ok, policy=policy
+            )
+            if state.get("restore_ready"):
+                restored = restore_units()
+                if not restored.get("errors"):
+                    coordinator.complete_resume()
+        except Exception as e:  # noqa: BLE001
+            coordinator.mark_blocked(["resume_failed"], error=str(e))
 
 
 def _maybe_retry_health_blocked_resume() -> None:
@@ -563,24 +570,27 @@ def post_manual_resume(body: ManualResumeBody | None = None) -> dict[str, Any]:
     prepared = coordinator.prepare_manual_resume(reasons=body.reasons)
     if prepared.get("state") != "RESUMING":
         return prepared
-    path_ok, disk_ok = _path_and_disk_ok()
-    checked = coordinator.apply_resume_after_checks(
-        path_ok=path_ok,
-        disk_ok=disk_ok,
-        policy=policy,
-    )
-    if not checked.get("restore_ready"):
-        return checked
-    restored = restore_units()
-    if restored.get("errors"):
-        _audit_system(
-            "manual_resume_failed",
-            "恢复检查未通过",
-            level="error",
-            details={"reasons": body.reasons, "errors": restored.get("errors")},
+    # Share wake-path lock so manual resume cannot interleave restore_units /
+    # complete_resume with did_wake / health-retry threads.
+    with _resume_async_lock:
+        path_ok, disk_ok = _path_and_disk_ok()
+        checked = coordinator.apply_resume_after_checks(
+            path_ok=path_ok,
+            disk_ok=disk_ok,
+            policy=policy,
         )
-        return coordinator.snapshot()
-    result = coordinator.complete_resume()
+        if not checked.get("restore_ready"):
+            return checked
+        restored = restore_units()
+        if restored.get("errors"):
+            _audit_system(
+                "manual_resume_failed",
+                "恢复检查未通过",
+                level="error",
+                details={"reasons": body.reasons, "errors": restored.get("errors")},
+            )
+            return coordinator.snapshot()
+        result = coordinator.complete_resume()
     _audit_system(
         "manual_resume_completed",
         "速影任务已恢复",

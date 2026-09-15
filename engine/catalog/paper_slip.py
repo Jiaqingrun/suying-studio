@@ -627,12 +627,22 @@ def release_committed_paper_slip_for_job(
     return int(result.rowcount or 0)
 
 
+# Jobs that may resume and still need paper-slip rows (do not treat as dead).
+_RESERVATION_HOLD_JOB_STATUSES = frozenset(
+    {"queued", "running", "paused", "paused_system"}
+)
+
+
 def release_reservations_for_inactive_jobs(session: Session) -> int:
     from engine.catalog.db import Job
 
     now = _utcnow()
     inactive_ids = list(
-        session.scalars(select(Job.id).where(Job.status.notin_(("queued", "running")))).all()
+        session.scalars(
+            select(Job.id).where(
+                Job.status.notin_(tuple(_RESERVATION_HOLD_JOB_STATUSES))
+            )
+        ).all()
     )
     if not inactive_ids:
         return 0
