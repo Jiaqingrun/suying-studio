@@ -34,6 +34,8 @@ export interface OpsPageProps {
   setTab: (t: Tab, opts?: { settings?: SettingsSection; ops?: OpsSection }) => void;
   notify: NotifyFn;
   askConfirm?: AskConfirmFn;
+  /** False when FrozenTab hides this page — stop log polling. */
+  active?: boolean;
   actionBusy: string | null;
   setActionBusy: (v: string | null) => void;
   refreshAll: () => Promise<void>;
@@ -126,6 +128,7 @@ export function OpsPage({
   setTab,
   notify,
   askConfirm,
+  active = true,
   actionBusy,
   setActionBusy,
   refreshAll,
@@ -598,7 +601,9 @@ export function OpsPage({
             </>
           )}
 
-          {section === "logs" && <LogsPage embedded onNavigate={onLogNavigate} />}
+          {section === "logs" && (
+            <LogsPage embedded active={active} onNavigate={onLogNavigate} />
+          )}
 
           {section === "advanced" && <AdvancedOpsPanel notify={notify} />}
 

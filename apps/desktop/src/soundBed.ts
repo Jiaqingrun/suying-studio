@@ -3,7 +3,7 @@
  * 水彩语汇下音色偏柔；默认开启；设置可静音。
  * 不拦截 L19 真 wav 试听（那条走 preview API，不经本模块）。
  */
-import { playAlertSound, type AlertSoundKind } from "./notifications";
+import { playAlertSound, syncAlertSoundMute, type AlertSoundKind } from "./notifications";
 
 const MUTE_KEY = "suying.soundBed.muted.v1";
 
@@ -24,6 +24,9 @@ function readMuted(): boolean {
 }
 
 let mutedCache = typeof window !== "undefined" ? readMuted() : false;
+if (typeof window !== "undefined") {
+  syncAlertSoundMute(mutedCache);
+}
 
 export function isSoundBedMuted(): boolean {
   return mutedCache;
@@ -31,6 +34,7 @@ export function isSoundBedMuted(): boolean {
 
 export function setSoundBedMuted(muted: boolean): void {
   mutedCache = muted;
+  syncAlertSoundMute(muted);
   try {
     localStorage.setItem(MUTE_KEY, muted ? "1" : "0");
   } catch {

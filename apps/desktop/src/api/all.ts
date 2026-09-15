@@ -13,7 +13,7 @@ export const API_BASE = "http://127.0.0.1:8766";
 export type RuntimeLicenseStatus = {
   authorized: boolean;
   development_build: boolean;
-  license_kind: "trial" | "perpetual" | "development" | "";
+  license_kind: "trial" | "perpetual" | "term" | "development" | "";
   locked_reason: string;
   expires_at?: string;
   trial_remaining_sec?: number;

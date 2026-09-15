@@ -61,11 +61,27 @@ function playMarioCoin(context: AudioContext, now: number): void {
   master.gain.exponentialRampToValueAtTime(0.0001, now + 0.48);
 }
 
+/** Keep in sync with soundBed mute (avoids circular import; prefer cache over LS). */
+let soundBedMutedFlag = false;
+
+export function syncAlertSoundMute(muted: boolean): void {
+  soundBedMutedFlag = muted;
+}
+
+try {
+  if (typeof window !== "undefined" && localStorage.getItem("suying.soundBed.muted.v1") === "1") {
+    soundBedMutedFlag = true;
+  }
+} catch {
+  /* ignore */
+}
+
 /** App 内提示音：跟随系统音量；优先短促双音 / Mario 币音，失败则静默。
  *  受 SoundBed 静音开关约束（设置 → 偏好）。L19 真 wav 试听不走本函数。
  */
 export function playAlertSound(kind: AlertSoundKind = "ok"): boolean {
   try {
+    if (soundBedMutedFlag) return false;
     try {
       if (localStorage.getItem("suying.soundBed.muted.v1") === "1") return false;
     } catch {

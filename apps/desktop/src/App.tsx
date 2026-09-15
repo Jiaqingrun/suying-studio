@@ -3504,6 +3504,7 @@ function App() {
           <div className="tab-pane" hidden={tab !== "ops"} aria-hidden={tab !== "ops"}>
             <FrozenTab frozen={tab !== "ops"}>
             <OpsPage
+            active={tab === "ops"}
             section={opsSection}
             onSectionChange={setOpsSection}
             setTab={goTab}

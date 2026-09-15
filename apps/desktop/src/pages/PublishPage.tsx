@@ -147,7 +147,9 @@ export function PublishPage({
           {
             id: "video",
             label: "视频发布",
-            badge: reachMessageUnread + Number(reachInbox?.unread_count ?? 0),
+            // Domain switcher: show ready-to-publish count, not message unread
+            // (messages belong on 消息 tab / rail badge).
+            badge: readyCount,
           },
           { id: "content", label: "软文发布" },
         ]}
