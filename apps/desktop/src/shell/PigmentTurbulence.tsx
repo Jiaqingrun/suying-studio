@@ -51,25 +51,25 @@ export function PigmentTurbulence() {
     ];
 
     const seed = () => {
-      // Tight cluster — count scales gently with board size but stays compact
-      const count = Math.max(36, Math.min(64, Math.floor((w * h) / 28000)));
-      const maxOrbit = Math.min(w, h) * 0.22;
+      // Tight central cluster only — never fill the board
+      const count = Math.max(28, Math.min(48, Math.floor((w * h) / 36000)));
+      const maxOrbit = Math.min(w, h) * 0.14;
       particles = Array.from({ length: count }, (_, i) => {
         const c = palette[i % palette.length];
-        // Bias toward core: most mass near center, few outer filaments
-        const ring = Math.pow(Math.random(), 0.55);
+        // Strong core bias: most mass near center
+        const ring = Math.pow(Math.random(), 1.35);
         return {
-          orbit: maxOrbit * (0.12 + ring * 0.88),
+          orbit: maxOrbit * (0.08 + ring * 0.92),
           phase: Math.random() * Math.PI * 2,
-          spin: (0.12 + Math.random() * 0.18) * (Math.random() < 0.35 ? -1 : 1),
-          squash: 0.72 + Math.random() * 0.22,
-          wobble: 4 + Math.random() * 10,
-          wobbleSpeed: 0.35 + Math.random() * 0.55,
-          r: 14 + Math.random() * 36 * (1 - ring * 0.45),
-          hue: c.hue + (Math.random() * 16 - 8),
+          spin: (0.14 + Math.random() * 0.2) * (Math.random() < 0.4 ? -1 : 1),
+          squash: 0.78 + Math.random() * 0.16,
+          wobble: 2 + Math.random() * 6,
+          wobbleSpeed: 0.4 + Math.random() * 0.5,
+          r: 12 + Math.random() * 28 * (1 - ring * 0.5),
+          hue: c.hue + (Math.random() * 14 - 7),
           sat: c.sat + (Math.random() * 8 - 4),
           light: c.light + (Math.random() * 6 - 3),
-          alpha: 0.18 + Math.random() * 0.22,
+          alpha: 0.22 + Math.random() * 0.2,
         };
       });
     };
@@ -90,9 +90,9 @@ export function PigmentTurbulence() {
     };
 
     const clusterCenter = () => ({
-      // Slightly right of geometric center — sits in the open board well
-      cx: w * 0.56,
-      cy: h * 0.48,
+      // Board well center — between the two AV cards
+      cx: w * 0.5,
+      cy: h * 0.42,
     });
 
     const paintFrame = (t: number) => {
@@ -101,27 +101,28 @@ export function PigmentTurbulence() {
       ctx.globalCompositeOperation = "lighter";
 
       const { cx, cy } = clusterCenter();
-      // Whole cluster slowly breathes + turns
-      const clusterSpin = t * 0.085;
-      const breath = 1 + 0.04 * Math.sin(t * 0.4);
+      const clusterSpin = t * 0.1;
+      const breath = 1 + 0.03 * Math.sin(t * 0.45);
 
-      // Soft core bloom so the mass reads as one body
-      const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.min(w, h) * 0.2);
-      core.addColorStop(0, "hsla(290 55% 62% / 0.16)");
-      core.addColorStop(0.45, "hsla(210 50% 58% / 0.08)");
-      core.addColorStop(1, "hsla(48 60% 55% / 0)");
+      // Dense core bloom — reads as one pigment body
+      const coreR = Math.min(w, h) * 0.12;
+      const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR);
+      core.addColorStop(0, "hsla(300 60% 62% / 0.22)");
+      core.addColorStop(0.35, "hsla(210 55% 58% / 0.12)");
+      core.addColorStop(0.7, "hsla(48 65% 55% / 0.06)");
+      core.addColorStop(1, "hsla(300 50% 60% / 0)");
       ctx.fillStyle = core;
       ctx.beginPath();
-      ctx.arc(cx, cy, Math.min(w, h) * 0.2, 0, Math.PI * 2);
+      ctx.arc(cx, cy, coreR, 0, Math.PI * 2);
       ctx.fill();
 
       for (const p of particles) {
-        const ang = p.phase + clusterSpin * p.spin + t * p.spin * 0.15;
+        const ang = p.phase + clusterSpin * Math.sign(p.spin) + t * p.spin * 0.2;
         const wob = Math.sin(t * p.wobbleSpeed + p.phase) * p.wobble;
         const rad = (p.orbit + wob) * breath;
         const x = cx + Math.cos(ang) * rad;
         const y = cy + Math.sin(ang) * rad * p.squash;
-        drawBlob(ctx, x, y, p.r * (0.9 + 0.1 * Math.sin(t * 0.8 + p.phase)), p.hue, p.sat, p.light, p.alpha);
+        drawBlob(ctx, x, y, p.r * (0.92 + 0.08 * Math.sin(t * 0.9 + p.phase)), p.hue, p.sat, p.light, p.alpha);
       }
     };
 
