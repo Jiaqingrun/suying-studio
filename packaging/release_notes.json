@@ -1034,6 +1034,17 @@
         "未确认：require_publish_assets 不拦、CDP 跳过 _set_cover_files",
         "确认后：抖音/快手/视频号仍硬门禁竖版模板封面"
       ]
+    },
+    "0.8.46": {
+      "title": "四平台循环硬化 + 发布效率",
+      "summary": "并入效率线：上传进度停顿≥12s 重传、生产空转降频；登录探针识别抖音/快手/小红书创作者首页为已登录。默认仍不传封面（0.8.45 opt-in）。不降 READY_GATE/旁白/画质；消息 1800 与 L17/词包不动。",
+      "highlights": [
+        "UPLOAD_PROGRESS_STALL_SEC=12 → upload_stalled 后重传一次",
+        "JobWorker 空转：pause 5s / 空队列 2s / 等 render 槽 1s",
+        "登录 DOM 探针：douyin/kuaishou/xhs creator home → shellLoggedIn",
+        "即时发布 upload_cover 默认 false，与 publish_confirm_upload_cover 对齐",
+        "封面确认开关默认关（继承 0.8.45）"
+      ]
     }
   }
 }
