@@ -2283,13 +2283,25 @@ def _probe_login_ready_across_frames(sess: Any) -> dict[str, Any]:
           'input[type=file], .input-editor, [data-placeholder=\"添加描述\"], [contenteditable=\"true\"], textarea'
         );
       const avatar = Array.from(document.images || []).some(
-        (img) => /finderhead|qlogo\\.cn|avatar/i.test(String(img.src || ''))
+        (img) => /finderhead|qlogo\\.cn|avatar|aweme|douyin|xhscdn|kuaishou/i.test(String(img.src || ''))
       );
-      const shellLoggedIn = /channels\\.weixin\\.qq\\.com\\/(platform|micro)\\//.test(u)
-        && !login
+      // channels: shell SPA; other creators: home/dashboard without upload form still means logged-in.
+      const channelsShell = /channels\\.weixin\\.qq\\.com\\/(platform|micro)\\//.test(u)
         && (avatar
             || /finder-page|MicroPost|side-bar|视频号\\s*[·.]\\s*助手/.test(html)
             || /\\/platform\\//.test(u));
+      const douyinShell = /creator\\.douyin\\.com\\//.test(u)
+        && !/\\/login|passport|sso/i.test(u)
+        && (avatar
+            || /creator-micro/.test(u)
+            || /数据总览|内容管理|发布视频|创作者中心|首页/.test(t));
+      const kuaishouShell = /cp\\.kuaishou\\.com\\//.test(u)
+        && !/\\/login|passport|sso/i.test(u)
+        && (avatar || /作品管理|数据中心|发布|创作者中心/.test(t));
+      const xhsShell = /creator\\.xiaohongshu\\.com\\//.test(u)
+        && !/\\/login|passport|sso/i.test(u)
+        && (avatar || /笔记管理|数据看板|发布笔记|创作者服务平台|首页/.test(t));
+      const shellLoggedIn = !login && (channelsShell || douyinShell || kuaishouShell || xhsShell);
       return {
         url: u,
         text: t.slice(0, 500),
@@ -2299,6 +2311,7 @@ def _probe_login_ready_across_frames(sess: Any) -> dict[str, Any]:
         form: !!form,
         shellLoggedIn: !!shellLoggedIn,
         avatar: !!avatar,
+        shellKind: channelsShell ? 'channels' : douyinShell ? 'douyin' : kuaishouShell ? 'kuaishou' : xhsShell ? 'xhs' : '',
       };
     })()"""
 
@@ -2835,6 +2848,13 @@ def _execute_item(
     if item.queue_id:
         q = get_item(session, int(item.queue_id), customer_id=run.customer_id)
         body = (q.body if q else "") or ""
+    run_cfg = dict(run.config_json or {})
+    # Cover opt-in: run config override wins; else settings default (OFF).
+    upload_cover = run_cfg.get("upload_cover")
+    if upload_cover is None and "upload_cover" not in run_cfg:
+        upload_cover = None  # defer to settings via require_publish_assets
+    else:
+        upload_cover = bool(upload_cover)
 
     _set_item_phase(session, run, item, "uploading")
     _audit_publish(
@@ -2879,6 +2899,7 @@ def _execute_item(
             data_root=data_root,
             title=item.title,
             body=body,
+            upload_cover=upload_cover,
         )
     except Exception as exc:
         _audit_publish(
@@ -2940,6 +2961,7 @@ def _execute_item(
         template_id=None,
         upload_video=item.note != "resume_existing_form",
         reuse_existing_form=item.note == "resume_existing_form",
+        upload_cover=upload_cover,
     )
     # Merge runner-side stage timings (chrome/login) with CDP-internal timings.
     prev_ev = dict(item.evidence_json or {})

@@ -49,6 +49,8 @@ CHANNELS_COVER_MAX_VISION_ATTEMPTS = 2
 # Upload wait poll: state-driven short interval (was fixed 1.0s).
 WAIT_UPLOAD_POLL_SEC = 0.35
 WAIT_UPLOAD_POLL_BUSY_SEC = 0.5
+# Progress % unchanged for this long while state=uploading → stall → recover/retry.
+UPLOAD_PROGRESS_STALL_SEC = 12.0
 # Per-platform wait_upload_ready cap used by upload_video_with_retries.
 WAIT_UPLOAD_TIMEOUT_BY_PLATFORM: dict[str, float] = {
     "douyin": 45.0,
@@ -77,6 +79,7 @@ def _cover_timeout_result(*, snapshots: list[dict[str, Any]] | None = None) -> d
         "confirms": [],
         "snapshots": list(snapshots or []),
     }
+
 
 
 def _dismiss_cover_ui(sess: CdpSession) -> None:
@@ -1046,6 +1049,7 @@ def wait_upload_ready(sess: CdpSession, timeout: float = 12) -> dict[str, Any]:
 
     Channels form lives in an iframe — probe walks same-origin frames + CDP worlds.
     Default wait cap is 12s (inject → brief wait → fill).
+    Detects progress-stall (same % / uploading signals unchanged) for recovery.
     """
     from engine.reach.vision_reach import snapshot_page
 
@@ -1059,13 +1063,19 @@ def wait_upload_ready(sess: CdpSession, timeout: float = 12) -> dict[str, Any]:
       if (/上传失败|网络错误，请稍后|上传出错/.test(t)) return {{state:'upload_failed'}};
       const hasVideo = omAll('video').length > 0;
       const hasDelete = omAll('button,span,div,a').some(e => (e.innerText||'').trim() === '删除');
+      let pct = null;
+      const m = t.match(/(\\d{{1,3}})\\s*%/);
+      if (m) {{
+        const n = Number(m[1]);
+        if (Number.isFinite(n) && n >= 0 && n <= 100) pct = n;
+      }}
       // Never match bare「上传中」: Douyin keeps the sentence
       // 「如作品还在上传中，请勿关闭页面」after the file is fully ready.
       // Real progress still exposes cancel/progress/processing signals.
       if (/取消上传|转码中|正在上传|视频处理中/.test(t) || /\\b0%\\b/.test(t))
-        return {{state:'uploading', reason:'channels_progress', docs: omDocs().length}};
+        return {{state:'uploading', reason:'channels_progress', docs: omDocs().length, progress_pct: pct}};
       if (hasVideo && /封面预览/.test(t) && /生成中/.test(t) && !hasDelete)
-        return {{state:'uploading', reason:'channels_cover_generating', docs: omDocs().length}};
+        return {{state:'uploading', reason:'channels_cover_generating', docs: omDocs().length, progress_pct: pct}};
       if (hasVideo && (/封面预览|个人主页和分享卡片|删除|视频描述|添加描述/.test(t) || hasDelete))
         return {{state:'form', reason:'channels_preview', docs: omDocs().length}};
       if (/设置封面|作品描述|发布笔记/.test(t) && hasVideo && !/上传失败/.test(t))
@@ -1080,16 +1090,18 @@ def wait_upload_ready(sess: CdpSession, timeout: float = 12) -> dict[str, Any]:
         return {{state:'need_human'}};
       // Do not match bare「上传中」: Douyin keeps it in static help text after upload.
       if (/转码中|正在上传|上传进度|取消上传|封面生成中|视频处理中/.test(t))
-        return {{state:'uploading'}};
-      if (/\\d+%\\s*(取消上传|上传)/.test(t)) return {{state:'uploading'}};
+        return {{state:'uploading', progress_pct: pct}};
+      if (/\\d+%\\s*(取消上传|上传)/.test(t)) return {{state:'uploading', progress_pct: pct}};
       if (/拖拽视频|点击上传|上传视频/.test(t) && !hasVideo) return {{state:'upload'}};
-      return {{state:'waiting', hasVideo, hasDelete, docs: omDocs().length, textLen: t.length}};
+      return {{state:'waiting', hasVideo, hasDelete, docs: omDocs().length, textLen: t.length, progress_pct: pct}};
     }})()
     """
 
     deadline = time.time() + timeout
     last_probe: dict[str, Any] = {}
     t_wait0 = time.monotonic()
+    stall_key: tuple[Any, ...] | None = None
+    stall_since: float | None = None
     while time.time() < deadline:
         probe = sess.evaluate(probe_js) or {"state": "waiting"}
         if probe.get("state") == "waiting" and int(probe.get("docs") or 1) <= 1:
@@ -1116,6 +1128,34 @@ def wait_upload_ready(sess: CdpSession, timeout: float = 12) -> dict[str, Any]:
                 "text_excerpt": snap.get("text_excerpt"),
                 "elapsed_ms": _ms_since(t_wait0),
             }
+        # Stall detection: uploading with unchanged progress fingerprint.
+        if st == "uploading":
+            pct = last_probe.get("progress_pct")
+            reason = last_probe.get("reason")
+            key = (pct if pct is not None else "na", reason or "", bool(last_probe.get("hasVideo")))
+            now = time.monotonic()
+            if stall_key != key:
+                stall_key = key
+                stall_since = now
+            elif stall_since is not None and (now - stall_since) >= UPLOAD_PROGRESS_STALL_SEC:
+                snap = {}
+                try:
+                    snap = snapshot_page(sess, tag="wait_upload_stalled")
+                except Exception:
+                    pass
+                return {
+                    "ok": False,
+                    "state": "upload_stalled",
+                    "probe": {**last_probe, "stall_sec": round(now - stall_since, 2)},
+                    "screenshot": snap.get("screenshot"),
+                    "hint": "upload_progress_stalled",
+                    "url": snap.get("url"),
+                    "text_excerpt": snap.get("text_excerpt"),
+                    "elapsed_ms": _ms_since(t_wait0),
+                }
+        else:
+            stall_key = None
+            stall_since = None
         # Busy while uploading / progress; shorter poll when still waiting for form.
         time.sleep(WAIT_UPLOAD_POLL_BUSY_SEC if st == "uploading" else WAIT_UPLOAD_POLL_SEC)
     snap = {}
@@ -3805,6 +3845,28 @@ def upload_video_with_retries(
             except Exception:
                 pass
             continue
+        if st == "upload_stalled":
+            # Progress fingerprint unchanged — cancel/reupload once then soft-fail.
+            try:
+                snap = snapshot_page(sess, tag=f"upload_stalled_retry_{i}")
+                attempts[-1]["snapshot"] = snap
+                attempts[-1]["stall_recovery"] = True
+            except Exception:
+                pass
+            if i + 1 < max_attempts:
+                continue
+            return {
+                "ok": False,
+                "upload": last_upload,
+                "ready": last_ready,
+                "attempts": attempts,
+                "error": "upload_stalled",
+                "timings": {
+                    "upload_inject_ms": inject_ms,
+                    "wait_upload_ready_ms": wait_ms,
+                    "upload_total_ms": _ms_since(t0),
+                },
+            }
         if last_ready.get("ok"):
             chk = sess.evaluate(
                 f"""(() => {{
@@ -4539,7 +4601,11 @@ def publish_via_cdp(
             cover_soft_fail = True
             if cover_r.get("timed_out") or cover_r.get("reason") == "cover_timeout_soft_pass":
                 cover_note = f"封面超过{int(COVER_SOFT_TIMEOUT_SEC)}秒未设成功，已放行并用平台默认封面继续发布"
-            elif plat == "xhs" or cover_r.get("skipped"):
+            elif plat == "xhs" or cover_r.get("skipped") or cover_r.get("reason") in (
+                "xhs_cover_optional",
+                "cover_upload_not_confirmed",
+                "cover_skipped_no_files",
+            ):
                 cover_note = "封面未设/已跳过，已放行发布（使用平台默认封面）"
             else:
                 cover_note = "封面核验未通过，已放行并用平台默认封面继续发布"

@@ -377,7 +377,8 @@ class JobWorker:
                         session.commit()
                 finally:
                     session.close()
-                self._stop.wait(0.5)
+                # Pause: no new claims — longer idle wait (was 0.5s) to cut empty spin.
+                self._stop.wait(5.0)
                 continue
 
             if gen != self._generation:
@@ -408,7 +409,8 @@ class JobWorker:
                 ).all()
                 job = next((c for c in candidates if job_next_attempt_ready(c)), None)
                 if not job:
-                    self._stop.wait(1.0)
+                    # Empty queue: slightly longer sleep cuts wake churn; wake still ≤2s.
+                    self._stop.wait(2.0)
                     continue
                 token = f"job:{job.id}"
                 # "render" is no longer held for the whole job — only acquired
@@ -1689,7 +1691,7 @@ class JobWorker:
                     reservation_key=reservation_key,
                 )
                 return
-            time.sleep(0.5)
+            time.sleep(1.0)
         # NOTE: if any statement between here and the release_render() call below
         # raises, the outer worker loop's `finally: resource_gate.release_all(token)`
         # (token == render_token, same "job:<id>" string) is the safety net that

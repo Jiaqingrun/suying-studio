@@ -84,6 +84,9 @@ class ImmediateBatchRequest(BaseModel):
     accept_risk: bool = False
     # Temporary override: allow READY 成片 that already have published queue rows.
     allow_published: bool = False
+    # Cover opt-in: default skip App cover upload (platform default frame).
+    # Pass true only when operator explicitly confirms a cover.
+    upload_cover: bool = False
 
 
 class ConfirmOutcomeRequest(BaseModel):
@@ -578,6 +581,7 @@ def start_immediate_batch(body: ImmediateBatchRequest) -> dict[str, Any]:
                 "algorithm": preview["algorithm"],
                 "reserved_excluded": False,
                 "allow_published": bool(body.allow_published),
+                "upload_cover": bool(body.upload_cover),
                 "requested_count": body.total_count,
                 "actual_count": len(preview["assignments"]),
                 "skipped_accounts": preview["skipped_accounts"],
