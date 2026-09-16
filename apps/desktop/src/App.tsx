@@ -966,7 +966,8 @@ function App() {
     await refreshHealth();
     try {
       setAssets(await api.listAssets());
-      setJobs(await api.listJobs());
+      const jobRows = await api.listJobs();
+      setJobs(Array.isArray(jobRows) ? jobRows : []);
       setEvents(await api.listEvents());
       setOutputs(await api.listOutputs());
       try {

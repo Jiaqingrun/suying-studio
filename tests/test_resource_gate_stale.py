@@ -41,7 +41,11 @@ def test_resource_gate_same_token_reentrant() -> None:
     gate = ResourceGate()
     gate.configure(render_slots=1, tts_slots=1)
     assert gate.try_acquire("render", "job:1")
-    assert gate.try_acquire("render", "job:1")  # re-enter same token
+    pool = gate._pools["render"]
+    first_at = pool.holders["job:1"]
+    time.sleep(0.02)
+    assert gate.try_acquire("render", "job:1")  # re-enter same token renews lease
+    assert pool.holders["job:1"] >= first_at
     assert not gate.try_acquire("render", "job:2")
     gate.release("render", "job:1")
     assert gate.try_acquire("render", "job:2")
@@ -94,6 +98,25 @@ def test_resource_gate_sweep_default_leases() -> None:
     assert "ollama_heavy" in released
     assert gate.try_acquire("ollama_heavy", "narration:fresh")
     gate.release_all("narration:fresh")
+
+
+def test_resource_gate_touch_and_heartbeat_prevent_sweep() -> None:
+    gate = ResourceGate()
+    gate.configure(tts_slots=1, ollama_heavy_slots=1)
+    assert gate.try_acquire("tts", "job:1:tts")
+    assert gate.touch("tts", "job:1:tts")
+    assert not gate.touch("tts", "missing")
+    # Age past lease ceiling, then touch — sweep must keep the living holder.
+    gate._pools["tts"].holders["job:1:tts"] = time.monotonic() - 999.0
+    assert gate.touch("tts", "job:1:tts")
+    released = gate.force_release_expired("tts", max_age_sec=600.0)
+    assert released.get("tts") in (None, [])
+    assert "job:1:tts" in gate._pools["tts"].holders
+    with gate.heartbeat("tts", "job:1:tts", interval_sec=5.0):
+        gate._pools["tts"].holders["job:1:tts"] = time.monotonic() - 999.0
+        time.sleep(0.05)  # heartbeat thread not required mid-interval; touch explicitly
+        gate.touch("tts", "job:1:tts")
+    gate.release("tts", "job:1:tts")
 
 
 def test_resource_gate_unknown_slot_refused() -> None:

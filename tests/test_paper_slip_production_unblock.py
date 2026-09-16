@@ -70,10 +70,29 @@ def test_inactive_jobs_release_stale_reservations(tmp_path) -> None:
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
-        session.add_all([dead, alive])
+        parked = Job(
+            customer_id=1,
+            status="paused_system",
+            template_name="fast-ship",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        manual = Job(
+            customer_id=1,
+            status="paused",
+            template_name="fast-ship",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        session.add_all([dead, alive, parked, manual])
         session.flush()
         now = datetime.now(timezone.utc)
-        for job, key in ((dead, "dead-phrase"), (alive, "alive-phrase")):
+        for job, key in (
+            (dead, "dead-phrase"),
+            (alive, "alive-phrase"),
+            (parked, "parked-phrase"),
+            (manual, "manual-phrase"),
+        ):
             session.add(
                 PaperSlipReservation(
                     reservation_key=f"job:{job.id}:seed:1",
@@ -99,6 +118,8 @@ def test_inactive_jobs_release_stale_reservations(tmp_path) -> None:
         }
         assert rows["dead-phrase"] == "released"
         assert rows["alive-phrase"] == "reserved"
+        assert rows["parked-phrase"] == "reserved"
+        assert rows["manual-phrase"] == "reserved"
 
         # Explicit cleanup helper is also safe to call repeatedly.
         assert release_reservations_for_inactive_jobs(session) == 0
@@ -108,6 +129,8 @@ def test_inactive_jobs_release_stale_reservations(tmp_path) -> None:
             for r in session.scalars(select(PaperSlipReservation)).all()
         }
         assert again["alive-phrase"] == "reserved"
+        assert again["parked-phrase"] == "reserved"
+        assert again["manual-phrase"] == "reserved"
     finally:
         session.close()
         engine.dispose()

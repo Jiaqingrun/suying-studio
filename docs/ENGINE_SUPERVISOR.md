@@ -48,7 +48,8 @@
 
 ## 离线 class（`offline_class`）
 
-`ok` · `starting` · `control_plane_not_ready` · `not_listening` · `no_agent` · `license_cache_missing` · `license` · `workspace` · `integrity` · …
+`ok` · `starting` · `boot_failed` · `control_plane_not_ready` · `not_ready` · `not_listening` · `no_agent` · `license_cache_missing` · `license` · `workspace` · `integrity` · …  
+（禁止引擎再发裸词 `control_plane` 作 `offline_class`；与桌面 `offlineClassLabel` / Rust `classify` 对齐。）
 
 ## 运维动作
 

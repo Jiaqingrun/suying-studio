@@ -206,3 +206,52 @@ def test_reconcile_keeps_external_required_on_volume(tmp_path: Path, monkeypatch
     assert dirty is False
     assert settings.paths.external_required is True
     assert settings.workspace_volume_uuid == "VOL-1"
+
+
+def test_volume_sibling_prefix_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Fail-closed: /Volumes/QR-evil must not match mount /Volumes/QR via startswith."""
+    import sqlite3
+
+    from engine.config.workspace import STATE_MISMATCH
+
+    mount = tmp_path / "Volumes" / "QR"
+    mount.mkdir(parents=True)
+    evil = tmp_path / "Volumes" / "QR-evil" / "db"
+    evil.mkdir(parents=True)
+    (evil / "settings.json").write_text("{}", encoding="utf-8")
+    db = evil / "montage.db"
+    con = sqlite3.connect(db)
+    try:
+        con.execute("CREATE TABLE customers (id INTEGER PRIMARY KEY)")
+        con.execute("CREATE TABLE jobs (id INTEGER PRIMARY KEY)")
+        con.execute("CREATE TABLE assets (id INTEGER PRIMARY KEY)")
+        con.execute("CREATE TABLE render_outputs (id INTEGER PRIMARY KEY)")
+        con.execute("INSERT INTO customers (id) VALUES (1)")
+        con.commit()
+    finally:
+        con.close()
+    write_marker(evil, WorkspaceIdentity(workspace_id="ws-evil", volume_uuid="VOL-QR"))
+    settings = AppSettings(
+        paths=PathConfig(data_root=evil),
+        workspace_id="ws-evil",
+        workspace_volume_uuid="VOL-QR",
+    )
+
+    import engine.config.workspace as ws
+
+    monkeypatch.setattr(ws, "is_external_data_root", lambda *_a, **_k: True)
+    monkeypatch.setattr(
+        ws,
+        "volume_info_for_path",
+        lambda *_a, **_k: {
+            "ok": True,
+            "volume_uuid": "VOL-QR",
+            "mount_point": str(mount),
+            "error": None,
+        },
+    )
+    monkeypatch.setattr(ws, "volume_mount_point", lambda *_a, **_k: str(mount))
+    probe = probe_workspace(settings)
+    assert probe.state == STATE_MISMATCH
+    assert probe.can_init_db is False
+    assert any("不在绑定卷挂载点下" in r for r in probe.reasons)

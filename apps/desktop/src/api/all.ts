@@ -10,6 +10,9 @@ import type {
 
 export const API_BASE = "http://127.0.0.1:8766";
 
+/** Default UI→engine budget; override via init.signal for long jobs. */
+export const DEFAULT_API_TIMEOUT_MS = 45_000;
+
 export type RuntimeLicenseStatus = {
   authorized: boolean;
   development_build: boolean;
@@ -30,16 +33,30 @@ export function outputCoverUrl(id: number, index: number, bust?: string | number
   return `${API_BASE}/outputs/${id}/cover/${index}${q}`;
 }
 
+/** Map HTTP status + engine detail to user-facing error (no false "路径" for login/slot 409). */
+export function formatApiHttpError(status: number, message: string): string {
+  const prefix =
+    status === 409
+      ? "当前状态不允许此操作"
+      : status === 423
+        ? "运行时已暂停"
+        : `请求失败 (${status})`;
+  return `${prefix}：${message}`;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
+  const { signal: userSignal, headers: userHeaders, ...rest } = init || {};
   try {
     res = await fetch(`${API_BASE}${path}`, {
-      headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
-      ...init,
+      ...rest,
+      headers: { "Content-Type": "application/json", ...(userHeaders || {}) },
+      signal: userSignal ?? AbortSignal.timeout(DEFAULT_API_TIMEOUT_MS),
     });
   } catch (e) {
     const detail = e instanceof Error && e.message ? e.message : String(e);
     const lower = detail.toLowerCase();
+    const name = e instanceof Error ? e.name : "";
     // Transport-only failures; map common macOS / WebView copy to clear actions.
     let hint = "请确认引擎已启动";
     if (
@@ -54,7 +71,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       detail.includes("Connection refused")
     ) {
       hint = "引擎端口未监听，请到运维页启动引擎后重试";
-    } else if (lower.includes("abort") || lower.includes("timeout")) {
+    } else if (
+      name === "TimeoutError" ||
+      lower.includes("abort") ||
+      lower.includes("timeout") ||
+      lower.includes("timed out")
+    ) {
       hint = "请求超时，引擎可能正忙或数据库繁忙，请稍后重试";
     }
     // Keep Chinese banner stable; include transport detail for sticky-error clear + debug.
@@ -73,13 +95,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // Keep non-JSON response text.
     }
-    const prefix =
-      res.status === 409
-        ? "当前路径或生产状态不可用"
-        : res.status === 423
-          ? "运行时已暂停"
-          : `请求失败 (${res.status})`;
-    throw new Error(`${prefix}：${message}`);
+    throw new Error(formatApiHttpError(res.status, message));
   }
   return res.json() as Promise<T>;
 }

@@ -1494,8 +1494,12 @@ def _migrate_business_scope_columns(conn) -> None:
     _add_column_if_missing(conn, "reach_messages", "kind", "VARCHAR(16)")
     try:
         conn.execute(text("UPDATE reach_messages SET kind='other' WHERE kind IS NULL OR kind=''"))
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 — table may lag on partial upgrades
+        import logging
+
+        logging.getLogger("montage.db").warning(
+            "reach_messages.kind backfill skipped: %s", exc
+        )
     _add_column_if_missing(conn, "reply_drafts", "business_scope", "VARCHAR(16)")
     _add_column_if_missing(conn, "content_publish_jobs", "business_scope", "VARCHAR(16)")
 
@@ -2623,8 +2627,12 @@ def _run_sqlite_migrations(settings: AppSettings | None = None) -> None:
         from engine.reach.browser import migrate_legacy_chrome_profiles
 
         migrate_legacy_chrome_profiles()
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 — boot must continue; never silent-success
+        import logging
+
+        logging.getLogger("montage.db").warning(
+            "chrome profile migrate deferred/failed: %s", exc
+        )
 
     session = get_session()
     try:
