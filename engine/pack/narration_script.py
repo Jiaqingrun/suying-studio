@@ -2315,6 +2315,18 @@ def tighten_srt_to_voiceover(
         # Must match ready_gate._check_align window (end+0.05). A looser
         # end+0.25 pulls in the *next* utterance's span → speech_end too late →
         # no clamp → READY_GATE overhang fails on already-"tightened" SRTs.
+        if vo_dur > 0:
+            vo_cap = max(0.05, vo_dur - 0.02)
+            # Segment math can place a tail cue start past the VO bed (V-02 / P1r cue9).
+            # Re-anchor into the last audible span before clamping, else tighten invents
+            # end<=start timestamps that still fail READY after a full render.
+            if start >= vo_cap:
+                if spans:
+                    tail_start, tail_end = spans[-1]
+                    start = max(tail_start, min(start, tail_end - min_cue_sec))
+                else:
+                    start = max(0.0, vo_cap - min_cue_sec)
+                end = max(end, start + min_cue_sec)
         overlapping = [(s, e) for s, e in spans if e > start + 0.02 and s < end + 0.05]
         if overlapping:
             speech_end = max(e for _, e in overlapping)
@@ -2323,7 +2335,11 @@ def tighten_srt_to_voiceover(
             new_end = start + min_cue_sec
         new_end = max(start + 0.05, new_end)
         if vo_dur > 0:
-            new_end = min(new_end, max(0.05, vo_dur - 0.02))
+            vo_cap = max(0.05, vo_dur - 0.02)
+            new_end = min(new_end, vo_cap)
+            if new_end <= start:
+                start = max(0.0, vo_cap - min_cue_sec)
+                new_end = vo_cap
         blines[1] = f"{_srt_ts(start)} --> {_srt_ts(new_end)}"
         out.append("\n".join(blines))
 

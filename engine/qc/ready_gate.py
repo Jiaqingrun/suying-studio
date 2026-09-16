@@ -133,6 +133,24 @@ def _find_voice(mp4: Path, sidecar: dict[str, Any]) -> Path | None:
     return None
 
 
+def preflight_align_gate(
+    srt: str,
+    wav: Path,
+    *,
+    max_overhang: float = 0.08,
+) -> list[str]:
+    """READY G.ALIGN semantics for cheap fail-fast before render (PL-13 / G1).
+
+    Same bar as evaluate_ready_gate checks["align"]; not a relaxed pre-check.
+    """
+    wav = Path(wav)
+    if not (srt or "").strip():
+        return ["align: empty SRT"]
+    if not wav.is_file():
+        return ["align: voice wav missing"]
+    return _check_align(srt, wav, max_overhang=max_overhang)
+
+
 def _check_align(srt: str, wav: Path, *, max_overhang: float = 0.08) -> list[str]:
     fails: list[str] = []
     spans = _speech_spans_by_silence(wav, min_silence=0.06)

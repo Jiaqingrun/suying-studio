@@ -1583,6 +1583,40 @@ class JobWorker:
             frozen_rules,
             snap.get("topic_intent") if isinstance(snap.get("topic_intent"), dict) else None,
         )
+        srt_path = voice_info.get("srt_path")
+        # PL-13 / G1: same READY G.ALIGN bar, before ffmpeg (fail-fast; not a relaxed gate).
+        sub_on_preflight = voice_info.get("subtitle_enabled")
+        if sub_on_preflight is None:
+            sub_on_preflight = (frozen_rules or {}).get("subtitle_enabled", True)
+        if (
+            srt_path
+            and narr_path
+            and Path(str(srt_path)).is_file()
+            and Path(str(narr_path)).is_file()
+            and voice_info.get("subtitle_lang") not in (None, "", "none")
+            and bool(sub_on_preflight)
+        ):
+            from engine.qc.ready_gate import preflight_align_gate
+
+            try:
+                align_fails = preflight_align_gate(
+                    Path(str(srt_path)).read_text(encoding="utf-8"),
+                    Path(str(narr_path)),
+                )
+            except OSError as exc:
+                align_fails = [f"align: preflight read error {exc!s}"]
+            if align_fails:
+                skip_current_item(
+                    session,
+                    job,
+                    reason="align_preflight",
+                    stage="tts",
+                    error="; ".join(align_fails[:3]),
+                    infra=False,
+                    elapsed_sec=_elapsed_item(attempt_started),
+                    reservation_key=reservation_key,
+                )
+                return
         # "render" is acquired only for this FFmpeg-heavy stretch (encode →
         # subtitle burn → cover extraction) and released right after, so
         # planning/narration/TTS never pin the slot (see resource_gate.py).
