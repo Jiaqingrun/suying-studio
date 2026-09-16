@@ -1,7 +1,7 @@
 [package]
 name = "appsdesktop"
 default-run = "appsdesktop"
-version = "0.8.38"
+version = "0.8.40"
 description = "速影 Studio — 本地 AI 混剪桌面端"
 authors = ["QR"]
 edition = "2021"

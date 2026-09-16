@@ -975,6 +975,16 @@
         "GET /ops/ollama/circuit · POST /ops/ollama/recover（有界 kickstart+warmup）",
         "单测覆盖 half_open 旁白试验与 ops recover"
       ]
+    },
+    "0.8.40": {
+      "title": "V-03/V-04 · 模板覆盖明示 + 四槽 schema",
+      "summary": "生产页可选节奏模板并支持「强制模板」忽略规则 template_preference；schema recommended_content_categories 补 store_culture 与引擎四槽对齐。轻量 V-08：8766 无监听但 engine.pid 仍存活时 offline_class=process_no_listen。不删功能、不降成片质量。",
+      "highlights": [
+        "CreateJob/dry-run：template_name + force_template；快照记录 requested_template_name",
+        "生产 UI：节奏模板下拉 + 覆盖提示 + 强制模板开关",
+        "SCHEMA_METADATA.recommended_content_categories 含 store_culture",
+        "engine_status：process_no_listen 区分僵尸进程与纯未监听"
+      ]
     }
   }
 }
