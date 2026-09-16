@@ -995,6 +995,15 @@
         "worker：TTS 后、render 槽前 align_preflight fail-fast",
         "单测 test_align_preflight_v02 + test_align_homology 回归"
       ]
+    },
+    "0.8.42": {
+      "title": "阶段 δ · PL-05 FCP→Movies 路径审计",
+      "summary": "新增 scripts/pl05_fcp_movies_remap.py：默认 dry-run 只报告 FCP 残留路径与 Movies 映射；显式 --apply 才拷贝+改写权威路径；both_missing 永不静默改写。配套单测。不改成片质量/发布/L17/词包。",
+      "highlights": [
+        "PL-05 路径审计：18 条 FCP 残留可出报告（14 copy_then_remap / 4 archive candidate）",
+        "禁静默 remap：必须 --apply；缺两端文件 skip_archive_candidate",
+        "tests/test_pl05_fcp_movies_remap.py"
+      ]
     }
   }
 }
