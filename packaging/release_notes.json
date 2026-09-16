@@ -1067,6 +1067,16 @@
         "ready-pool hygiene 扩展：failed/缺媒体/孤儿组自动溶解占坑",
         "_output_spec 拒 failed/空文件；封面确认默认仍关"
       ]
+    },
+    "0.8.49": {
+      "title": "分层审计 R1：合回 main + Ollama 文案对齐",
+      "summary": "将 0.8.46–0.8.48 发布残留加固合入 origin/main（关 SA-R1-001）；/health/ollama 文案与 inference_available 对齐，未暖探针勿称「就绪」（关 SA-R1-003）。不降 READY_GATE/旁白/画质；封面默认仍确认才传；消息 1800 与 L17/词包不动。",
+      "highlights": [
+        "main tip 追上已装 0.8.48 线（含四平台 residual + 效率 stall 重传）",
+        "align_health_ollama_message：model_present ≠ 就绪；需 chat_probe",
+        "unittest test_ollama_health_message_align 4/4",
+        "分层审计 R1 Track B 30/30 ready 证据保留于 Store media/stratified-audit-r1"
+      ]
     }
   }
 }
