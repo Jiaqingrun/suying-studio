@@ -995,6 +995,16 @@
         "worker：TTS 后、render 槽前 align_preflight fail-fast",
         "单测 test_align_preflight_v02 + test_align_homology 回归"
       ]
+    },
+    "0.8.43": {
+      "title": "性能后置 · 最小化停轮询 + ffmpeg threads/nice",
+      "summary": "P0.3：Tauri 最小化/失焦经 appSurfaceActive + suying://app-surface 真正停控制面轮询（不只 document.hidden）。P2.1：成片 ffmpeg -threads 封顶（核数-1）+ nice 10，不改 CRF/preset。禁区未动：旁白 keep_alive、消息 1800、发布 due、L17/FrozenTab、watcher。",
+      "highlights": [
+        "appSurfaceActive：document 可见 ∧ 未最小化 ∧ 有焦点才轮询",
+        "Rust on_window_event 发射 suying://app-surface",
+        "prepare_ffmpeg_argv / run_ffmpeg：-threads + nice，CRF/preset 原样",
+        "单测 appSurfaceActive + test_ffmpeg_threads_nice"
+      ]
     }
   }
 }
