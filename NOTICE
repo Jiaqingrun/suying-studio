@@ -1,0 +1,28 @@
+速影（Suying）Studio — 第三方软件声明（NOTICE）
+================================================
+
+本产品为商业专有软件。第三方开源与模型组件按其各自许可证提供；
+完整清单与 SPDX 表达式见：
+
+  docs/THIRD_PARTY_MANIFEST.json
+  docs/legal/THIRD_PARTY_NOTICES.zh-CN.md
+  docs/legal/licenses/
+  docs/legal/model-licenses/
+  docs/legal/DELIVERY_NOTICE.zh-CN.md
+
+要点（非穷尽）：
+
+  • FFmpeg 及 GPL/LGPL 编解码闭包 — 见 docs/legal/licenses/ 与
+    docs/legal/source-offer/（对应源码要约材料）
+  • Ollama — MIT（docs/legal/licenses/ollama-0.24.0/）
+  • 本地模型 nomic-embed-text / qwen3.5:9b — Apache-2.0
+    （docs/legal/model-licenses/）
+  • 字体 / Twemoji / 蒙版等 FX 资源 — 见 configs/fx_assets/licenses/
+    与 docs/FX_ASSET_WHITELIST.md
+  • BGM — 见 docs/MUSIC.md（署名义务随曲目许可）
+
+历史取证（Remotion / OpenMontage / Cursor SDK）仅存于 docs/legal/
+供审计，不进入现行客户交付闭包。
+
+本 NOTICE 不是法律意见；客户交付以离线 legal 组件与销售合同为准。
+版本对齐产品：0.8.35（随发版更新 Manifest）。
