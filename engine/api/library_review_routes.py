@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
@@ -67,10 +67,19 @@ def list_outputs(
     missing_voice: bool = False,
     missing_subtitle: bool = False,
     noncompliant_tts: bool = False,
+    job_id: int | None = None,
+    limit: int = Query(500, ge=1, le=500),
 ) -> list[dict[str, Any]]:
+    """List outputs for the active customer.
+
+    Hot path must stay read-mostly: do **not** call ``backfill_display_nos`` here
+    (that writes under the shared SQLite lock and can starve the API for minutes
+    while produce/render holds the DB — SA-R2-005). New rows already get
+    ``display_no`` via ``allocate_display_no`` at create time.
+    """
     from pathlib import Path
 
-    from engine.catalog.serial import backfill_display_nos, format_display_no
+    from engine.catalog.serial import format_display_no
     from engine.ops.publish_trail import (
         merge_publish_trail,
         tts_lock_violation,
@@ -83,7 +92,6 @@ def list_outputs(
     session = get_session()
     try:
         _, customer, _ = active_scope(session, settings)
-        backfill_display_nos(session, customer_id=customer.id)
         video_lock = load_video_lock(customer.name, output_root=customer.output_root)
         q = (
             select(RenderOutput)
@@ -93,7 +101,10 @@ def list_outputs(
         )
         if state:
             q = q.where(RenderOutput.state == state)
-        rows = session.scalars(q).all()
+        if job_id is not None:
+            q = q.where(RenderOutput.job_id == int(job_id))
+        # Bound work: sidecars + Path.is_file per row; uncapped lists hang under load.
+        rows = session.scalars(q.limit(int(limit))).all()
         from engine.catalog.db import ReviewItem
 
         result = []
