@@ -7,11 +7,14 @@ import time
 from engine.reach.cdp_publish import (
     CHANNELS_COVER_MAX_VISION_ATTEMPTS,
     COVER_SOFT_TIMEOUT_SEC,
+    UPLOAD_PROGRESS_STALL_SEC,
     WAIT_UPLOAD_POLL_SEC,
     WAIT_UPLOAD_TIMEOUT_BY_PLATFORM,
     _budget_ok,
+    _cover_skipped_opt_out_result,
     _cover_timeout_result,
     _ms_since,
+    _should_skip_cover_upload,
 )
 from engine.reach.publish_runner import CHROME_STOP_TIMEOUT_SEC
 
@@ -37,6 +40,7 @@ def test_cover_soft_timeout_is_twenty_seconds() -> None:
     assert WAIT_UPLOAD_POLL_SEC < 1.0
     assert CHROME_STOP_TIMEOUT_SEC <= 12.0
     assert WAIT_UPLOAD_TIMEOUT_BY_PLATFORM["channels"] >= 45.0
+    assert UPLOAD_PROGRESS_STALL_SEC >= 8.0
 
 
 def test_budget_ok_respects_deadline() -> None:
@@ -52,6 +56,18 @@ def test_cover_timeout_result_schema() -> None:
     assert r["skipped"] is True
     assert r["reason"] == "cover_timeout_soft_pass"
     assert r["snapshots"]
+
+
+def test_cover_opt_out_skip_helper() -> None:
+    skip = _cover_skipped_opt_out_result(platform="douyin")
+    assert skip["skipped"] is True
+    assert skip["reason"] == "cover_upload_opt_out"
+    assert _should_skip_cover_upload({"cover_optional": True, "covers": []}, "douyin")
+    assert _should_skip_cover_upload({"covers": ["/x.jpg"]}, "xhs")
+    assert not _should_skip_cover_upload(
+        {"covers": ["/封面模板/a.jpg"], "cover_meta": {"upload_cover": True}},
+        "douyin",
+    )
 
 
 def test_ms_since_non_negative() -> None:
