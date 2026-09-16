@@ -926,6 +926,16 @@
         "list/output_cover_paths 仅返回磁盘仍在的封面；生产素材库 EmptyState",
         "vitest mediaPreview 4 项；覆盖安装仅换 App；L17/清玻璃/FrozenTab/B3 未动"
       ]
+    },
+    "0.8.35": {
+      "title": "阶段 γ · A8 剩余引擎/测试分拣",
+      "summary": "对照 AV tip 清 main 脏树：合入向量化代际重启、库迁移日志、bulk-read datetime、桌面 API 超时与 409 文案；配套回归测。B3 词包隔离旁路分支；不含 L17。",
+      "highlights": [
+        "vectorization_runtime 代际重启，避免旧循环线程双跑",
+        "db 迁移失败改 warning 日志；reach bulk-read 补 datetime 导入",
+        "桌面 DEFAULT_API_TIMEOUT + formatApiHttpError（409 不再误称路径）",
+        "resource_gate / paper_slip / workspace 前缀 / 四源版本对齐测试补强；B3 词包未合入"
+      ]
     }
   }
 }
