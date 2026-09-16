@@ -996,6 +996,17 @@
         "单测 test_align_preflight_v02 + test_align_homology 回归"
       ]
     },
+    "0.8.42": {
+      "title": "合规默认落地 · LICENSE / 关于 / AI 可选 / PL-07",
+      "summary": "用户授权「全部开始」合规可落地项：专有 LICENSE 占位、设置关于页接线、Edge/F5 旁注、AI 标识可选默认关、隐私终稿草稿、PL-07 方案 A 偏温和（白名单 + localhost/SUYING_OPS_DEV）。词包/L17 不动。",
+      "highlights": [
+        "根 LICENSE：清闰/QR 占位 + 待合同主体终裁",
+        "设置 → 关于：APP_ABOUT 接线；Edge/F5 CC-BY-NC 提示",
+        "偏好：AI 标识可选开关默认关（依法需要时可开）",
+        "docs/legal/PRIVACY_NOTICE.zh-CN.md + OPS_AUTH_WHITELIST.md",
+        "PL-07：高危写面白名单；裸 localhost 旁路是否收紧待真人确认"
+      ]
+    },
     "0.8.43": {
       "title": "性能后置 · 最小化停轮询 + ffmpeg threads/nice",
       "summary": "P0.3：Tauri 最小化/失焦经 appSurfaceActive + suying://app-surface 真正停控制面轮询（不只 document.hidden）。P2.1：成片 ffmpeg -threads 封顶（核数-1）+ nice 10，不改 CRF/preset。禁区未动：旁白 keep_alive、消息 1800、发布 due、L17/FrozenTab、watcher。",
@@ -1006,15 +1017,14 @@
         "单测 appSurfaceActive + test_ffmpeg_threads_nice"
       ]
     },
-    "0.8.42": {
-      "title": "合规默认落地 · LICENSE / 关于 / AI 可选 / PL-07",
-      "summary": "用户授权「全部开始」合规可落地项：专有 LICENSE 占位、设置关于页接线、Edge/F5 旁注、AI 标识可选默认关、隐私终稿草稿、PL-07 方案 A 偏温和（白名单 + localhost/SUYING_OPS_DEV）。词包/L17 不动。",
+    "0.8.44": {
+      "title": "V-08 端口健康复活 + G1C 已付 voice 复用",
+      "summary": "LaunchAgent attach 环验 LISTEN+/readiness，僵尸态 process_no_listen 优先 kickstart；同 job 失败重试用 stamp 复用已付 TTS 工件（跟镜除外）。不放松 READY_GATE/PL-21，不伤入场发布消息。",
       "highlights": [
-        "根 LICENSE：清闰/QR 占位 + 待合同主体终裁",
-        "设置 → 关于：APP_ABOUT 接线；Edge/F5 CC-BY-NC 提示",
-        "偏好：AI 标识可选开关默认关（依法需要时可开）",
-        "docs/legal/PRIVACY_NOTICE.zh-CN.md + OPS_AUTH_WHITELIST.md",
-        "PL-07：高危写面白名单；裸 localhost 旁路是否收紧待真人确认"
+        "scripts/install-engine-agent.sh：H1 健康 attach + 僵尸 engine.main TERM（不杀 ffmpeg）",
+        "check-engine-supervisor：zombie_listener；Rust running 不以无听 pid 报绿",
+        "App heal / engine_start：!listen 或 process_no_listen → kickstart agent",
+        "G1C voice_artifact：stamp 命中跳过 Edge；ready 成功后清缓存"
       ]
     }
   }
