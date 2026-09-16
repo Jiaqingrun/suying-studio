@@ -224,6 +224,9 @@ def _published_output_ids(session: Session, customer_id: int, platform: str) -> 
 def _output_spec(out: RenderOutput) -> dict[str, Any] | None:
     from engine.reach.business_scope import VIDEO_PLATFORMS
 
+    # Failed / rejected / retired rows must never enter the publishable pool.
+    if str(out.state or "") not in {"ready"}:
+        return None
     statuses = out.platform_asset_status if isinstance(out.platform_asset_status, dict) else {}
     if (
         out.pack_status != "ready"
@@ -235,8 +238,11 @@ def _output_spec(out: RenderOutput) -> dict[str, Any] | None:
     if not pack_dir.is_dir():
         return None
     out_path = Path(str(out.output_path or ""))
-    # PL-04: never surface ready-pool candidates whose media is missing/offline.
-    if not out_path.is_file():
+    # PL-04: never surface ready-pool candidates whose media is missing/offline/empty.
+    try:
+        if not out_path.is_file() or out_path.stat().st_size <= 0:
+            return None
+    except OSError:
         return None
     return {
         "output_id": out.id,

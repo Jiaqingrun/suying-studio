@@ -23,6 +23,7 @@ from engine.catalog.db import (
 )
 from engine.reach.publication_lifecycle import (
     claim_target_for_submission,
+    dissolve_idle_publication_group,
     freeze_publication_group,
     output_has_active_group,
     record_target_outcome,
@@ -330,4 +331,48 @@ def test_cas_and_crash_recovery_and_customer_isolation(tmp_path: Path) -> None:
         session, customer_id=customer_b.id, output_id=output.id
     )
     other.close()
+    session.close()
+
+
+def test_dissolve_idle_publication_group_frees_candidate_pool(tmp_path: Path) -> None:
+    _, session, customer, output = _fixture(tmp_path)
+    group = _group(session, customer, output)
+    assert output_has_active_group(
+        session, customer_id=customer.id, output_id=output.id
+    )
+    result = dissolve_idle_publication_group(
+        session, group_id=group.id, reason="test_idle"
+    )
+    assert result["abandoned"] is True
+    session.commit()
+    assert group.status == "abandoned"
+    assert not output_has_active_group(
+        session, customer_id=customer.id, output_id=output.id
+    )
+    # Can freeze a fresh group after abandon.
+    group2, _ = freeze_publication_group(
+        session,
+        customer_id=customer.id,
+        output_id=output.id,
+        targets=[{"platform": "douyin", "account_key": "account-a"}],
+        source="test_retry",
+    )
+    assert group2.id != group.id
+    session.close()
+
+
+def test_dissolve_refuses_when_target_submitting(tmp_path: Path) -> None:
+    _, session, customer, output = _fixture(tmp_path)
+    group = _group(session, customer, output)
+    target = resolve_target(
+        session, group_id=group.id, platform="douyin", account_key="account-a"
+    )
+    claim_target_for_submission(session, group_id=group.id, target_id=target.id)
+    session.commit()
+    result = dissolve_idle_publication_group(session, group_id=group.id)
+    assert result["ok"] is False
+    assert "live_or_published" in str(result.get("error") or "")
+    assert output_has_active_group(
+        session, customer_id=customer.id, output_id=output.id
+    )
     session.close()

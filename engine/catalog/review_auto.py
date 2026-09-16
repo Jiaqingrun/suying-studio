@@ -1263,11 +1263,13 @@ def batch_hygiene_ready_pool(
     heal_pending: bool = True,
     archive_missing: bool = True,
     pack_status: str | None = None,
+    dissolve_idle_groups: bool = True,
 ) -> dict[str, Any]:
     """PL-04: clear dead ready rows (any pack_status) and heal pending packs when media exists.
 
     - missing / empty media → archive (unless volume_offline)
     - present + pack pending → ``ensure_publish_pack`` when ``heal_pending``
+    - idle publication groups on failed/missing/orphan rows → dissolve occupancy
     """
     lim = _hygiene_limit(limit)
     rows = _ready_pool_outputs(
@@ -1284,9 +1286,59 @@ def batch_hygiene_ready_pool(
         "present_ok": 0,
         "skipped": 0,
         "errors": 0,
+        "would_dissolve_idle_groups": 0,
+        "dissolved_idle_groups": 0,
+        "dissolve_skipped": 0,
     }
     deferred_offline: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
+
+    from engine.reach.publication_lifecycle import (
+        dissolve_idle_groups_for_output,
+        dissolve_idle_publication_group,
+        output_has_active_group,
+    )
+    from engine.catalog.db import PublicationGroup
+
+    def _maybe_dissolve(output: RenderOutput, *, reason: str) -> dict[str, Any] | None:
+        if not dissolve_idle_groups:
+            return None
+        if not output_has_active_group(
+            session, customer_id=customer.id, output_id=output.id
+        ):
+            return None
+        if dry_run:
+            counts["would_dissolve_idle_groups"] += 1
+            return {
+                "ok": True,
+                "output_id": output.id,
+                "action": "would_dissolve_idle_groups",
+                "reason": reason,
+            }
+        results = dissolve_idle_groups_for_output(
+            session,
+            customer_id=customer.id,
+            output_id=output.id,
+            reason=reason,
+        )
+        abandoned = sum(1 for r in results if r.get("abandoned"))
+        if abandoned:
+            counts["dissolved_idle_groups"] += abandoned
+            return {
+                "ok": True,
+                "output_id": output.id,
+                "action": "dissolved_idle_groups",
+                "reason": reason,
+                "results": results,
+            }
+        counts["dissolve_skipped"] += 1
+        return {
+            "ok": False,
+            "output_id": output.id,
+            "action": "dissolve_skipped",
+            "reason": reason,
+            "results": results,
+        }
 
     for output in rows:
         if len(items) >= lim:
@@ -1308,6 +1360,9 @@ def batch_hygiene_ready_pool(
                 items.append(row)
                 continue
             if status in {"missing", "empty"}:
+                dissolved = _maybe_dissolve(output, reason=f"media_{status}")
+                if dissolved:
+                    items.append(dissolved)
                 if not archive_missing:
                     counts["skipped"] += 1
                     items.append(
@@ -1393,6 +1448,73 @@ def batch_hygiene_ready_pool(
             counts["errors"] += 1
             errors.append({"output_id": output.id, "error": str(e)[:500]})
 
+    # Extra pass: dissolve idle occupancy on failed/rejected outputs + orphan idle groups.
+    if dissolve_idle_groups and len(items) < lim:
+        failed_rows = list(
+            session.scalars(
+                select(RenderOutput)
+                .join(Job, RenderOutput.job_id == Job.id)
+                .where(
+                    Job.customer_id == customer.id,
+                    RenderOutput.state.in_(("failed", "rejected")),
+                )
+                .order_by(RenderOutput.id.desc())
+                .limit(lim * 2)
+            ).all()
+        )
+        for output in failed_rows:
+            if len(items) >= lim:
+                break
+            dissolved = _maybe_dissolve(output, reason=f"state_{output.state}")
+            if dissolved:
+                items.append(dissolved)
+
+        orphan_groups = list(
+            session.scalars(
+                select(PublicationGroup)
+                .where(
+                    PublicationGroup.customer_id == customer.id,
+                    PublicationGroup.status.in_(
+                        ("open", "isolated", "retired_pending_archive", "archive_failed")
+                    ),
+                )
+                .order_by(PublicationGroup.id.desc())
+                .limit(lim * 2)
+            ).all()
+        )
+        for group in orphan_groups:
+            if len(items) >= lim:
+                break
+            if dry_run:
+                counts["would_dissolve_idle_groups"] += 1
+                items.append(
+                    {
+                        "ok": True,
+                        "output_id": group.output_id,
+                        "group_id": group.id,
+                        "action": "would_dissolve_idle_groups",
+                        "reason": "orphan_idle_group",
+                    }
+                )
+                continue
+            result = dissolve_idle_publication_group(
+                session, group_id=group.id, reason="orphan_idle_group"
+            )
+            if result.get("abandoned"):
+                counts["dissolved_idle_groups"] += 1
+                items.append(
+                    {
+                        "ok": True,
+                        "output_id": group.output_id,
+                        "group_id": group.id,
+                        "action": "dissolved_idle_groups",
+                        "reason": "orphan_idle_group",
+                        **result,
+                    }
+                )
+            else:
+                counts["dissolve_skipped"] += 1
+
     if not dry_run:
         session.commit()
     return {
@@ -1403,6 +1525,7 @@ def batch_hygiene_ready_pool(
         "pack_status_filter": pack_status,
         "heal_pending": heal_pending,
         "archive_missing": archive_missing,
+        "dissolve_idle_groups": dissolve_idle_groups,
         "processed": len(items),
         **counts,
         "items": items,

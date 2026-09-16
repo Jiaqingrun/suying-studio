@@ -58,6 +58,14 @@ WAIT_UPLOAD_TIMEOUT_BY_PLATFORM: dict[str, float] = {
     "xhs": 45.0,
     "kuaishou": 45.0,
 }
+# Hunting DOM.setFileInputFiles target. Channels wujie/SPA mounts slowly.
+FILE_INPUT_HUNT_SEC_DEFAULT = 14.0
+FILE_INPUT_HUNT_SEC_BY_PLATFORM: dict[str, float] = {
+    "channels": 42.0,
+    "douyin": 18.0,
+    "xhs": 16.0,
+    "kuaishou": 16.0,
+}
 
 
 def _budget_ok(deadline: float | None) -> bool:
@@ -873,6 +881,77 @@ def _ensure_douyin_video_tab(sess: CdpSession) -> str:
     )
 
 
+def _channels_create_spa_probe(sess: CdpSession) -> dict[str, Any]:
+    """Pierce wujie/iframe create page: init banner vs upload affordance vs file input."""
+    raw = sess.evaluate(
+        f"""(() => {{
+          {_OM_DOCS}
+          const t = omBodyText();
+          const href = location.href || '';
+          const files = omAll('input[type=file]');
+          const initializing = /页面初始化中|正在加载|加载中/.test(t);
+          const uploadUi = /上传视频|拖拽视频|点击上传|发表视频|选择视频|添加视频/.test(t)
+            || omAll('div,span,button').some(e => {{
+                 const x = (e.innerText||'').trim();
+                 return x === '+' || x === '＋';
+               }});
+          const login = /扫码登录|手机号登录|短信登录|\\/login\\b|redirectReason=401/i.test(t + href);
+          return {{
+            docs: omDocs().length,
+            files: files.length,
+            initializing: !!initializing,
+            uploadUi: !!uploadUi,
+            login: !!login,
+            href,
+            textLen: t.length,
+          }};
+        }})()"""
+    )
+    return raw if isinstance(raw, dict) else {}
+
+
+def _wait_channels_create_spa_ready(sess: CdpSession, *, timeout_sec: float = 28.0) -> dict[str, Any]:
+    """Wait until channels post/create wujie mounts upload UI or file input.
+
+    Parent document.body often only shows the shell while the create form is
+    still initializing inside shadowRoot iframe — always pierce via omDocs.
+    """
+    deadline = time.time() + max(4.0, float(timeout_sec))
+    last: dict[str, Any] = {}
+    navigated = False
+    while time.time() < deadline:
+        try:
+            _dismiss_channels_dialogs(sess)
+            _dismiss_publisher_popups(sess)
+        except Exception:
+            pass
+        last = _channels_create_spa_probe(sess)
+        if last.get("login"):
+            return {**last, "ready": False, "reason": "need_login"}
+        if int(last.get("files") or 0) > 0:
+            return {**last, "ready": True, "reason": "file_input"}
+        if last.get("uploadUi") and not last.get("initializing"):
+            return {**last, "ready": True, "reason": "upload_ui"}
+        # One soft reload if still stuck on init after half the budget.
+        if (
+            not navigated
+            and last.get("initializing")
+            and time.time() > deadline - (timeout_sec * 0.45)
+        ):
+            try:
+                create_url = UPLOAD_URLS.get("channels") or ""
+                if create_url:
+                    sess.evaluate(f"location.href = {json.dumps(create_url)}")
+                    navigated = True
+                    last = {**last, "soft_reload": True}
+                    time.sleep(0.8)
+                    continue
+            except Exception:
+                pass
+        time.sleep(0.45)
+    return {**last, "ready": bool(int(last.get("files") or 0) > 0), "reason": "timeout"}
+
+
 def upload_video_via_cdp(sess: CdpSession, video_path: str, *, platform: str = "") -> dict[str, Any]:
     """Inject video.mp4 via DOM.setFileInputFiles — never open OS file dialog."""
     if not Path(video_path).is_file():
@@ -880,24 +959,43 @@ def upload_video_via_cdp(sess: CdpSession, video_path: str, *, platform: str = "
 
     # Best-effort: leave article tab / discard draft before hunting file input
     tab = "skip"
+    spa_ready: dict[str, Any] | None = None
+    plat = (platform or "").strip().lower()
     try:
-        plat = (platform or "").strip().lower()
-        if plat == "douyin" or (not plat and "douyin.com" in str(sess.evaluate("location.hostname") or "")):
+        host = str(sess.evaluate("location.hostname") or "")
+        if not plat:
+            if "douyin.com" in host:
+                plat = "douyin"
+            elif "channels.weixin.qq.com" in host:
+                plat = "channels"
+        if plat == "douyin":
             tab = _ensure_douyin_video_tab(sess)
         else:
             tab = "skip_non_douyin"
         _dismiss_publisher_popups(sess)
-        # channels shows「页面初始化中」before file input exists
-        for _ in range(8):
-            init = sess.evaluate(
-                """(() => {
-                  const t = (document.body && document.body.innerText) || '';
-                  return /页面初始化中/.test(t);
-                })()"""
-            )
-            if not init:
-                break
-            time.sleep(0.35)
+        if plat == "channels":
+            spa_ready = _wait_channels_create_spa_ready(sess, timeout_sec=28.0)
+            if spa_ready.get("login"):
+                return {
+                    "ok": False,
+                    "error": "need_login",
+                    "phase": "need_login",
+                    "clicks": [f"tab:{tab}", f"spa:{spa_ready.get('reason')}"],
+                    "spa_ready": spa_ready,
+                    "hint": "当前是登录页，请先在此 Chrome 窗口完成创作者登录",
+                }
+        else:
+            # Generic init banner (parent body only) for non-channels.
+            for _ in range(8):
+                init = sess.evaluate(
+                    """(() => {
+                      const t = (document.body && document.body.innerText) || '';
+                      return /页面初始化中/.test(t);
+                    })()"""
+                )
+                if not init:
+                    break
+                time.sleep(0.35)
         if tab == "navigated":
             # Wait for page ready by probing file input / host, not fixed 2s sleep.
             for _ in range(10):
@@ -940,49 +1038,55 @@ def upload_video_via_cdp(sess: CdpSession, video_path: str, *, platform: str = "
     def _click_upload_affordance() -> str:
         return (
             sess.evaluate(
-                """(() => {
-                  for (const t of ['取消','暂不','关闭','知道了','我知道了','以后再说','放弃']) {
-                    const el = Array.from(document.querySelectorAll('button,div,span,a'))
+                f"""(() => {{
+                  {_OM_DOCS}
+                  for (const t of ['取消','暂不','关闭','知道了','我知道了','以后再说','放弃']) {{
+                    const el = omAll('button,div,span,a')
                       .find(e => (e.innerText||'').trim() === t);
                     if (el) el.click();
-                  }
+                  }}
                   // Prefer video tab before upload button (douyin only)
-                  if (/douyin\\.com/i.test(location.hostname || '')) {
-                    const vtab = Array.from(document.querySelectorAll('div,span,a,button,li'))
+                  if (/douyin\\.com/i.test(location.hostname || '')) {{
+                    const vtab = omAll('div,span,a,button,li')
                       .find(e => (e.innerText||'').trim() === '发布视频');
                     if (vtab) vtab.click();
-                  }
-                  // channels: click the dashed + upload card
-                  const plus = Array.from(document.querySelectorAll('div,span,button'))
-                    .find(e => {
+                  }}
+                  // channels: click the dashed + upload card (pierce wujie)
+                  const plus = omAll('div,span,button')
+                    .find(e => {{
                       const x = (e.innerText||'').trim();
                       return x === '+' || x === '＋';
-                    });
-                  if (plus) { plus.click(); }
+                    }});
+                  if (plus) {{ plus.click(); }}
                   const texts = [
                     '上传视频','拖拽视频到此或点击上传','发表视频','选择视频','点击上传','添加视频',
                     '上传','发视频','拖拽上传','选择文件','+'
                   ];
-                  const els = Array.from(document.querySelectorAll('button,div,span,a,label,p,li'));
-                  for (const t of texts) {
-                    const el = els.find(e => {
+                  const els = omAll('button,div,span,a,label,p,li');
+                  for (const t of texts) {{
+                    const el = els.find(e => {{
                       const x = (e.innerText||'').trim();
                       return x === t || (x.indexOf(t) >= 0 && x.length < 28);
-                    });
-                    if (el) { el.click(); return 'clicked:' + t; }
-                  }
-                  const lab = document.querySelector('label[for]');
-                  if (lab) { lab.click(); return 'clicked:label'; }
+                    }});
+                    if (el) {{ el.click(); return 'clicked:' + t; }}
+                  }}
+                  const lab = omAll('label[for]')[0];
+                  if (lab) {{ lab.click(); return 'clicked:label'; }}
                   return 'none';
-                })()"""
+                }})()"""
             )
             or "none"
         )
 
     clicks: list[str] = [f"tab:{tab}"]
+    if spa_ready is not None:
+        clicks.append(f"spa:{spa_ready.get('reason') or spa_ready.get('ready')}")
     snaps: list[Any] = []
     bid = None
-    deadline = time.time() + 14
+    hunt_sec = float(
+        FILE_INPUT_HUNT_SEC_BY_PLATFORM.get(plat, FILE_INPUT_HUNT_SEC_DEFAULT)
+    )
+    deadline = time.time() + hunt_sec
     while time.time() < deadline:
         bid = _find_bid()
         if bid:
@@ -1016,6 +1120,7 @@ def upload_video_via_cdp(sess: CdpSession, video_path: str, *, platform: str = "
                 "clicks": clicks,
                 "snapshots": snaps,
                 "snapshot": snap,
+                "spa_ready": spa_ready,
                 "hint": (
                     "当前是登录页，请先在此 Chrome 窗口完成创作者登录"
                     if (state == "need_login" or "/login" in page_url.lower())
@@ -1028,6 +1133,8 @@ def upload_video_via_cdp(sess: CdpSession, video_path: str, *, platform: str = "
             "clicks": clicks,
             "snapshots": snaps,
             "snapshot": snap,
+            "spa_ready": spa_ready,
+            "hunt_sec": hunt_sec,
             "hint": "页面上未出现 file input；请确认已打开上传页或登录后重试",
         }
     try:
@@ -1039,9 +1146,17 @@ def upload_video_via_cdp(sess: CdpSession, video_path: str, *, platform: str = "
             "method": "DOM.setFileInputFiles",
             "clicks": clicks,
             "snapshots": snaps,
+            "spa_ready": spa_ready,
+            "hunt_sec": hunt_sec,
         }
     except CdpError as e:
-        return {"ok": False, "error": str(e), "clicks": clicks, "snapshots": snaps}
+        return {
+            "ok": False,
+            "error": str(e),
+            "clicks": clicks,
+            "snapshots": snaps,
+            "spa_ready": spa_ready,
+        }
 
 
 

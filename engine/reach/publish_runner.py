@@ -77,7 +77,15 @@ SOFT_SKIP_PHASE = "soft_skipped"
 # Kinds that must not burn multi-round empty retries.
 LOGIN_WALL_KINDS = frozenset({"login_required", "true_login_wall", "post_probe_false_pass"})
 # form_not_ready may requeue once; true wall never.
-REQUEUEABLE_SOFT_KINDS = frozenset({"form_not_ready", "feature_blocked", "verification_required", "sqlite_locked"})
+REQUEUEABLE_SOFT_KINDS = frozenset(
+    {
+        "form_not_ready",
+        "upload_form_not_ready",
+        "feature_blocked",
+        "verification_required",
+        "sqlite_locked",
+    }
+)
 # True login wall: bounded human scan window, then fail-forward (defer + release slot).
 LOGIN_WALL_GRACE_SEC = 90.0
 LOGIN_WALL_GRACE_CAP_SEC = 120.0
@@ -128,6 +136,24 @@ def _soft_skip_item(
     kind: str,
 ) -> None:
     """Mark item soft-skipped and continue the round (no whole-batch pause)."""
+    from engine.reach.publication_lifecycle import (
+        dissolve_idle_publication_group,
+        release_unsubmitted_target,
+    )
+
+    pub = (item.evidence_json or {}).get("publish_result") or {}
+    if not pub.get("pub_clicked"):
+        release_unsubmitted_target(
+            session,
+            group_id=item.publication_group_id,
+            target_id=item.publication_target_id,
+        )
+        if item.publication_group_id:
+            dissolve_idle_publication_group(
+                session,
+                group_id=int(item.publication_group_id),
+                reason=f"soft_skip:{kind}",
+            )
     item.phase = SOFT_SKIP_PHASE
     item.outcome = SOFT_SKIP_PHASE
     item.error = reason
@@ -3553,7 +3579,9 @@ def _worker_loop(run_id: str) -> None:
                     pub = result.get("pub") or {}
                     phase_name = str(pub.get("phase") or "")
                     raw_err = str(pub.get("error") or result.get("error") or "")
-                    if phase_name == "need_login" or raw_err in ("need_login", "no_file_input"):
+                    # True login walls only. no_file_input is SPA mount miss — soft-skip
+                    # (retryable) instead of halting the whole batch as 扫码登录.
+                    if phase_name == "need_login" or raw_err == "need_login":
                         reason = (
                             f"账号未登录创作者中心（{raw_err or phase_name}）；"
                             "已停在当前窗口，请扫码后点继续"
@@ -3576,6 +3604,21 @@ def _worker_loop(run_id: str) -> None:
                         )
                         session.commit()
                         return
+                    if raw_err == "no_file_input" or phase_name == "no_file_input":
+                        reason = (
+                            "发表页尚未挂载上传控件（no_file_input）；"
+                            f"已跳过本条，整轮结束后自动重试（第 {_run_round_attempt(run)}/{MAX_ROUND_ATTEMPTS} 轮）"
+                        )
+                        _soft_skip_item(
+                            session,
+                            run,
+                            item,
+                            reason=reason,
+                            stage="upload",
+                            kind="upload_form_not_ready",
+                        )
+                        session.commit()
+                        break
                     if phase_name in ("need_sms_verify", "need_human"):
                         kind = "verification_required"
                         stage = "verification"
