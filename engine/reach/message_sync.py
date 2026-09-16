@@ -795,10 +795,16 @@ class MessageSync:
                     "；若账号需登录请点「打开登录」", ""
                 ).replace("若账号需登录请点「打开登录」。", "")
             if chrome_busy and "非账号" not in error_text and "非登录" not in error_text:
-                error_text = (
-                    f"{error_text.rstrip('。')}。"
-                    "这是浏览器被发布/其他任务占用，消息巡检已延后，不是账号登录损坏。"
-                )
+                if publish_priority:
+                    error_text = (
+                        f"{error_text.rstrip('。')}。"
+                        "因发布让路，消息巡检已延后，不是账号登录损坏。"
+                    )
+                else:
+                    error_text = (
+                        f"{error_text.rstrip('。')}。"
+                        "这是浏览器被发布/其他任务占用，消息巡检已延后，不是账号登录损坏。"
+                    )
             self._finish_error(session, scan, "deferred", code, error_text)
             if account is not None:
                 self._schedule_transient_retry(account.id)

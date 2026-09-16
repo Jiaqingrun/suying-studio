@@ -114,7 +114,7 @@ describe("MessageAccountManager", () => {
       last_status: "deferred",
       last_error_code: "publish_priority",
       last_error:
-        "publish_priority: 浏览器正由发布任务占用，消息巡检已自动延后（非账号登录问题）",
+        "publish_priority: 因发布让路，浏览器正由发布任务占用，消息巡检已自动延后（非账号登录问题）",
       readonly_verified: false,
     };
     const { container } = render(
@@ -129,7 +129,7 @@ describe("MessageAccountManager", () => {
         onDelete={vi.fn()}
       />,
     );
-    expect(container.textContent).toMatch(/发布优先延后/);
+    expect(container.textContent).toMatch(/因发布让路/);
     expect(container.textContent).not.toMatch(/需重新登录/);
   });
 });

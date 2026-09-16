@@ -617,7 +617,21 @@ class VectorizationExecutor:
 
     def _loop(self, gen: int) -> None:
         while not self._stop.is_set() and gen == self._generation:
-            self._wake.wait(0.5)
+            # S5: when vectorization is off (or pause holds claims), stretch idle wake
+            # from 0.5s → 10s. enable/kick still calls wake() to interrupt promptly.
+            wait_sec = 0.5
+            try:
+                from engine.config.settings import load_settings
+                from engine.runtime.pause_coordinator import coordinator
+
+                if (
+                    not load_settings().vectorization_enabled
+                    or not coordinator.should_claim_jobs()
+                ):
+                    wait_sec = 10.0
+            except Exception:  # noqa: BLE001
+                wait_sec = 10.0
+            self._wake.wait(wait_sec)
             self._wake.clear()
             if self._stop.is_set() or gen != self._generation:
                 break

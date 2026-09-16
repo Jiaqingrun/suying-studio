@@ -8,6 +8,8 @@ export const POLL_BUDGET_MS = {
   reportOps: 10_000,
   humanAlerts: 15_000,
   messages: 30_000,
+  /** /ops/services — not every health tick (S1 / PL-10) */
+  services: 30_000,
   semanticFast: 3_000,
   semanticIdle: 15_000,
   vectorBusy: 1_000,
@@ -24,4 +26,6 @@ export const POLL_TICK = {
   humanAlertsEvery: 3,
   /** customer/keyword sync every N health ticks → ~30s */
   customerSyncEvery: 6,
+  /** /ops/services every N health ticks → ~30s (not 1:1 with health) */
+  servicesEvery: 6,
 } as const;

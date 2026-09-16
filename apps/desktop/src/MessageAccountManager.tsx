@@ -37,7 +37,7 @@ function isLoginIssue(account: ReachMessageAccount): boolean {
   if (status === "deferred") return false;
   const err = String(account.last_error || "");
   if (
-    /Chrome 正由|另一个速影任务|profile 已被占用|浏览器忙|浏览器被发布占用|publish_priority|消息巡检已自动延后|非账号登录问题|非登录损坏/i.test(
+    /Chrome 正由|另一个速影任务|profile 已被占用|浏览器忙|浏览器被发布占用|publish_priority|因发布让路|消息巡检已自动延后|非账号登录问题|非登录损坏/i.test(
       err,
     )
   ) {
@@ -68,7 +68,7 @@ function isChromeBusy(account: ReachMessageAccount): boolean {
     return true;
   }
   const err = String(account.last_error || "");
-  return /Chrome 正由|另一个速影任务|profile 已被占用|浏览器忙|浏览器被发布占用|publish_priority|消息巡检已自动延后/i.test(
+  return /Chrome 正由|另一个速影任务|profile 已被占用|浏览器忙|浏览器被发布占用|publish_priority|因发布让路|消息巡检已自动延后/i.test(
     err,
   );
 }
@@ -78,7 +78,7 @@ function accountStatus(account: ReachMessageAccount): string {
   if (isLoginIssue(account)) return "需登录";
   if (isChromeBusy(account)) {
     const code = String(account.last_error_code || "").toLowerCase();
-    if (code === "publish_priority") return "发布优先延后";
+    if (code === "publish_priority") return "因发布让路";
     return "等待浏览器";
   }
   if (account.last_status === "deferred") return "延后";
@@ -171,7 +171,11 @@ export function MessageAccountManager({
                   <small className="warn-chip">需重新登录 · 点「打开登录」</small>
                 ) : null}
                 {chromeBusy ? (
-                  <small className="warn-chip">发布占用浏览器 · 结束后自动重试（非登录损坏）</small>
+                  <small className="warn-chip">
+                    {String(account.last_error_code || "").toLowerCase() === "publish_priority"
+                      ? "因发布让路 · 结束后自动重试（非登录损坏）"
+                      : "发布占用浏览器 · 结束后自动重试（非登录损坏）"}
+                  </small>
                 ) : null}
                 {!loginIssue && account.last_status === "readonly_unverified" ? (
                   <small className="warn-chip">只读校准未完成</small>

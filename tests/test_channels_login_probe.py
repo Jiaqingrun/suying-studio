@@ -195,6 +195,7 @@ class PublishLeasePriorityTests(unittest.TestCase):
                 acquire_operation("message_scan:99")
             self.assertEqual(ctx.exception.code, "publish_priority")
             self.assertNotIn("打开登录", str(ctx.exception))
+            self.assertIn("因发布让路", str(ctx.exception))
         finally:
             clear_publish_active(owner)
             self.assertFalse(is_publish_active())

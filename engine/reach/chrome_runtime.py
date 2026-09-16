@@ -188,7 +188,7 @@ def acquire_operation(
 
     if is_scan and is_publish_active():
         raise PublishPriorityError(
-            "publish_priority: 浏览器正由发布任务占用，消息巡检已自动延后（非账号登录问题）"
+            "publish_priority: 因发布让路，浏览器正由发布任务占用，消息巡检已自动延后（非账号登录问题）"
         )
 
     deadline = (
@@ -200,7 +200,7 @@ def acquire_operation(
     while True:
         if is_scan and is_publish_active():
             raise PublishPriorityError(
-                "publish_priority: 浏览器正由发布任务占用，消息巡检已自动延后（非账号登录问题）"
+                "publish_priority: 因发布让路，浏览器正由发布任务占用，消息巡检已自动延后（非账号登录问题）"
             )
         try:
             if not _thread_lock.acquire(blocking=False if deadline else blocking):
