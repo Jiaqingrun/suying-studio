@@ -24,7 +24,7 @@
 | **L11** | [`INSTALL_PROFILE.md`](INSTALL_PROFILE.md) | **首启必须按实测配置生成安装计划；App/远程部署共用档位、模型与门禁；完成须有脱敏回执；禁止按机型名猜配置** |
 | **L12** | [`REMOTE_DEPLOY.md`](REMOTE_DEPLOY.md) | **远程部署唯一正式路径：离线单 ZIP + 签名工具/模型 + 单机许可；GUI Keychain 与 LaunchServices；本机 APFS 权威库/profile；覆盖只换 App 并保留登录态；热补不算交付** |
 | **L13** | [`SEMANTIC_OBJECT_VECTOR_LOCK.md`](SEMANTIC_OBJECT_VECTOR_LOCK.md) | **coarse/strict 与目录/画面证据分层；标题/字幕按画幅安全几何与冻结规则验收；物品名不侵入安全区；横/竖向量分别最老优先、只入队、真实状态与暂停保留已完成** |
-| **L14** | —（**已废止 · 2026-08-13 用户当面要求**） | ~~视频四平台作品描述末行强制「本作品由AI生成」~~ → **成片物料禁止再出现该披露及「本视频由AI生成」等别名；出包/预填/门禁一律剔除** |
+| **L14** | —（**已废止强制 · 2026-08-13**；**2026-09-16 可选开关默认关**） | ~~强制末行披露~~ → **默认剔除**；设置「偏好」可选开启（依法需要时可开）；禁止再做成片强制追加 |
 | **L15** | [`READY_GATE.md`](READY_GATE.md) + `engine/qc/ready_gate.py` + `engine/render/ffmpeg.py` + `engine/pack/tts.py` | **有旁白 wav 时成片 duration 必须严格大于完整旁白（≥+0.05s）；禁止裁到等长/更短。优先对过长口播做 tempo 贴齐画面（`fit_narration_to_picture_duration`，默认开；加速上限见 `narration_fit_max_speed`）；仍短则冻结尾帧；规则层禁止放松键** |
 | **L16** | [`ORIENTATION_LOCK.md`](ORIENTATION_LOCK.md) + `engine/ingest/orientation.py` | **横竖屏显示尺寸（含旋转元数据）双源一致硬审核；失败 `rejected_orientation`；禁止二次 transpose；向量/入库 fail-closed；App 硬性展示** |
 | **L17** | [`DEVELOPMENT_STANDARDS.md`](DEVELOPMENT_STANDARDS.md) §5.2.1 + `apps/desktop/src/shell/LangCombobox.tsx` | **规则页旁白/字幕语言下拉：Portal→body + fixed；已验收冻结（含视觉皮肤/外观）；禁止回退卡片内 absolute、禁止靠拆 overflow 修裁切；默认禁止再改本组件与 `.lang-combo*`（A7=A）** |
@@ -52,7 +52,7 @@
 14. **证据分层**：`coarse.v1` 不得冒充 `semantic.v1`；官方目录只证明目录事实，不得冒充画面直接可见事实或替代 strict 视觉门禁。
 15. **表达几何**：字幕竖屏推荐底部 420px、横屏推荐 180px；颜色、描边、字号、对齐和绝对底部距离可按画幅安全范围配置，仍须声画对齐、静音空屏且只烧一次。物品名称中文单列自上而下，可左/右且不得侵入标题/字幕安全区。
 16. **向量运营**：按资格时间最老优先；开始操作只入持久队列；状态必须来自持久化事实；暂停放弃当前未完成请求但保留已完成向量。
-17. **AI 披露（L14 已废止）**：成片物料**禁止**再出现「本作品由AI生成」「本视频由AI生成」等披露行；出包/预填/门禁/CDP 一律剔除，不得再强制追加。
+17. **AI 披露（L14）**：**默认**剔除「本作品由AI生成」等披露行（不得强制追加）；设置可选开关**默认关**，依法需要时可开（`publish_ai_disclosure_enabled`）。
 18. **成片×旁白时长**：有旁白时成片时长必须严格大于旁白（至少 +0.05s）；混音收尾禁止 trim 到等长/更短，应补尾帧/freeze；READY_GATE `duration: video_must_exceed_narration` 打回。
 19. **横竖屏**：以含旋转的显示尺寸为准；源片与归一化成片双源一致才可 ready/向量化；不一致与近平方 fail-closed（`rejected_orientation`）；App 展示硬审核、不可软关。
 20. **语言下拉（L17）**：`LangCombobox` 必须 Portal 到 `document.body` + `position: fixed` 视口定位；**不得**再改为卡片内 absolute/relative 弹层；**不得**用去掉 `.rule-card` / `.page-section` 的 overflow 当修法。冻结范围**含视觉皮肤/外观**（色/边/模糊亦不改，A7=A）。2026-08-07 人验收通过后**冻结**，除非回归且用户明确授权，否则禁止再改 `LangCombobox` 与相关 `.lang-combo*` CSS。一体包前端嵌入二进制，改源码须 rebuild/换包后验收，只开旧 `/Applications` 无效。

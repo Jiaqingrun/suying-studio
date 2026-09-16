@@ -17,6 +17,13 @@ import type { LayoutDensityPref, OpsSection, SettingsSection, Tab } from "../typ
 import type { AskConfirmFn, NotifyFn, TitlePoolSummary } from "./pageTypes";
 import { settingsPasswordChange } from "../settingsLock";
 import { isSoundBedMuted, setSoundBedMuted } from "../soundBed";
+import {
+  ABOUT_BLURB,
+  ABOUT_COPYRIGHT_HOLDER,
+  ABOUT_COPYRIGHT_NOTE,
+  ABOUT_PRODUCT_NAME,
+  ABOUT_SECTIONS,
+} from "../legal/aboutCopy";
 
 function localPreviewAudioSrc(path: string): string {
   const p = (path || "").trim();
@@ -183,6 +190,7 @@ const SETTINGS_SEGMENTS: Array<{ id: SettingsSection; label: string }> = [
   { id: "defaults", label: "偏好" },
   { id: "storage", label: "视频保留" },
   { id: "paths", label: "路径" },
+  { id: "about", label: "关于" },
 ];
 
 type TtsVoiceStatus = Awaited<ReturnType<typeof api.getTtsVoice>>;
@@ -490,6 +498,8 @@ export function VoiceTtsPanel({
         ) : null}
         <span className="hint">
           本机 F5：{cloneOk ? "可用" : "未安装（clone 需 pip install f5-tts）"}
+          {" · "}
+          权重多为 CC-BY-NC（非商用）；未清权不得冒充可商用再分发
         </span>
       </div>
 
@@ -520,38 +530,43 @@ export function VoiceTtsPanel({
             </select>
           </label>
           {provider === "edge" ? (
-            <label>
-              Edge 音色
-              <select
-                value={edgeVoice}
-                disabled={busy}
-                onChange={(e) => setEdgeVoice(e.target.value)}
-              >
-                {(() => {
-                  const has = edgeVoices.some((v) => v.id === edgeVoice);
-                  const opts = has
-                    ? edgeVoices
-                    : [{ id: edgeVoice, locale: "", gender: "", label: edgeVoice }, ...edgeVoices];
-                  return opts.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.label || v.id}
-                      {v.locale ? ` · ${v.locale}` : ""}
-                      {` · ${v.id}`}
-                    </option>
-                  ));
-                })()}
-              </select>
-              <span className="hint" style={{ display: "block", marginTop: 4 }}>
-                <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-                  <input
-                    type="checkbox"
-                    checked={edgeShowAll}
-                    onChange={(e) => setEdgeShowAll(e.target.checked)}
-                  />
-                  显示全部语言音色
-                </label>
-              </span>
-            </label>
+            <>
+              <label>
+                Edge 音色
+                <select
+                  value={edgeVoice}
+                  disabled={busy}
+                  onChange={(e) => setEdgeVoice(e.target.value)}
+                >
+                  {(() => {
+                    const has = edgeVoices.some((v) => v.id === edgeVoice);
+                    const opts = has
+                      ? edgeVoices
+                      : [{ id: edgeVoice, locale: "", gender: "", label: edgeVoice }, ...edgeVoices];
+                    return opts.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.label || v.id}
+                        {v.locale ? ` · ${v.locale}` : ""}
+                        {` · ${v.id}`}
+                      </option>
+                    ));
+                  })()}
+                </select>
+                <span className="hint" style={{ display: "block", marginTop: 4 }}>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={edgeShowAll}
+                      onChange={(e) => setEdgeShowAll(e.target.checked)}
+                    />
+                    显示全部语言音色
+                  </label>
+                </span>
+              </label>
+              <p className="hint" style={{ margin: "6px 0 0" }}>
+                第三方云语音，受微软服务条款约束（口播文本会出站；非全离线）。
+              </p>
+            </>
           ) : null}
         </>
       )}
@@ -881,6 +896,9 @@ export function SettingsPage({
   const [pwBusy, setPwBusy] = useState(false);
   const [brandDisplayName, setBrandDisplayName] = useState("");
   const [brandBusy, setBrandBusy] = useState(false);
+  const [aiDisclosureEnabled, setAiDisclosureEnabled] = useState(false);
+  const [aiDisclosureBusy, setAiDisclosureBusy] = useState(false);
+  const [aboutVersion, setAboutVersion] = useState("");
 
   const mediaSources = Array.isArray(syncStatus?.media_sources)
     ? (syncStatus.media_sources as Array<Record<string, string>>)
@@ -898,6 +916,33 @@ export function SettingsPage({
   useEffect(() => {
     if (section === "brand") setBrandDisplayName(savedBrandName);
   }, [section, savedBrandName, activeCustomerId]);
+
+  useEffect(() => {
+    if (section !== "defaults" && section !== "about") return;
+    let cancelled = false;
+    void api
+      .getSettings()
+      .then((s) => {
+        if (cancelled) return;
+        setAiDisclosureEnabled(Boolean(s.publish_ai_disclosure_enabled));
+      })
+      .catch(() => {
+        /* ignore — about/prefs still usable */
+      });
+    if (section === "about") {
+      void api
+        .health()
+        .then((h) => {
+          if (!cancelled) setAboutVersion(String(h.engine_version || ""));
+        })
+        .catch(() => {
+          if (!cancelled) setAboutVersion("");
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [section]);
 
   async function loadRemoteFolders(preferSelectFirst: boolean) {
     setRemoteFoldersBusy(true);
@@ -1262,6 +1307,31 @@ export function SettingsPage({
 
               <SoundBedMuteControl notify={notify} />
 
+              <h3 className="section-title">AI 标识（可选）</h3>
+              <p className="hint" style={{ marginBottom: 10 }}>
+                成片平台描述默认不附加「本作品由AI生成」（L14）。依法需要时可开；默认关。
+              </p>
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={aiDisclosureEnabled}
+                  disabled={aiDisclosureBusy}
+                  onChange={(e) => {
+                    const next = e.target.checked;
+                    setAiDisclosureBusy(true);
+                    void api
+                      .updateSettings({ publish_ai_disclosure_enabled: next })
+                      .then(() => {
+                        setAiDisclosureEnabled(next);
+                        notify(next ? "已开启 AI 标识（依法需要时）" : "已关闭 AI 标识", "ok");
+                      })
+                      .catch((err: unknown) => notify(String(err), "err"))
+                      .finally(() => setAiDisclosureBusy(false));
+                  }}
+                />
+                依法需要时可开（默认关）
+              </label>
+
               <h3 className="section-title">审片决策策略</h3>
               <p className="hint" style={{ marginBottom: 10 }}>
                 出片门禁明确通过的成片强制自动通过并进入历史；硬失败保持失败/已拒绝。
@@ -1444,6 +1514,33 @@ export function SettingsPage({
                   {actionBusy === "savePaths" ? "保存中…" : "保存设置"}
                 </button>
               </div>
+            </>
+          )}
+
+
+          {section === "about" && (
+            <>
+              <h3 className="section-title">{ABOUT_PRODUCT_NAME}</h3>
+              <p className="hint" style={{ marginBottom: 8 }}>
+                版本：{aboutVersion || "—"}
+              </p>
+              <p style={{ marginBottom: 12 }}>{ABOUT_BLURB}</p>
+              <p className="hint" style={{ marginBottom: 4 }}>
+                Copyright © {ABOUT_COPYRIGHT_HOLDER} {new Date().getFullYear()}. All rights reserved.
+              </p>
+              <p className="hint" style={{ marginBottom: 16 }}>
+                {ABOUT_COPYRIGHT_NOTE}
+              </p>
+              {ABOUT_SECTIONS.map((sec) => (
+                <div key={sec.title} style={{ marginBottom: 16 }}>
+                  <h3 className="section-title">{sec.title}</h3>
+                  {sec.paragraphs.map((para) => (
+                    <p key={para.slice(0, 24)} className="hint" style={{ marginBottom: 8 }}>
+                      {para}
+                    </p>
+                  ))}
+                </div>
+              ))}
             </>
           )}
 

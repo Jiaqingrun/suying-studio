@@ -28,8 +28,8 @@ Homebrew formula / receipt：`homebrew-evidence/`。摘要：`MATERIAL_SHA256.tx
 
 | 组件 | 角色 | 条款要点 |
 |------|------|----------|
-| edge-tts（默认旁白） | 联网调用微软 Edge 在线语音 | **非全离线**；文本出站；服务条款由使用方遵守（销售合同 §14.5） |
-| F5-TTS + Vocos（可选 clone / F5 Kit） | 本地克隆旁白 | 权重多为 **CC-BY-NC**；商用再分发须清权（`VOICE_CLONE.md`） |
+| edge-tts（默认旁白） | 联网调用微软 Edge 在线语音 | **非全离线**；文本出站；**第三方云语音，受微软服务条款约束**（销售合同 §14.5） |
+| F5-TTS + Vocos（可选 clone / F5 Kit） | 本地克隆旁白 | 权重多为 **CC-BY-NC（非商用）**；**未清权不得冒充可商用再分发**（`VOICE_CLONE.md`） |
 | Twemoji | 字幕 emoji 贴图 | CC-BY-4.0；`configs/fx_assets/licenses/CC-BY-4.0-Twemoji.txt` |
 | 字体（Noto / Source Han / 等） | 烧录字幕 | SIL OFL 1.1；见 `FX_ASSET_WHITELIST.md` |
 | npm：React / Tauri API / lucide-react 等 | 桌面 UI | 多为 MIT；发版前补 SPDX 表 |
@@ -52,5 +52,7 @@ Homebrew formula / receipt：`homebrew-evidence/`。摘要：`MATERIAL_SHA256.tx
 
 ## 5. App 关于页
 
-人读文案草稿（**未接线 UI**）：[`APP_ABOUT_COPY_DRAFT.zh-CN.md`](APP_ABOUT_COPY_DRAFT.zh-CN.md)。  
-接线属可见文案变更，须走 publish workflow。
+人读文案：[`APP_ABOUT_COPY_DRAFT.zh-CN.md`](APP_ABOUT_COPY_DRAFT.zh-CN.md)（已接线「设置 → 关于」）。  
+隐私说明：[`PRIVACY_NOTICE.zh-CN.md`](PRIVACY_NOTICE.zh-CN.md)。  
+Ops 鉴权白名单：[`OPS_AUTH_WHITELIST.md`](OPS_AUTH_WHITELIST.md)。  
+可见文案变更须走 publish workflow。

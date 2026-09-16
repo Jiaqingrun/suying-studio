@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, Header, HTTPException, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -467,6 +467,7 @@ class SettingsUpdate(BaseModel):
     tts_clone_pack: str | None = None
     tts_clone_speed: float | None = None
     tts_chars_per_sec_zh: float | None = None
+    publish_ai_disclosure_enabled: bool | None = None
 
 
 class TtsPreferenceUpdate(BaseModel):
@@ -1243,6 +1244,8 @@ def update_settings(body: SettingsUpdate) -> dict[str, Any]:
         settings.tts_clone_speed = float(body.tts_clone_speed)
     if body.tts_chars_per_sec_zh is not None:
         settings.tts_chars_per_sec_zh = float(body.tts_chars_per_sec_zh)
+    if body.publish_ai_disclosure_enabled is not None:
+        settings.publish_ai_disclosure_enabled = bool(body.publish_ai_disclosure_enabled)
     save_settings(settings)
     if lab_backfill_toggle is not None:
         set_semantic_full_backfill_lab(lab_backfill_toggle)
@@ -1597,18 +1600,19 @@ class ResourceGateForceReleaseRequest(BaseModel):
 
 @app.post("/ops/resource-gate/force-release")
 def ops_resource_gate_force_release(
+    request: Request,
     body: ResourceGateForceReleaseRequest | None = None,
     x_suying_ops_token: str | None = Header(default=None, alias="X-Suying-Ops-Token"),
 ) -> dict[str, Any]:
     """Force-drop expired ResourceGate holders (ops escape hatch).
 
     Only holders older than ``older_than_sec`` (or slot default lease) are released.
-    Requires Ops-Token (App 无调用方；curl/脚本须带高级解锁令牌).
+    Requires Ops-Token unless PL-07 mild bypass (loopback / SUYING_OPS_DEV).
     """
     from engine.api.ops_auth import require_ops_token
     from engine.runtime.resource_gate import gate as resource_gate
 
-    require_ops_token(x_suying_ops_token)
+    require_ops_token(x_suying_ops_token, request=request)
     payload = body or ResourceGateForceReleaseRequest()
     slot = str(payload.slot or "all").strip() or "all"
     older_f = float(payload.older_than_sec) if payload.older_than_sec is not None else None

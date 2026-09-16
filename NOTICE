@@ -1,7 +1,8 @@
 速影（Suying）Studio — 第三方软件声明（NOTICE）
 ================================================
 
-本产品为商业专有软件。第三方开源与模型组件按其各自许可证提供；
+本产品为商业专有软件。版权主体工程占位：清闰 / QR（合同乙方以销售合同为准）；
+见仓根 LICENSE（待合同主体终裁）。第三方开源与模型组件按其各自许可证提供；
 完整清单与 SPDX 表达式见：
 
   docs/THIRD_PARTY_MANIFEST.json
@@ -9,6 +10,7 @@
   docs/legal/licenses/
   docs/legal/model-licenses/
   docs/legal/DELIVERY_NOTICE.zh-CN.md
+  docs/legal/PRIVACY_NOTICE.zh-CN.md
 
 要点（非穷尽）：
 
@@ -17,6 +19,9 @@
   • Ollama — MIT（docs/legal/licenses/ollama-0.24.0/）
   • 本地模型 nomic-embed-text / qwen3.5:9b — Apache-2.0
     （docs/legal/model-licenses/）
+  • Edge TTS（默认旁白）— 第三方云语音；文本出站；受微软服务条款约束
+  • F5-TTS + Vocos（可选 clone / F5 Kit）— 权重多为 **CC-BY-NC（非商用）**；
+    未清权前不得冒充可任意商用再分发；见 docs/VOICE_CLONE.md
   • 字体 / Twemoji / 蒙版等 FX 资源 — 见 configs/fx_assets/licenses/
     与 docs/FX_ASSET_WHITELIST.md
   • BGM — 见 docs/MUSIC.md（署名义务随曲目许可）
@@ -25,4 +30,4 @@
 供审计，不进入现行客户交付闭包。
 
 本 NOTICE 不是法律意见；客户交付以离线 legal 组件与销售合同为准。
-版本对齐产品：0.8.35（随发版更新 Manifest）。
+版本对齐产品：0.8.41+（随发版更新 Manifest）。

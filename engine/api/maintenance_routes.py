@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from engine.api.ops_auth import require_ops_token
@@ -72,9 +72,10 @@ def backup_list() -> dict[str, Any]:
 
 @router.post("/backups")
 def backup_start(
+    request: Request,
     x_suying_ops_token: str | None = Header(default=None, alias="X-Suying-Ops-Token"),
 ) -> dict[str, Any]:
-    require_ops_token(x_suying_ops_token)
+    require_ops_token(x_suying_ops_token, request=request)
     assert_runtime_active("backup")
     from engine.ops.backup_service import start_backup
 
@@ -84,9 +85,10 @@ def backup_start(
 @router.put("/backups/policy")
 def backup_policy_update(
     body: BackupPolicyUpdate,
+    request: Request,
     x_suying_ops_token: str | None = Header(default=None, alias="X-Suying-Ops-Token"),
 ) -> dict[str, Any]:
-    require_ops_token(x_suying_ops_token)
+    require_ops_token(x_suying_ops_token, request=request)
     from engine.ops.backup_service import save_policy
 
     policy = save_policy(body.model_dump(exclude_none=True))
@@ -113,9 +115,10 @@ def backup_policy_update(
 @router.post("/backups/prune")
 def backup_prune(
     body: BackupPruneRequest,
+    request: Request,
     x_suying_ops_token: str | None = Header(default=None, alias="X-Suying-Ops-Token"),
 ) -> dict[str, Any]:
-    require_ops_token(x_suying_ops_token)
+    require_ops_token(x_suying_ops_token, request=request)
     if not body.dry_run and not body.confirm:
         raise HTTPException(400, "删除历史备份前必须明确确认")
     from engine.ops.backup_service import prune_backups
@@ -133,9 +136,10 @@ def published_cleanup_policy() -> dict[str, Any]:
 @router.put("/published-cleanup/policy")
 def published_cleanup_policy_update(
     body: PublishedCleanupPolicyUpdate,
+    request: Request,
     x_suying_ops_token: str | None = Header(default=None, alias="X-Suying-Ops-Token"),
 ) -> dict[str, Any]:
-    require_ops_token(x_suying_ops_token)
+    require_ops_token(x_suying_ops_token, request=request)
     from engine.ops.published_cleanup import save_policy
 
     return {"ok": True, "policy": save_policy(body.model_dump(exclude_none=True))}
@@ -164,9 +168,10 @@ def published_cleanup_preview(
 @router.post("/published-cleanup")
 def published_cleanup_run(
     body: PublishedCleanupRequest,
+    request: Request,
     x_suying_ops_token: str | None = Header(default=None, alias="X-Suying-Ops-Token"),
 ) -> dict[str, Any]:
-    require_ops_token(x_suying_ops_token)
+    require_ops_token(x_suying_ops_token, request=request)
     if not body.confirm:
         raise HTTPException(400, "清理已发布视频前必须明确确认")
     assert_runtime_active("published_video_cleanup")
@@ -229,9 +234,10 @@ def disk_cleanup_policy() -> dict[str, Any]:
 @router.put("/disk-cleanup/policy")
 def disk_cleanup_policy_update(
     body: DiskCleanupPolicyUpdate,
+    request: Request,
     x_suying_ops_token: str | None = Header(default=None, alias="X-Suying-Ops-Token"),
 ) -> dict[str, Any]:
-    require_ops_token(x_suying_ops_token)
+    require_ops_token(x_suying_ops_token, request=request)
     from engine.ops.disk_cleanup import save_merged_policy
 
     patch = body.model_dump(exclude_none=True)
@@ -241,9 +247,10 @@ def disk_cleanup_policy_update(
 @router.post("/disk-cleanup/run")
 def disk_cleanup_run(
     body: DiskCleanupRunRequest,
+    request: Request,
     x_suying_ops_token: str | None = Header(default=None, alias="X-Suying-Ops-Token"),
 ) -> dict[str, Any]:
-    require_ops_token(x_suying_ops_token)
+    require_ops_token(x_suying_ops_token, request=request)
     if not body.confirm:
         raise HTTPException(400, "清理前必须明确确认")
     assert_runtime_active("disk_cleanup")

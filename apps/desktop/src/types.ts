@@ -65,6 +65,7 @@ export type SettingsSection =
   | "notify"
   | "storage"
   | "paths"
+  | "about"
   | "advanced";
 
 export type LayoutDensityPref = "auto" | "comfort" | "compact";

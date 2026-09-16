@@ -201,6 +201,8 @@ class AppSettings(BaseSettings):
     ollama_rule_model: str = ""
     # GSystemPause: machine-level macOS sleep/screen pause preferences
     system_event_control: SystemEventControl = Field(default_factory=default_system_event_control)
+    # Optional publish AI label (L14 default OFF; enable when legally required)
+    publish_ai_disclosure_enabled: bool = False
     # GStab.WORKSPACE: bound external workspace identity (never auto-overwrite DB)
     workspace_id: str = ""
     workspace_volume_uuid: str = ""

@@ -38,13 +38,33 @@ def strip_ai_generated_disclosure(body: str) -> str:
     return "\n".join(lines).strip()
 
 
-def ensure_ai_generated_disclosure(body: str) -> str:
-    """Compatibility shim: strip AI disclosure instead of appending (L14 revoked)."""
-    return strip_ai_generated_disclosure(body)
+def publish_ai_disclosure_enabled() -> bool:
+    """Optional AI label switch; default OFF (L14). Enable only when legally required."""
+    try:
+        from engine.config.settings import load_settings
+
+        return bool(getattr(load_settings(), "publish_ai_disclosure_enabled", False))
+    except Exception:
+        return False
+
+
+def ensure_ai_generated_disclosure(body: str, *, enabled: bool | None = None) -> str:
+    """Apply AI disclosure policy.
+
+    Default (enabled=False / unset): strip disclosure lines (L14).
+    When enabled=True (settings or explicit): ensure canonical disclosure line is present.
+    """
+    want = publish_ai_disclosure_enabled() if enabled is None else bool(enabled)
+    cleaned = strip_ai_generated_disclosure(body)
+    if not want:
+        return cleaned
+    if not cleaned:
+        return AI_GENERATED_DISCLOSURE
+    return f"{cleaned}\n{AI_GENERATED_DISCLOSURE}"
 
 
 def has_ai_generated_disclosure(body: str) -> bool:
-    """True if any AI disclosure alias remains (should be False after strip)."""
+    """True if any AI disclosure alias remains."""
     lines = [
         line.strip()
         for line in str(body or "").replace("\r\n", "\n").split("\n")
