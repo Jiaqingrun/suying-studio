@@ -923,8 +923,11 @@ def health_ollama() -> dict[str, Any]:
     base = refresh_ollama_status_sync(timeout=1.5)
     gateway = ollama_health_snapshot()
     circuit = gateway.get("circuit") or {}
-    circuit_open = str(circuit.get("state") or "") == "open"
-    inference_available = bool(gateway.get("chat_probe_ok")) and not circuit_open
+    circuit_state = str(circuit.get("state") or "")
+    circuit_open = circuit_state == "open"
+    # V-01: do not treat half_open as "green for narration" unless trial slot free.
+    allows_request = bool(circuit.get("allows_request", not circuit_open))
+    inference_available = bool(gateway.get("chat_probe_ok")) and allows_request
     from engine.config.settings import load_settings
     from engine.pack.ollama_narration import resolve_narration_model
 
@@ -1902,6 +1905,45 @@ def ops_ollama_narration_preview(
         timeout=120.0,
     )
     return {"enabled": bool(settings.ollama_narration_enabled), "model": model, **result}
+
+
+@app.get("/ops/ollama/circuit")
+def ops_ollama_circuit() -> dict[str, Any]:
+    """Read-only machine circuit snapshot (V-01 diagnostics)."""
+    from engine.catalog.ollama_runtime import circuit_snapshot, ollama_control_plane_snapshot
+
+    return {
+        "ok": True,
+        "circuit": circuit_snapshot(),
+        "control_plane": ollama_control_plane_snapshot(),
+    }
+
+
+class OllamaRecoverRequest(BaseModel):
+    kind: str = "chat"
+
+
+@app.post("/ops/ollama/recover")
+def ops_ollama_recover(body: OllamaRecoverRequest | None = None) -> dict[str, Any]:
+    """Bounded Ollama recovery: probe → optional kickstart → warm → close circuit.
+
+    Ops escape hatch for ``paused_ollama_infra`` / half_open starvation (V-01).
+    Does not expand Ops-Token surface (PL-07 still open); loopback-only engine.
+    """
+    from engine.catalog.ollama_runtime import circuit_snapshot
+    from engine.ops.ollama_service import maybe_recover_ollama_service
+
+    payload = body or OllamaRecoverRequest()
+    kind = str(payload.kind or "chat").strip().lower() or "chat"
+    if kind not in ("chat", "embed"):
+        raise HTTPException(400, "kind 必须是 chat 或 embed")
+    result = maybe_recover_ollama_service(kind=kind)
+    return {
+        "ok": bool(result.get("ok")),
+        "kind": kind,
+        "recovery": result,
+        "circuit": circuit_snapshot(),
+    }
 
 
 @app.post("/ops/cache/clean")

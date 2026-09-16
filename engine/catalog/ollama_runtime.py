@@ -189,41 +189,64 @@ def _maybe_half_open() -> None:
             _circuit.half_open_probe_inflight = False
 
 
-def circuit_allows_request(*, for_probe: bool = False) -> bool:
-    """Machine-level gate. Half-open allows exactly one probe."""
+def circuit_allows_request(*, for_probe: bool = False, claim: bool = True) -> bool:
+    """Machine-level gate. Half-open allows exactly one trial.
+
+    The single half-open slot is shared by health probes **and** production
+    narration (V-01). Previously only ``for_probe=True`` could claim it, so
+    jobs starved forever while the snapshot still reported ``allows_request``.
+
+    ``for_probe`` is retained for call-site clarity; it no longer gates
+    half-open differently. Pass ``claim=False`` to peek without taking the
+    trial slot (e.g. narration fail-fast before prompt build).
+    """
+    _ = for_probe  # call-site documentation only; slot is shared
     _maybe_half_open()
     with _circuit_lock:
         if _circuit.state == CircuitState.CLOSED:
             return True
         if _circuit.state == CircuitState.OPEN:
             return False
-        # HALF_OPEN
-        if for_probe:
-            if _circuit.half_open_probe_inflight:
-                return False
+        # HALF_OPEN — one shared trial (probe or narration/heavy)
+        if _circuit.half_open_probe_inflight:
+            return False
+        if claim:
             _circuit.half_open_probe_inflight = True
-            return True
-        return False
+        return True
 
 
 def embed_circuit_allows_request() -> bool:
     return circuit_allows_request(for_probe=True)
 
 
+def circuit_release_half_open_claim() -> None:
+    """Drop an unused half-open trial claim (caller peeked/claimed then aborted)."""
+    with _circuit_lock:
+        if _circuit.state == CircuitState.HALF_OPEN:
+            _circuit.half_open_probe_inflight = False
+
+
 def circuit_snapshot() -> dict[str, Any]:
     _maybe_half_open()
     with _circuit_lock:
+        state = _circuit.state
+        half_open_free = (
+            state == CircuitState.HALF_OPEN and not _circuit.half_open_probe_inflight
+        )
+        # Align with real narration/heavy gate: closed, or half-open with free trial.
+        allows = state == CircuitState.CLOSED or half_open_free
         return {
-            "state": _circuit.state.value,
+            "state": state.value,
             "consecutive_failures": _circuit.consecutive_failures,
             "open_until_monotonic": _circuit.open_until,
             "open_remaining_sec": max(0.0, _circuit.open_until - _now())
-            if _circuit.state == CircuitState.OPEN
+            if state == CircuitState.OPEN
             else 0.0,
             "last_error": _circuit.last_error,
             "last_error_kind": _circuit.last_error_kind,
             "last_success_model": _circuit.last_success_model,
-            "allows_request": _circuit.state != CircuitState.OPEN,
+            "allows_request": allows,
+            "allows_narration": allows,
             "half_open_probe_inflight": _circuit.half_open_probe_inflight,
         }
 

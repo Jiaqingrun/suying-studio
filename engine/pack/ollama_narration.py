@@ -610,7 +610,10 @@ def rewrite_narration_with_ollama(
             "infra": False,
         }
 
-    if not circuit_allows_request(for_probe=False):
+    # Peek only — heavy_request / chat_completion claims the half-open trial.
+    # Peek avoids starving narration while still failing fast when OPEN or when
+    # another half-open probe is already in flight (V-01).
+    if not circuit_allows_request(for_probe=False, claim=False):
         return {
             "ok": False,
             "error": "ollama circuit_open",

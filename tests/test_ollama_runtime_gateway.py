@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import threading
 import time
 import unittest
@@ -20,25 +19,80 @@ class OllamaRuntimeGateway(unittest.TestCase):
             rt._circuit.half_open_probe_inflight = False
             rt._circuit.last_error = ""
 
-    def test_circuit_opens_after_threshold(self) -> None:
+    def _trip_open(self) -> None:
         for i in range(rt._FAILURE_THRESHOLD):
             rt.record_failure(f"timeout-{i}", kind=rt.OllamaErrorKind.TIMEOUT)
+
+    def _force_half_open(self) -> None:
+        self._trip_open()
+        with rt._circuit_lock:
+            rt._circuit.open_until = rt._now() - 1.0
+
+    def test_circuit_opens_after_threshold(self) -> None:
+        self._trip_open()
         snap = rt.circuit_snapshot()
         self.assertEqual(snap["state"], "open")
+        self.assertFalse(snap["allows_request"])
+        self.assertFalse(snap["allows_narration"])
         self.assertFalse(rt.circuit_allows_request(for_probe=False))
 
     def test_half_open_allows_only_one_probe(self) -> None:
-        for i in range(rt._FAILURE_THRESHOLD):
-            rt.record_failure(f"timeout-{i}", kind=rt.OllamaErrorKind.TIMEOUT)
-        with rt._circuit_lock:
-            rt._circuit.open_until = rt._now() - 1.0
+        self._force_half_open()
         self.assertTrue(rt.circuit_allows_request(for_probe=True))
         self.assertFalse(rt.circuit_allows_request(for_probe=True))
         self.assertFalse(rt.circuit_allows_request(for_probe=False))
 
+    def test_half_open_allows_one_narration_trial(self) -> None:
+        """V-01: production/narration can claim the half-open trial slot."""
+        self._force_half_open()
+        snap = rt.circuit_snapshot()
+        self.assertEqual(snap["state"], "half_open")
+        self.assertTrue(snap["allows_request"])
+        self.assertTrue(snap["allows_narration"])
+        # Peek must not consume the trial (narration fail-fast).
+        self.assertTrue(rt.circuit_allows_request(for_probe=False, claim=False))
+        self.assertTrue(rt.circuit_snapshot()["allows_request"])
+        # Heavy / narration claim.
+        self.assertTrue(rt.circuit_allows_request(for_probe=False, claim=True))
+        snap2 = rt.circuit_snapshot()
+        self.assertFalse(snap2["allows_request"])
+        self.assertFalse(snap2["allows_narration"])
+        self.assertTrue(snap2["half_open_probe_inflight"])
+        self.assertFalse(rt.circuit_allows_request(for_probe=True))
+
+    def test_half_open_narration_heavy_request_not_starved(self) -> None:
+        """V-01: half_open + claim=False peek then heavy_request can recover."""
+        self._force_half_open()
+        self.assertTrue(rt.circuit_allows_request(for_probe=False, claim=False))
+        with patch(
+            "engine.catalog.ollama_runtime.run_cancelable_post",
+            return_value={
+                "ok": True,
+                "status_code": 200,
+                "body": {"message": {"content": "OK"}},
+            },
+        ):
+            out = rt.heavy_request(
+                kind="narration",
+                path="/api/chat",
+                payload={"model": "x"},
+                timeout_sec=5.0,
+                model="x",
+                acquire_wait_sec=0.5,
+            )
+        self.assertTrue(out["ok"])
+        snap = rt.circuit_snapshot()
+        self.assertEqual(snap["state"], "closed")
+        self.assertTrue(snap["allows_request"])
+
+    def test_snapshot_allows_request_false_when_open(self) -> None:
+        self._trip_open()
+        snap = rt.circuit_snapshot()
+        self.assertEqual(snap["state"], "open")
+        self.assertFalse(snap["allows_request"])
+
     def test_heavy_request_blocked_when_circuit_open(self) -> None:
-        for i in range(rt._FAILURE_THRESHOLD):
-            rt.record_failure(f"timeout-{i}", kind=rt.OllamaErrorKind.TIMEOUT)
+        self._trip_open()
         out = rt.heavy_request(
             kind="narration",
             path="/api/chat",
@@ -53,7 +107,6 @@ class OllamaRuntimeGateway(unittest.TestCase):
         cancel = threading.Event()
 
         def _slow(*_a, **_k):
-            # Simulate a hanging worker by patching Popen
             class Fake:
                 def poll(self):
                     return None
