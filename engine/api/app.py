@@ -919,7 +919,10 @@ def health_ollama() -> dict[str, Any]:
     open (machine-wide gate tripped by recent failures).
     """
     from engine.catalog.ollama_runtime import ollama_health_snapshot
-    from engine.catalog.ollama_status import refresh_ollama_status_sync
+    from engine.catalog.ollama_status import (
+        align_health_ollama_message,
+        refresh_ollama_status_sync,
+    )
 
     # Ops detail endpoint may wait briefly; still CONT stopped listeners first.
     base = refresh_ollama_status_sync(timeout=1.5)
@@ -944,8 +947,18 @@ def health_ollama() -> dict[str, Any]:
         and want not in model_names
         and want.split(":")[0] not in short_names
     )
+    message = align_health_ollama_message(
+        base_message=str(base.get("message") or ""),
+        reachable=bool(base.get("reachable")),
+        model_present=bool(base.get("ready")),
+        inference_available=inference_available,
+        circuit_open=circuit_open,
+        circuit_state=circuit_state,
+        vision_model=str(base.get("vision_model") or ""),
+    )
     return {
         **base,
+        "message": message,
         "embed_gateway": gateway,
         "circuit": circuit,
         "circuit_open": circuit_open,
