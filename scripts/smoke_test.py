@@ -876,13 +876,26 @@ def main() -> None:
         except PublishAssetsError as e:
             assert "文案" in str(e)
 
-        # Publishing never falls back to pack covers when App has no selected template.
+        # Publishing defaults to NOT uploading covers (opt-in). Missing App
+        # template must not block when upload_cover is off.
         one_cover = pack_dir
+        skipped_assets = require_publish_assets(
+            platform="channels",
+            pack_dir=one_cover,
+            data_root=data_root,
+            upload_cover=False,
+        )
+        assert skipped_assets["ok"] is True
+        assert skipped_assets["covers"] == []
+        assert skipped_assets.get("cover_upload_confirmed") is False
+
+        # With confirm, missing App cover template still hard-gates.
         try:
             require_publish_assets(
                 platform="channels",
                 pack_dir=one_cover,
                 data_root=data_root,
+                upload_cover=True,
             )
             raise AssertionError("expected PublishAssetsError for missing cover slot")
         except PublishAssetsError as e:
@@ -926,12 +939,13 @@ def main() -> None:
             f"/reach/cover-templates/{tid}/slot",
             json={"platform": "channels", "slot_index": 0, "source_path": str(img)},
         )
-        # now channels gate passes with template
+        # now channels gate passes with template when cover upload confirmed
         ok_assets = require_publish_assets(
             platform="channels",
             pack_dir=one_cover,
             data_root=data_root,
             template_id=tid,
+            upload_cover=True,
         )
         assert ok_assets["ok"] is True
         assert len(ok_assets["covers"]) == 1
@@ -942,6 +956,7 @@ def main() -> None:
                 pack_dir=one_cover,
                 data_root=data_root,
                 template_id="__no_such_template__",
+                upload_cover=True,
             )
             raise AssertionError("expected PublishAssetsError for mismatched App template")
         except PublishAssetsError as e:

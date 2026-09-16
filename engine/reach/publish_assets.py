@@ -13,6 +13,16 @@ class PublishAssetsError(ValueError):
     """Raised when hard gate fails (missing copy or covers)."""
 
 
+def publish_confirm_upload_cover_enabled() -> bool:
+    """Global opt-in: upload App covers only after operator confirms. Default OFF."""
+    try:
+        from engine.config.settings import load_settings
+
+        return bool(getattr(load_settings(), "publish_confirm_upload_cover", False))
+    except Exception:
+        return False
+
+
 def _load_copy(pack_dir: Path, platform: str, locale: str = "zh") -> dict[str, str]:
     """Load title/body for platform from copy.{locale}.json or paste card."""
     plat = (platform or "").strip().lower()
@@ -161,8 +171,14 @@ def require_publish_assets(
     body: str | None = None,
     template_id: str | None = None,
     locale: str = "zh",
+    upload_cover: bool | None = None,
 ) -> dict[str, Any]:
-    """Hard gate: video + non-empty body + all cover slots.
+    """Gate: video + non-empty body; covers only when upload_cover is confirmed.
+
+    upload_cover=None → read persisted publish_confirm_upload_cover (default False).
+    When False: return empty covers and do not require App cover templates.
+    When True: hard-gate App vertical cover for douyin/kuaishou/channels;
+    xhs remains optional.
 
     Returns dict with video, covers, title, body, cover_meta.
     Raises PublishAssetsError on failure.
@@ -190,6 +206,29 @@ def require_publish_assets(
         raise PublishAssetsError(f"缺文案：平台 {plat} 标题为空，禁止发布")
     if not final_body:
         raise PublishAssetsError(f"缺文案：平台 {plat} 正文/描述为空，禁止发布")
+
+    want_cover = (
+        publish_confirm_upload_cover_enabled() if upload_cover is None else bool(upload_cover)
+    )
+    if not want_cover:
+        return {
+            "ok": True,
+            "platform": plat,
+            "pack_dir": str(pdir),
+            "video": str(video),
+            "covers": [],
+            "title": final_title or final_body.split("\n", 1)[0][:30],
+            "body": final_body,
+            "cover_optional": True,
+            "cover_upload_confirmed": False,
+            "cover_meta": {
+                "ok": True,
+                "source": "skipped",
+                "optional": True,
+                "upload_confirmed": False,
+            },
+            "contract": contract,
+        }
 
     from engine.reach.cover_templates import (
         load_index,
@@ -223,6 +262,7 @@ def require_publish_assets(
                 "title": final_title,
                 "body": final_body,
                 "cover_optional": True,
+                "cover_upload_confirmed": True,
                 "cover_meta": {"ok": True, "source": "none", "optional": True},
                 "contract": contract,
             }
@@ -249,6 +289,7 @@ def require_publish_assets(
                 "title": final_title,
                 "body": final_body,
                 "cover_optional": True,
+                "cover_upload_confirmed": True,
                 "cover_meta": {**cover_meta, "ok": True, "optional": True},
                 "contract": contract,
             }
@@ -268,6 +309,7 @@ def require_publish_assets(
                 "title": final_title,
                 "body": final_body,
                 "cover_optional": True,
+                "cover_upload_confirmed": True,
                 "cover_meta": {**cover_meta, "ok": True, "optional": True},
                 "contract": contract,
             }
@@ -297,6 +339,8 @@ def require_publish_assets(
         "covers": [str(c) for c in covers],
         "title": final_title or final_body.split("\n", 1)[0][:30],
         "body": final_body,
-        "cover_meta": cover_meta,
+        "cover_optional": False,
+        "cover_upload_confirmed": True,
+        "cover_meta": {**cover_meta, "upload_confirmed": True},
         "contract": contract,
     }

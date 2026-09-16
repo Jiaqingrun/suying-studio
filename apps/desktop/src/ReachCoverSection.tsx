@@ -22,6 +22,10 @@ type Props = {
   previewPlat: string;
   previewMsg: string;
   busy: boolean;
+  /** Persisted opt-in: only upload covers when true (default false). */
+  confirmUploadCover: boolean;
+  confirmUploadCoverBusy?: boolean;
+  onConfirmUploadCover: (next: boolean) => void;
   onNewName: (v: string) => void;
   onEditId: (v: string) => void;
   onPreviewPlat: (v: string) => void;
@@ -87,6 +91,9 @@ export function ReachCoverSection({
   previewPlat,
   previewMsg,
   busy,
+  confirmUploadCover,
+  confirmUploadCoverBusy = false,
+  onConfirmUploadCover,
   onNewName,
   onEditId,
   onPreviewPlat,
@@ -145,7 +152,22 @@ export function ReachCoverSection({
     <div className="reach-cover">
       <div className="reach-cover-head">
         <h3>封面设置</h3>
-        <p className="hint">所有视频平台只使用 1 张竖版封面；发布严格取「当前选用」模板，不回退物料包封面。</p>
+        <p className="hint">
+          默认<strong>不上传封面</strong>，各平台保留官方默认帧。只有下方「确认上传封面」打开后，发布才会注入 App
+          竖版封面（抖音/快手/视频号；小红书编辑器仍可选跳过）。
+        </p>
+        <label className="reach-cover-confirm">
+          <input
+            type="checkbox"
+            checked={confirmUploadCover}
+            disabled={busy || confirmUploadCoverBusy}
+            onChange={(e) => onConfirmUploadCover(e.target.checked)}
+          />
+          <span>确认上传封面</span>
+          <span className="hint">
+            {confirmUploadCover ? "已确认 · 发布时上传当前选用模板" : "默认关 · 发布不传封面"}
+          </span>
+        </label>
         <p className="reach-cover-summary path">{summary}</p>
         <p className={`cover-phase cover-phase--${coverPhase}`}>{coverPhaseHint[coverPhase]}</p>
       </div>
@@ -260,10 +282,14 @@ export function ReachCoverSection({
         <button type="button" disabled={busy} onClick={onPreview}>
           解析封面路径
         </button>
-        {selectedId ? (
-          <span className="path">当前发布封面套：{selectedId}</span>
+        {confirmUploadCover ? (
+          selectedId ? (
+            <span className="path">当前发布封面套：{selectedId}</span>
+          ) : (
+            <span className="path">已确认上传封面，但尚未选用模板：发布将被门禁阻止</span>
+          )
         ) : (
-          <span className="path">尚未选用模板：发布将被门禁阻止</span>
+          <span className="path">未确认上传封面：发布使用平台默认封面</span>
         )}
       </div>
       {previewMsg ? <p className="path">{previewMsg}</p> : null}

@@ -187,6 +187,7 @@ def _gate_or_raise(
     title: str | None,
     body: str | None,
     template_id: str | None = None,
+    upload_cover: bool | None = None,
 ) -> dict[str, Any]:
     return require_publish_assets(
         platform=platform,
@@ -195,7 +196,32 @@ def _gate_or_raise(
         title=title,
         body=body,
         template_id=template_id,
+        upload_cover=upload_cover,
     )
+
+
+def _should_upload_covers(assets: dict[str, Any], plat: str) -> bool:
+    """Upload App covers only when operator confirmed and assets provide files.
+
+    xhs cover editor remains fragile — keep optional even when confirmed.
+    """
+    if plat == "xhs":
+        return False
+    if assets.get("cover_upload_confirmed") is False:
+        return False
+    if assets.get("cover_optional") and not (assets.get("covers") or []):
+        return False
+    return bool(assets.get("covers"))
+
+
+def _skipped_cover_result(*, reason: str) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "skipped": True,
+        "reason": reason,
+        "covers": [],
+        "open_clicks": [f"skipped:{reason}"],
+    }
 
 
 def _dismiss_channels_dialogs(sess: CdpSession) -> None:
@@ -4222,10 +4248,12 @@ def publish_via_cdp(
     cdp_http: str | None = None,
     upload_video: bool = False,
     reuse_existing_form: bool = False,
+    upload_cover: bool | None = None,
 ) -> dict[str, Any]:
     """Fill copy + set covers via CDP; hard-gate before clicking 发布.
 
     If upload_video=True, also inject video.mp4 first and wait for form.
+    Covers upload only when assets confirm upload_cover (default OFF).
     """
     plat = (platform or "").strip().lower()
     if plat not in PLATFORM_URL_HINT:
@@ -4239,6 +4267,7 @@ def publish_via_cdp(
             title=title,
             body=body,
             template_id=template_id,
+            upload_cover=upload_cover,
         )
     except PublishAssetsError as e:
         return {
@@ -4399,15 +4428,17 @@ def publish_via_cdp(
         if reuse_existing_form:
             fill = {"bodyOk": True, "source": "existing_form_checkpoint"}
             t_cover0 = time.monotonic()
-            if plat == "xhs":
-                # XHS browser cover editor is unreliable; keep platform default frame.
-                cover_r = {
-                    "ok": False,
-                    "skipped": True,
-                    "reason": "xhs_cover_optional",
-                    "covers": [],
-                    "open_clicks": ["skipped_optional_on_resume"],
-                }
+            if not _should_upload_covers(assets, plat):
+                reason = (
+                    "xhs_cover_optional"
+                    if plat == "xhs"
+                    else (
+                        "cover_upload_not_confirmed"
+                        if assets.get("cover_upload_confirmed") is False
+                        else "cover_skipped_no_files"
+                    )
+                )
+                cover_r = _skipped_cover_result(reason=reason)
             else:
                 # A resumed form cannot prove which cover is present; set the App cover again.
                 cover_r = _set_cover_files(
@@ -4432,19 +4463,20 @@ def publish_via_cdp(
                 # douyin also uses generic contenteditable fill
                 fill = _fill_xhs_copy(sess, assets["title"], assets["body"])
             timings["fill_ms"] = _ms_since(t_fill0)
-            if plat == "xhs":
-                # Do not open the fragile XHS cover editor; click 发布 with default frame.
-                t_cover0 = time.monotonic()
-                cover_r = {
-                    "ok": False,
-                    "skipped": True,
-                    "reason": "xhs_cover_optional",
-                    "covers": [],
-                    "open_clicks": ["skipped_optional"],
-                }
+            t_cover0 = time.monotonic()
+            if not _should_upload_covers(assets, plat):
+                reason = (
+                    "xhs_cover_optional"
+                    if plat == "xhs"
+                    else (
+                        "cover_upload_not_confirmed"
+                        if assets.get("cover_upload_confirmed") is False
+                        else "cover_skipped_no_files"
+                    )
+                )
+                cover_r = _skipped_cover_result(reason=reason)
                 timings["cover_ms"] = _ms_since(t_cover0)
             else:
-                t_cover0 = time.monotonic()
                 cover_r = _set_cover_files(
                     sess,
                     assets["covers"],

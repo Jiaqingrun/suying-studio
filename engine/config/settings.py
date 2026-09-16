@@ -203,6 +203,9 @@ class AppSettings(BaseSettings):
     system_event_control: SystemEventControl = Field(default_factory=default_system_event_control)
     # Optional publish AI label (L14 default OFF; enable when legally required)
     publish_ai_disclosure_enabled: bool = False
+    # Cover upload is opt-in: default OFF — platforms keep their default frame unless
+    # the operator explicitly confirms「确认上传封面」in App (persisted globally).
+    publish_confirm_upload_cover: bool = False
     # GStab.WORKSPACE: bound external workspace identity (never auto-overwrite DB)
     workspace_id: str = ""
     workspace_volume_uuid: str = ""

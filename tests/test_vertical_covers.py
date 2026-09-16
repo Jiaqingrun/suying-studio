@@ -73,11 +73,23 @@ class VerticalCoverTests(unittest.TestCase):
                 "engine.reach.publish_assets.validate_pack_contract",
                 return_value=contract,
             ):
+                # Default opt-out: no cover required / returned.
+                skipped = require_publish_assets(
+                    platform="douyin",
+                    pack_dir=pack,
+                    data_root=store,
+                    upload_cover=False,
+                )
+                self.assertEqual(skipped["covers"], [])
+                self.assertTrue(skipped.get("cover_optional"))
+                self.assertFalse(skipped.get("cover_upload_confirmed"))
+
                 with self.assertRaisesRegex(PublishAssetsError, "App"):
                     require_publish_assets(
                         platform="douyin",
                         pack_dir=pack,
                         data_root=store,
+                        upload_cover=True,
                     )
 
             template = create_template(store, name="竖版套")
@@ -112,10 +124,12 @@ class VerticalCoverTests(unittest.TestCase):
                     platform="douyin",
                     pack_dir=pack,
                     data_root=store,
+                    upload_cover=True,
                 )
             self.assertEqual(len(assets["covers"]), 1)
             self.assertIn(template_id, assets["covers"][0])
             self.assertTrue(_is_app_cover_path(assets["covers"][0]))
+            self.assertTrue(assets.get("cover_upload_confirmed"))
 
     def test_channels_upload_copy_is_converted_to_six_by_seven(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

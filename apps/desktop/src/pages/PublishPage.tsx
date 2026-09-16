@@ -47,6 +47,9 @@ export interface PublishPageProps {
   coverPreviewPlat: string;
   coverPreviewMsg: string;
   coverBusy: boolean;
+  confirmUploadCover: boolean;
+  confirmUploadCoverBusy: boolean;
+  setConfirmUploadCoverPersisted: (next: boolean) => void;
   setCoverNewName: (v: string) => void;
   setCoverEditId: (v: string) => void;
   setCoverPreviewPlat: (v: string) => void;
@@ -101,6 +104,9 @@ export function PublishPage({
   coverPreviewPlat,
   coverPreviewMsg,
   coverBusy,
+  confirmUploadCover,
+  confirmUploadCoverBusy,
+  setConfirmUploadCoverPersisted,
   setCoverNewName,
   setCoverEditId,
   setCoverPreviewPlat,
@@ -349,6 +355,9 @@ export function PublishPage({
             previewPlat={coverPreviewPlat}
             previewMsg={coverPreviewMsg}
             busy={coverBusy}
+            confirmUploadCover={confirmUploadCover}
+            confirmUploadCoverBusy={confirmUploadCoverBusy}
+            onConfirmUploadCover={setConfirmUploadCoverPersisted}
             onNewName={setCoverNewName}
             onEditId={setCoverEditId}
             onPreviewPlat={setCoverPreviewPlat}

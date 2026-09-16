@@ -898,6 +898,8 @@ export function SettingsPage({
   const [brandBusy, setBrandBusy] = useState(false);
   const [aiDisclosureEnabled, setAiDisclosureEnabled] = useState(false);
   const [aiDisclosureBusy, setAiDisclosureBusy] = useState(false);
+  const [confirmUploadCover, setConfirmUploadCover] = useState(false);
+  const [confirmUploadCoverBusy, setConfirmUploadCoverBusy] = useState(false);
   const [aboutVersion, setAboutVersion] = useState("");
 
   const mediaSources = Array.isArray(syncStatus?.media_sources)
@@ -925,6 +927,7 @@ export function SettingsPage({
       .then((s) => {
         if (cancelled) return;
         setAiDisclosureEnabled(Boolean(s.publish_ai_disclosure_enabled));
+        setConfirmUploadCover(Boolean(s.publish_confirm_upload_cover));
       })
       .catch(() => {
         /* ignore — about/prefs still usable */
@@ -1330,6 +1333,34 @@ export function SettingsPage({
                   }}
                 />
                 依法需要时可开（默认关）
+              </label>
+
+              <h3 className="section-title">发布封面（可选）</h3>
+              <p className="hint" style={{ marginBottom: 10 }}>
+                四平台默认不上传封面，使用官方默认帧。打开后发布才会注入 App「当前选用」竖版封面（小红书编辑器仍可跳过）。与「发布 → 高级设置 → 封面设置」同一开关，全局持久化。
+              </p>
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={confirmUploadCover}
+                  disabled={confirmUploadCoverBusy}
+                  onChange={(e) => {
+                    const next = e.target.checked;
+                    setConfirmUploadCoverBusy(true);
+                    void api
+                      .updateSettings({ publish_confirm_upload_cover: next })
+                      .then(() => {
+                        setConfirmUploadCover(next);
+                        notify(
+                          next ? "已确认上传封面" : "已关闭：发布默认不传封面",
+                          "ok",
+                        );
+                      })
+                      .catch((err: unknown) => notify(String(err), "err"))
+                      .finally(() => setConfirmUploadCoverBusy(false));
+                  }}
+                />
+                确认上传封面（默认关）
               </label>
 
               <h3 className="section-title">审片决策策略</h3>

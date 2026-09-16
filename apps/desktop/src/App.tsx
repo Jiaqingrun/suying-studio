@@ -454,6 +454,8 @@ function App() {
   const [coverNewName, setCoverNewName] = useState("");
   const [coverPreviewPlat, setCoverPreviewPlat] = useState("douyin");
   const [coverPreviewMsg, setCoverPreviewMsg] = useState("");
+  const [confirmUploadCover, setConfirmUploadCover] = useState(false);
+  const [confirmUploadCoverBusy, setConfirmUploadCoverBusy] = useState(false);
   const [autoDaily, setAutoDaily] = useState(false);
   const [autoHour, setAutoHour] = useState(9);
   const [semanticStatus, setSemanticStatus] = useState<SemanticBackfillStatus | null>(null);
@@ -1015,6 +1017,7 @@ function App() {
         setSemanticMode(mode === "off" ? "off" : "on_demand");
         setSemanticToggleEnabled(st.semantic_toggle_enabled !== false);
         setSemanticFullBackfill(st.semantic_full_backfill_enabled === true);
+        setConfirmUploadCover(Boolean(st.publish_confirm_upload_cover));
       } catch {
         /* older engines */
       }
@@ -2674,6 +2677,19 @@ function App() {
     }
   }
 
+  async function setConfirmUploadCoverPersisted(next: boolean) {
+    setConfirmUploadCoverBusy(true);
+    try {
+      await api.updateSettings({ publish_confirm_upload_cover: next });
+      setConfirmUploadCover(next);
+      notify(next ? "已确认：发布时上传 App 封面" : "已关闭：发布默认不传封面", "ok");
+    } catch (e) {
+      notify(String(e), "err");
+    } finally {
+      setConfirmUploadCoverBusy(false);
+    }
+  }
+
   async function saveCalendarDay() {
     setActionBusy("calSave");
     try {
@@ -3469,6 +3485,9 @@ function App() {
             coverPreviewPlat={coverPreviewPlat}
             coverPreviewMsg={coverPreviewMsg}
             coverBusy={coverBusy}
+            confirmUploadCover={confirmUploadCover}
+            confirmUploadCoverBusy={confirmUploadCoverBusy}
+            setConfirmUploadCoverPersisted={setConfirmUploadCoverPersisted}
             setCoverNewName={setCoverNewName}
             setCoverEditId={setCoverEditId}
             setCoverPreviewPlat={setCoverPreviewPlat}

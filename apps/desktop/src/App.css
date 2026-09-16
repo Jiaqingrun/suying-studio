@@ -1812,6 +1812,29 @@ button.linkish,
   margin: 0 0 6px;
 }
 
+.reach-cover-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent, #3d6b8c) 35%, transparent);
+  background: color-mix(in srgb, var(--accent, #3d6b8c) 8%, transparent);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.reach-cover-confirm input {
+  width: 16px;
+  height: 16px;
+}
+
+.reach-cover-confirm .hint {
+  font-weight: 400;
+  margin: 0;
+}
+
 .reach-cover-summary {
   margin: 0 0 12px;
   font-size: 0.78rem;

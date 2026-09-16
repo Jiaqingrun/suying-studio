@@ -468,6 +468,7 @@ class SettingsUpdate(BaseModel):
     tts_clone_speed: float | None = None
     tts_chars_per_sec_zh: float | None = None
     publish_ai_disclosure_enabled: bool | None = None
+    publish_confirm_upload_cover: bool | None = None
 
 
 class TtsPreferenceUpdate(BaseModel):
@@ -1246,6 +1247,8 @@ def update_settings(body: SettingsUpdate) -> dict[str, Any]:
         settings.tts_chars_per_sec_zh = float(body.tts_chars_per_sec_zh)
     if body.publish_ai_disclosure_enabled is not None:
         settings.publish_ai_disclosure_enabled = bool(body.publish_ai_disclosure_enabled)
+    if body.publish_confirm_upload_cover is not None:
+        settings.publish_confirm_upload_cover = bool(body.publish_confirm_upload_cover)
     save_settings(settings)
     if lab_backfill_toggle is not None:
         set_semantic_full_backfill_lab(lab_backfill_toggle)
