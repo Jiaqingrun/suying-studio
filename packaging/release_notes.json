@@ -1008,13 +1008,12 @@
       ]
     },
     "0.8.43": {
-      "title": "性能后置 · 最小化停轮询 + ffmpeg threads/nice",
-      "summary": "P0.3：Tauri 最小化/失焦经 appSurfaceActive + suying://app-surface 真正停控制面轮询（不只 document.hidden）。P2.1：成片 ffmpeg -threads 封顶（核数-1）+ nice 10，不改 CRF/preset。禁区未动：旁白 keep_alive、消息 1800、发布 due、L17/FrozenTab、watcher。",
+      "title": "合规落地 + V-08/G1C 合体包",
+      "summary": "在 0.8.42 V-08 端口复活/G1C 声纹复用之上，合入已 merge 的合规默认（LICENSE/关于/Edge·F5/AI 可选/隐私稿/PL-07 温和）。重打一体包，避免 T2S 上仅合规核的 0.8.42 与仓内 V-08 戳冲突。",
       "highlights": [
-        "appSurfaceActive：document 可见 ∧ 未最小化 ∧ 有焦点才轮询",
-        "Rust on_window_event 发射 suying://app-surface",
-        "prepare_ffmpeg_argv / run_ffmpeg：-threads + nice，CRF/preset 原样",
-        "单测 appSurfaceActive + test_ffmpeg_threads_nice"
+        "含合规：LICENSE 占位、设置→关于、Edge/F5 NC 旁注、AI 标识默认关、PRIVACY/OPS 白名单文档",
+        "含 V-08：端口健康复活 + G1C paid voice reuse",
+        "词包/L17 仍不动；PL-07 localhost 旁路是否收紧待真人确认"
       ]
     },
     "0.8.44": {
