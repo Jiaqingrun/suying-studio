@@ -1,4 +1,5 @@
 import type { LangCatalogItem, NotifyFn } from "../pages/pageTypes";
+import { PageHeader } from "../shell/PageChrome";
 import { RuleAdvancedPanel, RuleMainEditor, RuleStatusHeader } from "./RulePanels";
 import type { Orientation } from "./types";
 import { useRuleLabState } from "./useRuleLabState";
@@ -43,6 +44,10 @@ export function VideoRuleWorkbench({
 
   return (
     <div className="rule-lab">
+      <PageHeader
+        title="规则"
+        blurb="做片子 · 画幅实验室：横竖隔离、保存启用后冻结进 Job（L8）；语言下拉 L17 冻结"
+      />
       <div className="rule-orientation-switch" role="group" aria-label="成片画幅">
         {(["portrait", "landscape"] as Orientation[]).map((value) => (
           <button

@@ -473,16 +473,28 @@ export const TABS: Array<[Tab, string, string]> = [
 ];
 
 export const TAB_BLURB: Record<Tab, string> = {
-  overview: "今日产线与下一步",
-  produce: "素材、任务与内容日历",
-  rules: "横竖画幅、标题、字幕与声音",
-  review: "抽检成片、通过或重渲",
-  publish: "物料、发布台与触达",
-  messages: "平台消息摘要与官方回复",
-  data: "产能、质量与发布统计",
-  ops: "引擎、本地 AI、载体与同步",
-  settings: "客户、表达与高级配置",
+  overview: "开工台 · 泳道、告警与下一步",
+  produce: "做片子 · 任务队列与素材库",
+  rules: "做片子 · 画幅实验室与声音",
+  review: "过片子 · 影院抽检与批量修复",
+  publish: "发出去 · 准备视频、快速发布与软文",
+  messages: "回话 · 视频/软文消息与通知通道",
+  data: "看数 · 只读产能与质量真数",
+  ops: "养机器 · 引擎、本地 AI 与载体",
+  settings: "客户与盘 · 客户级配置与路径",
 };
+
+/** 左轨心智分组（视觉分段；Tab id 与深链不变） */
+export const NAV_MIND_GROUPS: Array<{ id: string; label: string; tabs: Tab[] }> = [
+  { id: "launch", label: "开工台", tabs: ["overview"] },
+  { id: "craft", label: "做片子", tabs: ["produce", "rules"] },
+  { id: "review", label: "过片子", tabs: ["review"] },
+  { id: "ship", label: "发出去", tabs: ["publish"] },
+  { id: "reply", label: "回话", tabs: ["messages"] },
+  { id: "metrics", label: "看数", tabs: ["data"] },
+  { id: "machine", label: "养机器", tabs: ["ops"] },
+  { id: "client", label: "客户与盘", tabs: ["settings"] },
+];
 
 /** Main business pipeline order for next-step linking */
 export const PIPELINE_TABS: Tab[] = ["overview", "produce", "review", "publish"];

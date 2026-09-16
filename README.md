@@ -3,7 +3,8 @@
 对外产品名 **速影**（Suying）。本地智能混剪 — Python 引擎 + Tauri 桌面控制台。
 
 > 注意：本仓库在 `~/QR/dev/速影`（旧名 `montage-studio` 目录已废弃），**不在** OpenMontage 工作区内。  
-> 桌面 App：`~/Desktop/速影.app`；续跑说明：`~/Desktop/速影续跑说明.md`。
+> 桌面 App：`/Applications/速影 Studio.app`（**交付禁落桌面**）；更新推送见 [`docs/T2S_UPDATE_PUSH.md`](docs/T2S_UPDATE_PUSH.md)。  
+> Agent 入口：[`docs/README.md`](docs/README.md) → [`docs/DEV_LOCK.md`](docs/DEV_LOCK.md) → [`docs/HARD_LOCKS.md`](docs/HARD_LOCKS.md) → 分锁。
 
 ## 文档位置
 

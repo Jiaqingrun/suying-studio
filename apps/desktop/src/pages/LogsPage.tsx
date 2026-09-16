@@ -138,9 +138,12 @@ function rowPlatform(row: LogRow): string {
 
 export function LogsPage({
   embedded = false,
+  active: tabActive = true,
   onNavigate,
 }: {
   embedded?: boolean;
+  /** When false (hidden tab / FrozenTab), stop interval polling. */
+  active?: boolean;
   /** Jump to review/produce for a linked job or output. */
   onNavigate?: (target: LogNavigateTarget) => void;
 } = {}) {
@@ -152,7 +155,7 @@ export function LogsPage({
   const [total, setTotal] = useState(0);
   const [selected, setSelected] = useState<LogRow | null>(null);
   const [busy, setBusy] = useState(false);
-  const [active, setActive] = useState(true);
+  const [pageVisible, setPageVisible] = useState(true);
 
   useEffect(() => {
     const t = window.setTimeout(() => setSearchDebounced(search.trim()), 350);
@@ -160,11 +163,13 @@ export function LogsPage({
   }, [search]);
 
   useEffect(() => {
-    const onVis = () => setActive(document.visibilityState === "visible");
+    const onVis = () => setPageVisible(document.visibilityState === "visible");
     document.addEventListener("visibilitychange", onVis);
     onVis();
     return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
+
+  const active = Boolean(tabActive) && pageVisible;
 
   const refresh = useCallback(async () => {
     setBusy(true);

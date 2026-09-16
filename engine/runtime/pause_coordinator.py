@@ -181,9 +181,15 @@ class PauseCoordinator:
             return self._token
 
     def require_system_token(self, header: str | None) -> None:
+        import hmac
+
         expected = self.ensure_system_token()
         got = (header or "").strip()
-        if not got or got != expected:
+        if (
+            not got
+            or len(got) != len(expected)
+            or not hmac.compare_digest(expected, got)
+        ):
             raise HTTPException(status_code=401, detail="无效的系统事件令牌")
 
     def _load(self) -> None:

@@ -16,7 +16,7 @@ type Props = {
 
 export function OverviewPipeline({ nodes, onJump, pathBlocked }: Props) {
   return (
-    <div className="pipeline" aria-label="产线作战泳道">
+    <div className="pipeline overview-pipeline" aria-label="产线作战泳道">
       {pathBlocked ? (
         <div className="pipeline-banner warn">路径异常：生产已闸停，请先修复片库/成片路径</div>
       ) : null}

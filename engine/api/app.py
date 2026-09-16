@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -361,7 +361,13 @@ app.add_middleware(
     ),
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Accept", "Range", "X-Suying-System-Token"],
+    allow_headers=[
+        "Content-Type",
+        "Accept",
+        "Range",
+        "X-Suying-System-Token",
+        "X-Suying-Ops-Token",
+    ],
     expose_headers=["Accept-Ranges", "Content-Range", "Content-Length", "Content-Type"],
 )
 
@@ -1589,13 +1595,17 @@ class ResourceGateForceReleaseRequest(BaseModel):
 @app.post("/ops/resource-gate/force-release")
 def ops_resource_gate_force_release(
     body: ResourceGateForceReleaseRequest | None = None,
+    x_suying_ops_token: str | None = Header(default=None, alias="X-Suying-Ops-Token"),
 ) -> dict[str, Any]:
     """Force-drop expired ResourceGate holders (ops escape hatch).
 
     Only holders older than ``older_than_sec`` (or slot default lease) are released.
+    Requires Ops-Token (App 无调用方；curl/脚本须带高级解锁令牌).
     """
+    from engine.api.ops_auth import require_ops_token
     from engine.runtime.resource_gate import gate as resource_gate
 
+    require_ops_token(x_suying_ops_token)
     payload = body or ResourceGateForceReleaseRequest()
     slot = str(payload.slot or "all").strip() or "all"
     older_f = float(payload.older_than_sec) if payload.older_than_sec is not None else None

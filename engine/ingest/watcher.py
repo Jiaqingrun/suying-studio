@@ -74,6 +74,17 @@ class IngestWatcher:
             session.close()
 
     def start(self) -> None:
+        # Idempotent when healthy. Quiesce stop→start must not orphan a still-joining
+        # Observer (join timeout used to null the ref → dual FSEvents watchers).
+        if self.is_alive():
+            return
+        if self._observer is not None:
+            self.stop()
+            if self.is_alive():
+                log.warning(
+                    "watcher prior observer still alive after stop; refusing dual start"
+                )
+                return
         scoped, customer_id = self._active_context()
         self.settings = scoped
         self._customer_id = customer_id
@@ -89,9 +100,17 @@ class IngestWatcher:
         self._observer.start()
 
     def stop(self) -> None:
-        if self._observer:
-            self._observer.stop()
-            self._observer.join(timeout=5)
+        obs = self._observer
+        if not obs:
+            return
+        try:
+            obs.stop()
+        except Exception:  # noqa: BLE001
+            log.exception("watcher observer.stop failed")
+        obs.join(timeout=5)
+        # Only drop the ref when the thread is gone — otherwise is_alive stays true
+        # and start() can drain instead of spawning a second Observer.
+        if not obs.is_alive():
             self._observer = None
 
     def is_alive(self) -> bool:

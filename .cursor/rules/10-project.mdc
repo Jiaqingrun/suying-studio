@@ -38,9 +38,9 @@ alwaysApply: true
 - **T2S App 更新推送**：默认极空间本地 API → `速影/更新包`（`docs/T2S_UPDATE_PUSH.md`）；禁止默认依赖 `~/QR/dev/T2s/ZSPACE` NFS 挂载
 - 禁止：`if customer.name == "北京始峰伟业"`、往 `hooks.py` 堆客户文案、未授权 Gate 主开发、把 archive 当现行需求
 - 默认主盘工作区（`~/Suying/data` + `~/Movies/速影工作区`）；外置盘可选；无真实客户片库时做 OFFLINE/fixture，禁止虚标媒体复检完成
-- **HARD_LOCKS L17（冻结）**：`LangCombobox`（旁白/字幕语言）Portal+fixed 已验收；无授权不得再改该组件与 `.lang-combo*`；禁止卡片内 absolute 弹层与靠祖先 overflow「治裁切」；一体包须重建 `appsdesktop` 后再验
+- **HARD_LOCKS L17（冻结 · A7=A）**：`LangCombobox`（旁白/字幕语言）Portal+fixed 已验收；**含视觉皮肤/外观**，无授权不得再改该组件与 `.lang-combo*`；禁止卡片内 absolute 弹层与靠祖先 overflow「治裁切」；一体包须重建 `appsdesktop` 后再验
 - **HARD_LOCKS L18（冻结 · Local-first 主盘工作区）**：权威库 `~/Suying/data`；媒体默认 `~/Movies/速影工作区`；`external_required` 默认 false；自动同步主盘；外置盘仅路径覆盖；外卷 fail-closed。**无用户当面授权禁止再改**该拓扑与默认同步语义
-- **HARD_LOCKS L19（冻结 · 本地 F5 就绪与试听）**：clone 运行时（一体包 **clone flavor** / 内嵌 `f5-tts`）；设置页试听 `POST /voice/packs/preview` 单轨 `preview.wav` + macOS `afplay` 出声已验收；细则 [`docs/VOICE_CLONE.md`](docs/VOICE_CLONE.md)。**无用户当面授权禁止再改** `voice_clone` 就绪语义、预览接口、设置页音色试听相关实现
+- **HARD_LOCKS L19（冻结 · 本地 F5 就绪与试听）**：**交付主路径 = core 一体包 + App 外 F5 Runtime Kit**（`~/Suying/runtime`）；clone flavor / 内嵌 `f5-tts` **仅应急**，非 T2S 周更默认；设置页试听 `POST /voice/packs/preview` 单轨 `preview.wav` + macOS `afplay` 出声已验收；细则 [`docs/VOICE_CLONE.md`](docs/VOICE_CLONE.md)。**无用户当面授权禁止再改** `voice_clone` 就绪语义、预览接口、设置页音色试听相关实现
 
 ## AI 协作（本项目）
 

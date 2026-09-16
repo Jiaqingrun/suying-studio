@@ -5,6 +5,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+echo "==> gate: legacy cleanup contract"
+bash "${ROOT}/scripts/check-legacy-cleanup-gate.sh"
+
 echo "==> gate: desktop tsc"
 (cd apps/desktop && npx tsc --noEmit)
 

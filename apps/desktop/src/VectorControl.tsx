@@ -46,7 +46,14 @@ function statusChipLabel(status: VectorizationStatus | null): { text: string; ki
  * 素材向量分析 + 定时窗口 + L16 横竖屏硬审核。
  * 横/竖分别排队；判断以含旋转的显示尺寸为准，不可关闭硬门禁。
  */
-export function VectorControl({ notify }: { notify: NotifyFn }) {
+export function VectorControl({
+  notify,
+  pageActive = true,
+}: {
+  notify: NotifyFn;
+  /** False when FrozenTab hides the ops page — stop status polling. */
+  pageActive?: boolean;
+}) {
   const [orientation, setOrientation] = useState<"portrait" | "landscape">("portrait");
   const [status, setStatus] = useState<VectorizationStatus | null>(null);
   const [orientLock, setOrientLock] = useState<OrientationLockStatus | null>(null);
@@ -108,8 +115,10 @@ export function VectorControl({ notify }: { notify: NotifyFn }) {
   }
 
   useEffect(() => {
+    if (!pageActive) return;
     let cancelled = false;
     const tick = () => {
+      if (cancelled || document.visibilityState !== "visible") return;
       void (async () => {
         try {
           const orient = orientation;
@@ -140,7 +149,7 @@ export function VectorControl({ notify }: { notify: NotifyFn }) {
       window.clearInterval(interval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orientation, status?.status, status?.run_id]);
+  }, [pageActive, orientation, status?.status, status?.run_id]);
 
   async function run(action: "start" | "pause" | "resume") {
     setBusy(true);

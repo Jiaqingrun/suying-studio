@@ -1275,6 +1275,8 @@ def reach_messages_mark_read(message_id: int) -> dict[str, Any]:
 @router.post("/reach/messages/read-all")
 @router.post("/reach/messages/bulk-read")
 def reach_messages_bulk_read(body: ReachMessagesBulkReadRequest) -> dict[str, Any]:
+    from datetime import datetime, timezone
+
     from sqlalchemy import func, update
 
     settings = load_settings()

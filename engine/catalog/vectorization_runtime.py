@@ -417,20 +417,33 @@ class VectorizationExecutor:
         self._thread: threading.Thread | None = None
         self._client_lock = threading.Lock()
         self._current_client: Any = None
+        self._generation = 0
 
     def start(self) -> None:
-        if self._thread and self._thread.is_alive():
+        if self.is_alive() and not self._stop.is_set():
             return
+        if self._thread and self._thread.is_alive():
+            self._stop.set()
+            self._wake.set()
+            self._generation += 1
+            self._thread.join(timeout=2)
         recover_after_restart()
+        self._generation += 1
+        gen = self._generation
         self._stop.clear()
+        self._cancel.clear()
         self._thread = threading.Thread(
-            target=self._loop, daemon=True, name="vectorization-single-slot"
+            target=self._loop,
+            args=(gen,),
+            daemon=True,
+            name="vectorization-single-slot",
         )
         self._thread.start()
 
     def stop(self) -> None:
         self._stop.set()
         self._wake.set()
+        self._generation += 1
         self._cancel_request()
         if self._thread:
             self._thread.join(timeout=2)
@@ -602,11 +615,11 @@ class VectorizationExecutor:
             row.last_attempt_status = "ABANDONED"
             row.updated_at = _now()
 
-    def _loop(self) -> None:
-        while not self._stop.is_set():
+    def _loop(self, gen: int) -> None:
+        while not self._stop.is_set() and gen == self._generation:
             self._wake.wait(0.5)
             self._wake.clear()
-            if self._stop.is_set():
+            if self._stop.is_set() or gen != self._generation:
                 break
             try:
                 self._tick()

@@ -73,3 +73,74 @@ def test_readiness_never_calls_live_ollama_probe():
     assert snap["process_alive"] is True
     assert snap.get("chat_probe_ok") is True
     assert "narration_model_missing" in snap
+
+def test_readiness_offline_class_vocabulary():
+    """offline_class tokens must match ENGINE_SUPERVISOR + desktop labels."""
+    allowed = {
+        "ok",
+        "starting",
+        "boot_failed",
+        "license",
+        "workspace",
+        "integrity",
+        "control_plane_not_ready",
+        "not_ready",
+    }
+    with patch("engine.security.license.is_packaged_runtime", return_value=False):
+        snap = build_readiness_snapshot()
+    assert snap["offline_class"] in allowed
+    # Never emit the ambiguous bare token (desktop/Rust use *_not_ready).
+    assert snap["offline_class"] != "control_plane"
+
+
+def test_readiness_blocked_boot_uses_control_plane_not_ready():
+    with (
+        patch("engine.security.license.is_packaged_runtime", return_value=False),
+        patch(
+            "engine.api.readiness.probe_workspace",
+            return_value=type(
+                "P",
+                (),
+                {
+                    "state": "local",
+                    "can_init_db": True,
+                },
+            )(),
+        ),
+        patch(
+            "engine.runtime.boot_state.snapshot",
+            return_value={
+                "boot_phase": "blocked",
+                "boot_error": "控制面模式（测试）",
+            },
+        ),
+    ):
+        snap = build_readiness_snapshot()
+    assert snap["ready"] is False
+    assert snap["offline_class"] == "control_plane_not_ready"
+    assert "控制面" in str(snap.get("offline_detail") or "")
+
+
+def test_readiness_workspace_missing_class():
+    with (
+        patch("engine.security.license.is_packaged_runtime", return_value=False),
+        patch(
+            "engine.api.readiness.probe_workspace",
+            return_value=type(
+                "P",
+                (),
+                {
+                    "state": "missing",
+                    "can_init_db": False,
+                },
+            )(),
+        ),
+        patch(
+            "engine.runtime.boot_state.snapshot",
+            return_value={"boot_phase": "ready", "boot_error": ""},
+        ),
+    ):
+        snap = build_readiness_snapshot()
+    assert snap["ready"] is False
+    assert snap["offline_class"] == "workspace"
+    assert "工作区未就绪" in str(snap.get("offline_detail") or "")

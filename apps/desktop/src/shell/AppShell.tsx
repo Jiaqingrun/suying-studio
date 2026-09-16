@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import type { LayoutDensity, Tab } from "../types";
-import { TABS, TAB_BLURB } from "../types";
+import { TABS, TAB_BLURB, NAV_MIND_GROUPS } from "../types";
+import { AvFeatureBar } from "./AvFeatureBar";
+import { PigmentTurbulence } from "./PigmentTurbulence";
 
 type NavBadge = Partial<Record<Tab, number>>;
 
@@ -18,6 +20,8 @@ type Props = {
   tabIcons: Record<Tab, LucideIcon>;
 };
 
+const TAB_LABEL = Object.fromEntries(TABS.map(([id, label]) => [id, label])) as Record<Tab, string>;
+
 export function AppShell({
   tab,
   onSetTab,
@@ -31,7 +35,7 @@ export function AppShell({
   tabIcons,
 }: Props) {
   return (
-    <div className="app app--gui" data-density={density}>
+    <div className="app app--gui app--immersive" data-density={density}>
       <aside className="rail" aria-label="主导航">
         <div className="brand">
           {brandSlot ?? (
@@ -40,39 +44,54 @@ export function AppShell({
               <span className="brand-ver">SUYING</span>
             </div>
           )}
-          <p className="brand-tag">本地日更工作室</p>
+          <p className="brand-tag">本地日更 · 水彩工作室</p>
         </div>
-        <nav className="nav">
-          {TABS.map(([t, label, idx]) => {
-            const Icon = tabIcons[t];
-            const badge = badges[t] ?? 0;
-            return (
-              <button
-                key={t}
-                type="button"
-                className={`nav-btn${tab === t ? " active" : ""}`}
-                onClick={() => onSetTab(t)}
-                title={`${label} · ${TAB_BLURB[t]}`}
-              >
-                <span className="nav-idx">{idx}</span>
-                {Icon ? <Icon className="nav-icon" size={16} aria-hidden /> : null}
-                <span className="nav-label">{label}</span>
-                {badge > 0 ? <em className="nav-badge">{badge > 99 ? "99+" : badge}</em> : null}
-              </button>
-            );
-          })}
+        <nav className="nav" aria-label="心智分组导航">
+          {NAV_MIND_GROUPS.map((group) => (
+            <div key={group.id} className="nav-group" data-mind={group.id}>
+              <div className="nav-group-label" aria-hidden="true">
+                {group.label}
+              </div>
+              {group.tabs.map((t) => {
+                const Icon = tabIcons[t];
+                const badge = badges[t] ?? 0;
+                const meta = TABS.find(([id]) => id === t);
+                const idx = meta?.[2] ?? "";
+                const label = TAB_LABEL[t];
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    className={`nav-btn${tab === t ? " active" : ""}`}
+                    onClick={() => onSetTab(t)}
+                    title={`${label} · ${TAB_BLURB[t]}`}
+                    aria-current={tab === t ? "page" : undefined}
+                  >
+                    <span className="nav-idx">{idx}</span>
+                    {Icon ? <Icon className="nav-icon" size={16} aria-hidden /> : null}
+                    <span className="nav-label">{label}</span>
+                    {badge > 0 ? <em className="nav-badge">{badge > 99 ? "99+" : badge}</em> : null}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </nav>
         {railFoot}
       </aside>
 
       <header className="topbar">
-        <div className="topbar-title">
-          {topbarTitle}
-        </div>
+        <div className="topbar-title">{topbarTitle}</div>
         <div className="topbar-actions">{topbarActions}</div>
       </header>
 
-      <div className="workspace">{children}</div>
+      {/* Fixed to viewport — must not live inside scrolling workspace */}
+      <PigmentTurbulence />
+
+      <div className="workspace">
+        <div className="workspace-stage">{children}</div>
+        <AvFeatureBar />
+      </div>
     </div>
   );
 }

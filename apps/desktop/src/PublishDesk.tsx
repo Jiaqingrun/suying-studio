@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { openMediaTarget } from "./openMediaTarget";
 import { api } from "./api";
+import { MediaVideo } from "./MediaVideo";
 import {
   bindOutputFileDrag,
   bindOutputFilePointerDown,
   outputDragHtmlEnabled,
 } from "./mediaDrag";
-import { previewVideoSrc } from "./mediaPreview";
 
 type PlatformCopy = {
   platform?: string;
@@ -204,15 +204,15 @@ export function PublishDesk({ outputs, onNotify, onRefresh, onGoReach, mediaEpoc
             <>
               <div className="publish-preview">
                 {card.media_ok ? (
-                  <video
-                    key={`pub-${mediaEpoch}-${card.id}`}
+                  <MediaVideo
+                    outputId={card.id}
+                    localPath={path}
+                    bust={`${mediaEpoch}-${card.id}`}
+                    localOk
                     className="publish-video"
-                    controls
-                    playsInline
-                    preload="metadata"
-                    src={previewVideoSrc(card.id, path, `${mediaEpoch}-${card.id}`)}
                     draggable={htmlDrag}
                     onDragStart={htmlDrag ? onDragStart : undefined}
+                    onFatalError={() => onNotify("成片预览失败，可尝试访达中打开", "warn")}
                   />
                 ) : (
                   <div className="publish-video missing">文件缺失</div>

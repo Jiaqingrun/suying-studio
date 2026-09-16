@@ -25,6 +25,8 @@ export interface PublishPageProps {
   outputs: Array<Record<string, unknown>>;
   mediaEpoch: number;
   activeCustomerId: number | null;
+  /** False when FrozenTab hides this page — stop batch run polling. */
+  active?: boolean;
   packLast: string;
   packBusyId: number | null;
   exportPack: (id: number) => void;
@@ -81,6 +83,7 @@ export function PublishPage({
   outputs,
   mediaEpoch,
   activeCustomerId,
+  active = true,
   packLast,
   packBusyId,
   exportPack,
@@ -135,7 +138,7 @@ export function PublishPage({
 
   return (
     <section className="page-stack publish-page">
-      <PageHeader title="发布" blurb="物料、发布台与触达" />
+      <PageHeader title="发布" blurb="成片打包 · 触达队列 · 账号与画廊归档" />
       <SegmentNav
         ariaLabel="发布业务域"
         value={domain}
@@ -147,7 +150,9 @@ export function PublishPage({
           {
             id: "video",
             label: "视频发布",
-            badge: reachMessageUnread + Number(reachInbox?.unread_count ?? 0),
+            // Domain switcher: show ready-to-publish count, not message unread
+            // (messages belong on 消息 tab / rail badge).
+            badge: readyCount,
           },
           { id: "content", label: "软文发布" },
         ]}
@@ -324,6 +329,7 @@ export function PublishPage({
                 activeCustomerId={activeCustomerId}
                 notify={notify}
                 onRefresh={() => refreshReach()}
+                pageActive={active}
               />
             </>
           )}

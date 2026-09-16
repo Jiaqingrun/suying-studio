@@ -96,6 +96,7 @@ export async function reconnectWorkspaceNow(): Promise<WorkspaceStateSnapshot> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
+      signal: AbortSignal.timeout(45_000),
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {

@@ -11,13 +11,13 @@ type Props = {
 
 export function PageHeader({ title, blurb, actions, guide }: Props) {
   return (
-    <div className="page-header">
+    <div className="page-header av-hero">
       <div className="page-header-main">
         <div className="panel-head">
-          <h2>{title}</h2>
+          <h2 className="av-hero-title">{title}</h2>
           {actions}
         </div>
-        {blurb ? <p className="page-blurb">{blurb}</p> : null}
+        {blurb ? <p className="page-blurb av-hero-blurb">{blurb}</p> : null}
         {guide ? <div className="page-guide">{guide}</div> : null}
       </div>
     </div>

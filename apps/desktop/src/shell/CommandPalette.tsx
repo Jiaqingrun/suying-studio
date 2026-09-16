@@ -29,6 +29,13 @@ export function CommandPalette({ open, onClose, extra = [] }: Props) {
   useEffect(() => setActiveIndex(0), [q]);
 
   useEffect(() => {
+    setActiveIndex((i) => {
+      if (!filtered.length) return 0;
+      return Math.min(i, filtered.length - 1);
+    });
+  }, [filtered.length]);
+
+  useEffect(() => {
     if (!open) return;
     setQ("");
     setActiveIndex(0);

@@ -95,7 +95,9 @@ def build_readiness_snapshot() -> dict[str, Any]:
         offline_class = "integrity"
         offline_detail = runtime_source_reason
     elif boot.get("boot_phase") == "blocked":
-        offline_class = "control_plane"
+        # Vocabulary must match docs/ENGINE_SUPERVISOR.md + desktop offlineClassLabel
+        # (Rust classify uses control_plane_not_ready; never emit bare "control_plane").
+        offline_class = "control_plane_not_ready"
         offline_detail = str(boot.get("boot_error") or "控制面模式")
     elif not ready:
         offline_class = "not_ready"

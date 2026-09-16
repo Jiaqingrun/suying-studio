@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
 
-export function CarrierOpsStrip() {
+export function CarrierOpsStrip({ pageActive = true }: { pageActive?: boolean } = {}) {
   const [carrier, setCarrier] = useState<Awaited<ReturnType<typeof api.carrierStatus>> | null>(null);
   const [kw, setKw] = useState<Awaited<ReturnType<typeof api.keywordStats>> | null>(null);
   const [upd, setUpd] = useState<Awaited<ReturnType<typeof api.appUpdateCheck>> | null>(null);
@@ -28,8 +28,10 @@ export function CarrierOpsStrip() {
   }
 
   useEffect(() => {
+    if (!pageActive) return;
     let cancelled = false;
     const tick = async () => {
+      if (cancelled || document.visibilityState !== "visible") return;
       try {
         const [c, k, u, r] = await Promise.all([
           api.carrierStatus(),
@@ -52,7 +54,7 @@ export function CarrierOpsStrip() {
       cancelled = true;
       window.clearInterval(t);
     };
-  }, []);
+  }, [pageActive]);
 
   async function onInstallUpdate() {
     setBusy(true);

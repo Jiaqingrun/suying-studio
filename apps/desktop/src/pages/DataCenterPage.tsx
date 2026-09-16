@@ -54,7 +54,7 @@ export function DataCenterPage({
     <section className="page-stack data-page">
       <PageHeader
         title="数据中心"
-        blurb="只读看产能与质量；要操作请回总览或生产"
+        blurb="看数 · 只读产能与质量真数；无数据即空态，不展示虚构数字"
         actions={
           <button type="button" onClick={() => void refreshAll()}>
             刷新

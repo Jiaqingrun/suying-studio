@@ -50,7 +50,7 @@
 
 | 模块 | 路径 |
 |------|------|
-| Ollama 黄金锁 / 回退 | `engine/pack/ollama_narration.py`：`use_golden_base_lock`、`_address_drift_blocked`、`_base_retention_ratio`、`_finalize_ok(..., base_lock=)`、服务向 prompt「黄金底稿·节奏润色」 |
+| Ollama 黄金锁 / 回退 | `engine/pack/ollama_narration.py`：`use_golden_base_lock`（v2 关闭）、`_address_drift_blocked`、`_base_retention_ratio`、`_finalize_ok(..., base_lock=)`、服务向 prompt（历史标签「黄金底稿·节奏润色」；合同以 §1 Ollama v2 为准） |
 | 生活服务 VO 装配 | `engine/pack/narration_script.py`：warm openers/closers、`STOCK_BANNED_PHRASES` 服务禁词、pack opener 不双「来到」、服务长句 `to_spoken_line`、warm 少注水 |
 | 配方槽位 | `engine/content/content_fingerprint.py`：`hook`/`hooks` 别名、`_weighted_pick` |
 | 落盘旁白 | `engine/render/voice_subtitle.py`（Ollama 调用与底稿接管） |

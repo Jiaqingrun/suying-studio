@@ -786,6 +786,146 @@
         "kickstart/控制面与 CarrierOpsStrip 改读 /readiness（约 800ms 预算）",
         "覆盖安装仅换 App，不冲片库/词池/登录态"
       ]
+    },
+    "0.8.21": {
+      "title": "中心蜂窝星云湍流重做",
+      "summary": "按参考图把中心 pigment 重做成细密六角蜂窝星云：噪声驱动的紫/品红云团与电青高光，柔和径向淡出；取消发暗的 multiply，改用 normal 保持发光感。",
+      "highlights": [
+        "PigmentTurbulence 改为六角网格 + 分层噪声星云（海军蓝→紫→品红→青）",
+        "固定视口、整体缓转；边缘柔和融入水彩底，不再发黑发脏",
+        "mix-blend-mode 改为 normal，去掉 muddy multiply",
+        "覆盖安装仅换 App，不冲片库/词池/登录态"
+      ]
+    },
+    "0.8.22": {
+      "title": "中心星云丝滑化极限优化",
+      "summary": "针对突兀硬边蜂窝：改成水彩柔纱主色 + 极轻六角纹理；粉彩对齐纸底、双层模糊、径向遮罩长衰减、约 30fps 缓漂，让中心效果融进界面而不再像贴纸。",
+      "highlights": [
+        "柔纱径向色雾主导，蜂窝仅作低对比纹理",
+        "粉彩（丁香/玫瑰/雾青）对齐 #ebe4ef 水彩纸，去掉近黑海军蓝",
+        "画布 blur + CSS blur/mask 双重柔化边缘",
+        "覆盖安装仅换 App，不冲片库/词池/登录态"
+      ]
+    },
+    "0.8.23": {
+      "title": "透亮清玻璃统一",
+      "summary": "全界面毛玻璃改为透亮清玻璃：blur 降至约 3.5–5px，填充更低；靠细描边、内高光与轻微边缘色散成玻璃感，水彩底清晰透出。",
+      "highlights": [
+        "--glass 3.5px / --glass-strong 5px；chrome fill 更低透明度",
+        "侧栏/顶栏/双卡/底栏/运行状态统一清玻璃语汇",
+        "内高光 + 冷暖边缘色散；中心柔纱略降不糊玻璃",
+        "覆盖安装仅换 App，不冲片库/词池/登录态"
+      ]
+    },
+    "0.8.24": {
+      "title": "真玻璃厚度与反光",
+      "summary": "针对仍像磨砂亚克力：blur 再降至约 1.4–2.2px；双层厚度边（顶高光/底暗唇/冷暖侧沿）；顶沿 specular 条、角落亮斑与极弱移动光泽，水彩底清晰透出。",
+      "highlights": [
+        "--glass 1.4px / --glass-strong 2.2px；填充约 0.025–0.04",
+        "--glass-pane-edge 厚度阴影栈统一 chrome/双卡/底栏/运行状态",
+        "顶沿高光条 + 角落亮斑 + glass-sheen（尊重 reduced-motion）",
+        "覆盖安装仅换 App，不冲片库/词池/登录态"
+      ]
+    },
+    "0.8.25": {
+      "title": "超透玻璃与流畅瘦身",
+      "summary": "玻璃改为近零模糊、几乎无色填充，肉眼可见背后水彩；砍掉多层 backdrop-filter、glass-sheen 持续动画与中心星云实时绘制，优先 transform/opacity 与静态化以减卡顿。",
+      "highlights": [
+        "--glass 0.5px / --glass-strong 0.8px；chrome fill 透明；白填充 ≤0.02",
+        "backdrop-filter 仅保留侧栏/顶栏/双卡/底栏；其余面板/芯片/弹层改为边框玻璃",
+        "关闭 glass-sheen；中心星云改为 resize 静态烘焙，去掉 CSS filter/will-change",
+        "覆盖安装仅换 App，不冲片库/词池/登录态"
+      ]
+    },
+    "0.8.26": {
+      "title": "统一清玻璃单元格",
+      "summary": "针对总览「混剪剩余」chip 与「可用成片」卡的蓝灰差异底：全站 chip/KPI/状态条统一为清玻璃填充，区分改靠描边与字色，不再各组件另套色底。",
+      "highlights": [
+        "新增 --glass-cell / --glass-cell-edge；pipeline-node、status-strip-item 统一清玻璃",
+        "消息 KPI、pulse-chip、workspace-sync、banner/badge 态色改为描边+字色",
+        "选中态靠边框与强调字色，不靠涂料底；覆盖安装仅换 App"
+      ]
+    },
+    "0.8.27": {
+      "title": "切页流畅两轮收口",
+      "summary": "两轮审查以流畅为最终目标：去掉切页 pane 动画与 chrome 实时 blur，空闲预挂载九页，切页时冻结合成；页面 memo 减少隐藏页调和。",
+      "highlights": [
+        "idle 预挂载九页，避免首次点击冷挂载",
+        "取消 pane-rise；切页 data-tab-switching 冻结特效",
+        "去掉 rail/topbar/双卡 backdrop-filter 与 SVG 噪点；背景改 scroll",
+        "pages memo；覆盖安装仅换 App"
+      ]
+    },
+    "0.8.28": {
+      "title": "切页冻结隐藏页",
+      "summary": "针对仍略卡：用 FrozenTab 冻结非当前页 React 树，避免轮询/切页时调和全部 keep-alive 重页；预挂载改为仅轻页；切页更长冻结特效并精简水彩层。",
+      "highlights": [
+        "FrozenTab：隐藏页保留状态但不跟 App 轮询重渲染（active 仍可下发停轮询）",
+        "预挂载仅 warm review/publish/data，避免一次挂满 settings/produce",
+        "水彩层减层、纸噪去 mix-blend；切页隐藏中心星云",
+        "覆盖安装仅换 App"
+      ]
+    },
+    "0.8.29": {
+      "title": "三轮瑕疵审查收口",
+      "summary": "流畅度确认后做三轮 UI 瑕疵/bug 审查：主链文案与真数据、叠加面 Escape/清玻璃、九页回归；不改 L17/engine，保留 FrozenTab。",
+      "highlights": [
+        "总览标题与待人工画廊对齐真队列；发布角标改 readyCount",
+        "消息 InPageNav、Dialog Escape、通知/庆祝/高级锁清玻璃盖过 #fef2f2",
+        "生产空态；密度文案中文化；tsc + 20 tests 通过",
+        "覆盖安装仅换 App"
+      ]
+    },
+    "0.8.30": {
+      "title": "全方位审计收口",
+      "summary": "在 0.8.29 底座上做代码+文档全方位审查：修 readiness 离线 class、发布角标、运维日志轮询与 SoundBed 静音一致性；硬锁冲突只记待裁决，不改 L17。",
+      "highlights": [
+        "readiness blocked → control_plane_not_ready；桌面 offlineClassLabel 补齐",
+        "发布「视频发布」角标改 readyCount；运维 LogsPage 随 FrozenTab active 停轮询",
+        "SoundBed mute 与 playAlertSound 同步；workspace reconnect 45s 超时",
+        "覆盖安装仅换 App"
+      ]
+    },
+    "0.8.31": {
+      "title": "运维鉴权与 fail-closed 最小集",
+      "summary": "A8=C→A：从 main WIP 审合 ops_auth 最小集——共享 Ops-Token、媒体流路径禁越界、ntfy 密钥外卷 fail-closed、资源槽租约心跳；不含词包/L17。",
+      "highlights": [
+        "破坏性 /ops 写接口与 force-release 统一 require_ops_token",
+        "成片/封面流 assert_streamable_media_path；ntfy secrets 读不 mkdir、写拒绝缺失外卷",
+        "ResourceGate touch/heartbeat；R1/R2 对抗单测入仓",
+        "覆盖安装仅换 App，不冲片库/词池/登录态；不改 L17"
+      ]
+    },
+    "0.8.32": {
+      "title": "P3 防回归与 FrozenTab 离页轮询收口",
+      "summary": "遗留清理收尾：rg 合同门禁挂入发版前检；运维/生产/发布等页离开 Tab 后停止控制面轮询，延续 LogsPage FrozenTab 契约；清玻璃与 L17 未改。",
+      "highlights": [
+        "scripts/check-legacy-cleanup-gate.sh（挂 gate_package_regression / release-to-t2s）",
+        "Ops 督导 / VectorControl / CarrierOpsStrip / 生产管线 / 发布批次尊重 active",
+        "DEV_LOCK 主线指针；docs/README 改锁发版前小节",
+        "覆盖安装仅换 App；不改 L17 / 清玻璃主路径"
+      ]
+    },
+    "0.8.33": {
+      "title": "Worker/Watcher 重启自愈与唤醒串行锁",
+      "summary": "B1/B2：JobWorker 代际复活、IngestWatcher 拒双 Observer、唤醒/手动恢复共享 resume 锁；租约心跳接线 ollama/tts；FrozenTab ActivityTicker 离页暂停；不含客户词包与 L17。",
+      "highlights": [
+        "JobWorker generation revive + IngestWatcher dual-start refuse（配单测）",
+        "system_routes wake/health-retry/手动 resume 串行锁；system token 时序安全比较",
+        "ollama_heavy / TTS 持锁期间 heartbeat，防 sweep 误夺；semantic backfill 同款重启自愈",
+        "Overview ActivityTicker 尊重 active；ops_auth compare_digest 长度门闩",
+        "覆盖安装仅换 App；不改 L17 / 清玻璃 / FrozenTab 策略；词包仍搁置"
+      ]
+    },
+    "0.8.34": {
+      "title": "审片媒体预览与全产品空态修复",
+      "summary": "修审片三类实机问题：缺文件不再显示 ? 破帧、视频 asset→HTTP 回退、主预览区竖屏铺满；API 过滤失效封面路径；生产素材库空态；发布台同款视频回退。不含客户词包与 L17。",
+      "highlights": [
+        "mediaPreview localOk/preferHttp；MediaVideo/CoverThumb 失败回退文案而非 WebKit ?",
+        "审片主区 portrait/landscape 几何 + object-fit:cover；缺文件态铺满容器",
+        "list/output_cover_paths 仅返回磁盘仍在的封面；生产素材库 EmptyState",
+        "vitest mediaPreview 4 项；覆盖安装仅换 App；L17/清玻璃/FrozenTab/B3 未动"
+      ]
     }
   }
 }

@@ -38,6 +38,9 @@ class _SlotPool:
         if self.capacity <= 0:
             return False
         if token in self.holders:
+            # Renew lease so a legitimate long holder that re-touches the slot
+            # is not force-swept while still in progress.
+            self.holders[token] = time.monotonic()
             return True
         if len(self.holders) >= self.capacity:
             return False
@@ -158,6 +161,40 @@ class ResourceGate:
             pool = self._pools.get(slot)
             if pool is not None:
                 pool.release(token)
+
+    def touch(self, slot: str, token: str) -> bool:
+        """Renew lease timestamp for an existing holder. False if not held."""
+        with self._lock:
+            pool = self._pools.get(slot)
+            if pool is None or token not in pool.holders:
+                return False
+            pool.holders[token] = time.monotonic()
+            return True
+
+    @contextmanager
+    def heartbeat(
+        self, slot: str, token: str, *, interval_sec: float = 30.0
+    ) -> Iterator[None]:
+        """Keep a held lease alive across long TTS / Ollama work."""
+        stop = threading.Event()
+        interval = max(5.0, float(interval_sec))
+
+        def _loop() -> None:
+            while not stop.wait(interval):
+                if not self.touch(slot, token):
+                    return
+
+        thread = threading.Thread(
+            target=_loop,
+            name=f"gate-hb-{slot}",
+            daemon=True,
+        )
+        thread.start()
+        try:
+            yield
+        finally:
+            stop.set()
+            thread.join(timeout=1.0)
 
     def release_all(self, token: str) -> None:
         with self._lock:
