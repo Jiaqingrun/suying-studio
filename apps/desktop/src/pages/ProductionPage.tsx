@@ -344,31 +344,48 @@ export function ProductionPage({
   useEffect(() => {
     if (!active) return;
     let cancelled = false;
+    let timer: number | undefined;
+    let lastMs: number = POLL_BUDGET_MS.semanticIdle;
+    const pipelineBusy = (snap: {
+      running: unknown;
+      queued_count?: number;
+    }) => Boolean(snap.running) || Number(snap.queued_count || 0) > 0;
+
+    const schedule = (ms: number) => {
+      if (timer !== undefined && ms === lastMs) return;
+      lastMs = ms;
+      if (timer !== undefined) window.clearInterval(timer);
+      timer = window.setInterval(() => void tick(), ms);
+    };
+
     const tick = async () => {
       if (cancelled || document.visibilityState !== "visible") return;
       try {
         const snap = await api.jobsPipeline();
-        if (!cancelled) {
-          setPipeline({
-            running: snap.running,
-            queued_count: snap.queued_count,
-            recent_events: snap.recent_events || [],
-            worker_running: snap.worker_running,
-            resource_gate: snap.resource_gate || null,
-            clone_runtime: snap.clone_runtime || null,
-            ollama_circuit: snap.ollama_circuit || null,
-            chat_probe_ok: Boolean(snap.chat_probe_ok),
-          });
-        }
+        if (cancelled) return;
+        setPipeline({
+          running: snap.running,
+          queued_count: snap.queued_count,
+          recent_events: snap.recent_events || [],
+          worker_running: snap.worker_running,
+          resource_gate: snap.resource_gate || null,
+          clone_runtime: snap.clone_runtime || null,
+          ollama_circuit: snap.ollama_circuit || null,
+          chat_probe_ok: Boolean(snap.chat_probe_ok),
+        });
+        // S3 / PL-25: idle → semanticIdle (~15s); busy keep semanticFast (3s).
+        schedule(
+          pipelineBusy(snap) ? POLL_BUDGET_MS.semanticFast : POLL_BUDGET_MS.semanticIdle,
+        );
       } catch {
         /* ignore */
       }
     };
     void tick();
-    const timer = window.setInterval(() => void tick(), POLL_BUDGET_MS.semanticFast);
+    schedule(POLL_BUDGET_MS.semanticIdle);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      if (timer !== undefined) window.clearInterval(timer);
     };
   }, [active, activeCustomerId]);
 

@@ -103,6 +103,7 @@
 | [`INCIDENT_OLLAMA_NARRATION_IDLE.md`](INCIDENT_OLLAMA_NARRATION_IDLE.md) | 旁白 keep_alive=0 冷启超时后整轮重渲空转 |
 | [`INCIDENT_OLLAMA_HEAVY_ORPHAN_SLOT.md`](INCIDENT_OLLAMA_HEAVY_ORPHAN_SLOT.md) | 旁白假死占 ollama_heavy/TTS/render；租约+墙钟 |
 | [`APP_POLL_BUDGET.md`](APP_POLL_BUDGET.md) | App 控制面轮询预算表 |
+| [`APP_INTERVAL_INVENTORY.md`](APP_INTERVAL_INVENTORY.md) | 全 App interval 清单（PL-25） |
 | [`AUDIT_CLEANUP_2026-08-08.md`](AUDIT_CLEANUP_2026-08-08.md) | 死代码清理 / 测试对齐 / 出包双端推送审计留痕（只读；不改合同） |
 
 ## 5. 历史归档（勿当现行需求）

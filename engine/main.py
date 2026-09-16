@@ -15,6 +15,20 @@ from engine.config.settings import (
 from engine.security.license import require_runtime_license
 
 
+def uvicorn_access_log_enabled() -> bool:
+    """S6: production default quiet access log; opt-in via env for triage.
+
+    High-frequency App polls (/health, /readiness, /jobs/…) used to dominate
+    engine-agent.out.log growth. App/structured loggers remain at INFO.
+    """
+    raw = (os.environ.get("SUYING_UVICORN_ACCESS_LOG") or "").strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return False
+
+
 def main() -> None:
     # Machine-local lab env (~/Suying/runtime/local.env) before any settings load.
     # Never packaged; missing file is a no-op on customer machines.
@@ -36,7 +50,13 @@ def main() -> None:
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
     settings = load_settings()
-    uvicorn.run(app, host=settings.host, port=settings.port, log_level="info")
+    uvicorn.run(
+        app,
+        host=settings.host,
+        port=settings.port,
+        log_level="info",
+        access_log=uvicorn_access_log_enabled(),
+    )
 
 
 if __name__ == "__main__":

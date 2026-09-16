@@ -186,42 +186,44 @@ pub fn engine_ready() -> bool {
         .unwrap_or(false)
 }
 
+pub fn readiness_failure_message_from(v: &serde_json::Value) -> String {
+    if v.get("ready").and_then(|x| x.as_bool()) == Some(true) {
+        return String::new();
+    }
+    if let Some(detail) = v
+        .get("offline_detail")
+        .and_then(|x| x.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        return detail.to_string();
+    }
+    if let Some(reason) = v
+        .get("license_locked_reason")
+        .and_then(|x| x.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        return reason.to_string();
+    }
+    if let Some(reason) = v
+        .get("runtime_source_reason")
+        .and_then(|x| x.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        return reason.to_string();
+    }
+    if v.get("workspace_ready").and_then(|x| x.as_bool()) == Some(false) {
+        let state = v
+            .get("workspace_state")
+            .and_then(|x| x.as_str())
+            .unwrap_or("unknown");
+        return format!("工作区未就绪: {state}");
+    }
+    "引擎不可用于业务 API".to_string()
+}
+
 pub fn readiness_failure_message() -> String {
     match fetch_readiness() {
-        Some(v) => {
-            if v.get("ready").and_then(|x| x.as_bool()) == Some(true) {
-                return String::new();
-            }
-            if let Some(detail) = v
-                .get("offline_detail")
-                .and_then(|x| x.as_str())
-                .filter(|s| !s.is_empty())
-            {
-                return detail.to_string();
-            }
-            if let Some(reason) = v
-                .get("license_locked_reason")
-                .and_then(|x| x.as_str())
-                .filter(|s| !s.is_empty())
-            {
-                return reason.to_string();
-            }
-            if let Some(reason) = v
-                .get("runtime_source_reason")
-                .and_then(|x| x.as_str())
-                .filter(|s| !s.is_empty())
-            {
-                return reason.to_string();
-            }
-            if v.get("workspace_ready").and_then(|x| x.as_bool()) == Some(false) {
-                let state = v
-                    .get("workspace_state")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("unknown");
-                return format!("工作区未就绪: {state}");
-            }
-            "引擎不可用于业务 API".to_string()
-        }
+        Some(v) => readiness_failure_message_from(&v),
         None => "无法读取 /readiness".to_string(),
     }
 }
@@ -245,17 +247,24 @@ pub fn engine_workspace_healthy() -> bool {
         .unwrap_or(false)
 }
 
+/// Single /readiness probe → (control_plane_up, business_ready, body).
+/// Callers that need failure copy must reuse `body` — do **not** GET again.
+pub fn engine_reach_and_ready_body() -> (bool, bool, Option<serde_json::Value>) {
+    match fetch_readiness() {
+        Some(v) => {
+            let ready = v.get("ready").and_then(|x| x.as_bool()).unwrap_or(false);
+            (true, ready, Some(v))
+        }
+        None => (false, false, None),
+    }
+}
+
 /// Control-plane up + business-ready, both from /readiness (same probe as kickstart).
 /// Do **not** gate `control_plane` on /health: a slow DB/path check used to mark the
 /// App offline while kickstart already saw readiness 200 → heal loops / fake offline.
 pub fn engine_reach_and_healthy() -> (bool, bool) {
-    match fetch_readiness() {
-        Some(v) => {
-            let ready = v.get("ready").and_then(|x| x.as_bool()).unwrap_or(false);
-            (true, ready)
-        }
-        None => (false, false),
-    }
+    let (reachable, ready, _) = engine_reach_and_ready_body();
+    (reachable, ready)
 }
 
 fn probe_from_engine() -> WorkspaceProbeView {

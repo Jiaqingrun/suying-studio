@@ -8,6 +8,12 @@ cd "$ROOT"
 echo "==> gate: legacy cleanup contract"
 bash "${ROOT}/scripts/check-legacy-cleanup-gate.sh"
 
+echo "==> gate: app poll budget (PL-25 / S4)"
+bash "${ROOT}/scripts/check-app-poll-budget.sh"
+
+echo "==> gate: resource-gate heartbeat (PL-14 / S7)"
+bash "${ROOT}/scripts/check-resource-gate-heartbeat.sh"
+
 echo "==> gate: desktop tsc"
 (cd apps/desktop && npx tsc --noEmit)
 
