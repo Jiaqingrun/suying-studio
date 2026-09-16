@@ -947,6 +947,16 @@
       ]
     },
     "0.8.37": {
+      "title": "性能阶段 B · 控制面瘦身",
+      "summary": "S1–S8：services≠health、单次 readiness、pipeline 空闲 15s、access log 降噪、向量空转 10s、poll/heartbeat CI、因发布让路提示。未改 1800/画质/旁白 keep_alive/FrozenTab。不含 PL-03/04 数据卫生。",
+      "highlights": [
+        "控制面 lean：services 与 health 解耦、readiness 单次",
+        "pipeline 空闲 15s、向量空转 10s、access log 降噪",
+        "poll/heartbeat CI 门禁；发布让路可观测",
+        "正式包 0.8.37 / seq 118（未含 PL-03/04）"
+      ]
+    },
+    "0.8.38": {
       "title": "P0 数据卫生 · 缺文件队列收口",
       "summary": "PL-03/04：uncertain/ready 缺文件批归档（dry-run→确认，离线卷不误归档）；审片默认只显示可核验成片；发布候选硬滤 media_ok。不改 L17/词包/门禁阈值。",
       "highlights": [
