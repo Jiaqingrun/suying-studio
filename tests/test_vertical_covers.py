@@ -72,9 +72,6 @@ class VerticalCoverTests(unittest.TestCase):
             with patch(
                 "engine.reach.publish_assets.validate_pack_contract",
                 return_value=contract,
-            ), patch(
-                "engine.reach.publish_assets.publish_confirm_upload_cover_enabled",
-                return_value=True,
             ):
                 # Default opt-out: no cover required / returned.
                 skipped = require_publish_assets(
@@ -122,9 +119,6 @@ class VerticalCoverTests(unittest.TestCase):
             with patch(
                 "engine.reach.publish_assets.validate_pack_contract",
                 return_value=contract,
-            ), patch(
-                "engine.reach.publish_assets.publish_confirm_upload_cover_enabled",
-                return_value=True,
             ):
                 assets = require_publish_assets(
                     platform="douyin",
@@ -136,31 +130,6 @@ class VerticalCoverTests(unittest.TestCase):
             self.assertIn(template_id, assets["covers"][0])
             self.assertTrue(_is_app_cover_path(assets["covers"][0]))
             self.assertTrue(assets.get("cover_upload_confirmed"))
-
-    def test_default_cover_opt_out_skips_hard_gate(self) -> None:
-        """Default publish_confirm_upload_cover=False → no cover required."""
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            store = root / "cover_templates"
-            store.mkdir()
-            load_index(store)
-            pack = self._pack(root)
-            contract = {"ok": True, "pack_dir": str(pack), "platform_asset_status": {}}
-            with patch(
-                "engine.reach.publish_assets.validate_pack_contract",
-                return_value=contract,
-            ), patch(
-                "engine.reach.publish_assets.publish_confirm_upload_cover_enabled",
-                return_value=False,
-            ):
-                assets = require_publish_assets(
-                    platform="douyin",
-                    pack_dir=pack,
-                    data_root=store,
-                )
-            self.assertEqual(assets["covers"], [])
-            self.assertTrue(assets["cover_optional"])
-            self.assertEqual(assets["cover_meta"].get("upload_cover"), False)
 
     def test_channels_upload_copy_is_converted_to_six_by_seven(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

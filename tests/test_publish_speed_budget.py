@@ -11,10 +11,10 @@ from engine.reach.cdp_publish import (
     WAIT_UPLOAD_POLL_SEC,
     WAIT_UPLOAD_TIMEOUT_BY_PLATFORM,
     _budget_ok,
-    _cover_skipped_opt_out_result,
     _cover_timeout_result,
     _ms_since,
-    _should_skip_cover_upload,
+    _should_upload_covers,
+    _skipped_cover_result,
 )
 from engine.reach.publish_runner import CHROME_STOP_TIMEOUT_SEC
 
@@ -59,13 +59,20 @@ def test_cover_timeout_result_schema() -> None:
 
 
 def test_cover_opt_out_skip_helper() -> None:
-    skip = _cover_skipped_opt_out_result(platform="douyin")
+    skip = _skipped_cover_result(reason="cover_upload_not_confirmed")
     assert skip["skipped"] is True
-    assert skip["reason"] == "cover_upload_opt_out"
-    assert _should_skip_cover_upload({"cover_optional": True, "covers": []}, "douyin")
-    assert _should_skip_cover_upload({"covers": ["/x.jpg"]}, "xhs")
-    assert not _should_skip_cover_upload(
-        {"covers": ["/封面模板/a.jpg"], "cover_meta": {"upload_cover": True}},
+    assert skip["reason"] == "cover_upload_not_confirmed"
+    assert not _should_upload_covers(
+        {"cover_optional": True, "covers": [], "cover_upload_confirmed": False},
+        "douyin",
+    )
+    assert not _should_upload_covers({"covers": ["/x.jpg"]}, "xhs")
+    assert _should_upload_covers(
+        {
+            "covers": ["/封面模板/a.jpg"],
+            "cover_upload_confirmed": True,
+            "cover_optional": False,
+        },
         "douyin",
     )
 
@@ -77,7 +84,6 @@ def test_ms_since_non_negative() -> None:
 
 
 def test_evidence_timings_key_set_documented() -> None:
-    # Runner + publish_via_cdp merge into evidence.timings; document contract.
     assert "cover_ms" in TIMING_KEYS
     assert "wait_upload_ready_ms" in TIMING_KEYS
     sample = {k: 0 for k in TIMING_KEYS}
