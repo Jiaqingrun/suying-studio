@@ -262,6 +262,7 @@ pub fn engine_reach_and_ready_body() -> (bool, bool, Option<serde_json::Value>) 
 /// Control-plane up + business-ready, both from /readiness (same probe as kickstart).
 /// Do **not** gate `control_plane` on /health: a slow DB/path check used to mark the
 /// App offline while kickstart already saw readiness 200 → heal loops / fake offline.
+#[allow(dead_code)]
 pub fn engine_reach_and_healthy() -> (bool, bool) {
     let (reachable, ready, _) = engine_reach_and_ready_body();
     (reachable, ready)
