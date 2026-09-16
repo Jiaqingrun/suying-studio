@@ -938,22 +938,22 @@
       ]
     },
     "0.8.36": {
-<<<<<<< HEAD
-      "title": "P0 数据卫生 · 缺文件队列收口",
-      "summary": "PL-03/04：uncertain/ready 缺文件批归档（dry-run→确认，离线卷不误归档）；审片默认只显示可核验成片；发布候选硬滤 media_ok。附带 main 已合入的 pause/reap 释槽。不改 L17/词包/门禁阈值。",
-      "highlights": [
-        "batch_archive_missing_uncertain + ready-pool-hygiene；volume_offline 暂缓",
-        "审片默认滤 media_ok；「归档缺文件」先 dry-run 再确认",
-        "_output_spec / 候选池要求成片在盘；scripts/pl_p0_data_hygiene.py",
-        "实机归档 288 条；uncertain 可审率与 ready media_ok/可发率至 100%"
-=======
       "title": "P0 释槽 · pause/reap 释放 ResourceGate",
       "summary": "PL-01/PL-15：暂停任务先协作取消、有界超时再强制释放 job:* 槽位；陈旧 running 回收入队时同步释槽。不 SIGKILL 合法 ffmpeg；不含 L17/清玻璃/FrozenTab/B3。",
       "highlights": [
         "pause_job 协作 cancel + 默认 8s 超时 release_all(job:id / job:id:tts)",
         "reap_stale_running_jobs 改 queued 时同步释孤儿槽",
         "Worker 旁白/渲染等待检查点协作退出；单测覆盖超时释槽与 reap 路径"
->>>>>>> 12ada1e (chore(release): bump 0.8.36 PL-01/15 ResourceGate pause/reap release)
+      ]
+    },
+    "0.8.37": {
+      "title": "P0 数据卫生 · 缺文件队列收口",
+      "summary": "PL-03/04：uncertain/ready 缺文件批归档（dry-run→确认，离线卷不误归档）；审片默认只显示可核验成片；发布候选硬滤 media_ok。不改 L17/词包/门禁阈值。",
+      "highlights": [
+        "batch_archive_missing_uncertain + ready-pool-hygiene；volume_offline 暂缓",
+        "审片默认滤 media_ok；「归档缺文件」先 dry-run 再确认",
+        "_output_spec / 候选池要求成片在盘；scripts/pl_p0_data_hygiene.py",
+        "实机归档 288 条；uncertain 可审率与 ready media_ok/可发率至 100%"
       ]
     }
   }
