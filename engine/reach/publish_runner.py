@@ -77,7 +77,15 @@ SOFT_SKIP_PHASE = "soft_skipped"
 # Kinds that must not burn multi-round empty retries.
 LOGIN_WALL_KINDS = frozenset({"login_required", "true_login_wall", "post_probe_false_pass"})
 # form_not_ready may requeue once; true wall never.
-REQUEUEABLE_SOFT_KINDS = frozenset({"form_not_ready", "feature_blocked", "verification_required", "sqlite_locked"})
+REQUEUEABLE_SOFT_KINDS = frozenset(
+    {
+        "form_not_ready",
+        "upload_form_not_ready",
+        "feature_blocked",
+        "verification_required",
+        "sqlite_locked",
+    }
+)
 # True login wall: bounded human scan window, then fail-forward (defer + release slot).
 LOGIN_WALL_GRACE_SEC = 90.0
 LOGIN_WALL_GRACE_CAP_SEC = 120.0
@@ -128,6 +136,24 @@ def _soft_skip_item(
     kind: str,
 ) -> None:
     """Mark item soft-skipped and continue the round (no whole-batch pause)."""
+    from engine.reach.publication_lifecycle import (
+        dissolve_idle_publication_group,
+        release_unsubmitted_target,
+    )
+
+    pub = (item.evidence_json or {}).get("publish_result") or {}
+    if not pub.get("pub_clicked"):
+        release_unsubmitted_target(
+            session,
+            group_id=item.publication_group_id,
+            target_id=item.publication_target_id,
+        )
+        if item.publication_group_id:
+            dissolve_idle_publication_group(
+                session,
+                group_id=int(item.publication_group_id),
+                reason=f"soft_skip:{kind}",
+            )
     item.phase = SOFT_SKIP_PHASE
     item.outcome = SOFT_SKIP_PHASE
     item.error = reason
@@ -2278,18 +2304,34 @@ def _probe_login_ready_across_frames(sess: Any) -> dict[str, Any]:
         if (style.display === 'none' || style.visibility === 'hidden') return false;
         return /暂时无法使用该功能/.test(el.innerText || '');
       });
+      // channels wujie uses contenteditable="" (empty), NOT contenteditable="true".
       const form = /短标题|视频描述|添加描述|上传时长|发表动态|作品描述|设置封面|发布笔记|上传视频|选择视频|从手机上传|拖拽视频|立即发表|定时发表|原创声明/.test(t)
         || !!document.querySelector(
-          'input[type=file], .input-editor, [data-placeholder=\"添加描述\"], [contenteditable=\"true\"], textarea'
+          'input[type=file], .input-editor, [data-placeholder=\"添加描述\"], [contenteditable], textarea'
         );
       const avatar = Array.from(document.images || []).some(
-        (img) => /finderhead|qlogo\\.cn|avatar/i.test(String(img.src || ''))
+        (img) => /finderhead|qlogo\\.cn|avatar|aweme|douyin|xhscdn|kuaishou/i.test(String(img.src || ''))
       );
-      const shellLoggedIn = /channels\\.weixin\\.qq\\.com\\/(platform|micro)\\//.test(u)
-        && !login
+      // channels: shell SPA; root entry (channels.weixin.qq.com/) with 视频号助手
+      // title also means logged-in — /platform|/micro not always present yet.
+      const channelsHost = /channels\\.weixin\\.qq\\.com\\//.test(u) && !/\\/login/.test(u);
+      const channelsShell = channelsHost
+        && ( /\\/(platform|micro)\\//.test(u)
+            || avatar
+            || /finder-page|MicroPost|side-bar|视频号\\s*[·.]\\s*助手|视频号助手/.test(html + (document.title||'') + t)
+          );
+      const douyinShell = /creator\\.douyin\\.com\\//.test(u)
+        && !/\\/login|passport|sso/i.test(u)
         && (avatar
-            || /finder-page|MicroPost|side-bar|视频号\\s*[·.]\\s*助手/.test(html)
-            || /\\/platform\\//.test(u));
+            || /creator-micro/.test(u)
+            || /数据总览|内容管理|发布视频|创作者中心|首页/.test(t));
+      const kuaishouShell = /cp\\.kuaishou\\.com\\//.test(u)
+        && !/\\/login|passport|sso/i.test(u)
+        && (avatar || /作品管理|数据中心|发布|创作者中心/.test(t));
+      const xhsShell = /creator\\.xiaohongshu\\.com\\//.test(u)
+        && !/\\/login|passport|sso/i.test(u)
+        && (avatar || /笔记管理|数据看板|发布笔记|创作者服务平台|首页/.test(t));
+      const shellLoggedIn = !login && (channelsShell || douyinShell || kuaishouShell || xhsShell);
       return {
         url: u,
         text: t.slice(0, 500),
@@ -2299,6 +2341,7 @@ def _probe_login_ready_across_frames(sess: Any) -> dict[str, Any]:
         form: !!form,
         shellLoggedIn: !!shellLoggedIn,
         avatar: !!avatar,
+        shellKind: channelsShell ? 'channels' : douyinShell ? 'douyin' : kuaishouShell ? 'kuaishou' : xhsShell ? 'xhs' : '',
       };
     })()"""
 
@@ -2835,6 +2878,13 @@ def _execute_item(
     if item.queue_id:
         q = get_item(session, int(item.queue_id), customer_id=run.customer_id)
         body = (q.body if q else "") or ""
+    run_cfg = dict(run.config_json or {})
+    # Cover opt-in: run config override wins; else settings default (OFF).
+    upload_cover = run_cfg.get("upload_cover")
+    if upload_cover is None and "upload_cover" not in run_cfg:
+        upload_cover = None  # defer to settings via require_publish_assets
+    else:
+        upload_cover = bool(upload_cover)
 
     _set_item_phase(session, run, item, "uploading")
     _audit_publish(
@@ -2879,6 +2929,7 @@ def _execute_item(
             data_root=data_root,
             title=item.title,
             body=body,
+            upload_cover=upload_cover,
         )
     except Exception as exc:
         _audit_publish(
@@ -2940,6 +2991,7 @@ def _execute_item(
         template_id=None,
         upload_video=item.note != "resume_existing_form",
         reuse_existing_form=item.note == "resume_existing_form",
+        upload_cover=upload_cover,
     )
     # Merge runner-side stage timings (chrome/login) with CDP-internal timings.
     prev_ev = dict(item.evidence_json or {})
@@ -3527,7 +3579,9 @@ def _worker_loop(run_id: str) -> None:
                     pub = result.get("pub") or {}
                     phase_name = str(pub.get("phase") or "")
                     raw_err = str(pub.get("error") or result.get("error") or "")
-                    if phase_name == "need_login" or raw_err in ("need_login", "no_file_input"):
+                    # True login walls only. no_file_input is SPA mount miss — soft-skip
+                    # (retryable) instead of halting the whole batch as 扫码登录.
+                    if phase_name == "need_login" or raw_err == "need_login":
                         reason = (
                             f"账号未登录创作者中心（{raw_err or phase_name}）；"
                             "已停在当前窗口，请扫码后点继续"
@@ -3550,6 +3604,21 @@ def _worker_loop(run_id: str) -> None:
                         )
                         session.commit()
                         return
+                    if raw_err == "no_file_input" or phase_name == "no_file_input":
+                        reason = (
+                            "发表页尚未挂载上传控件（no_file_input）；"
+                            f"已跳过本条，整轮结束后自动重试（第 {_run_round_attempt(run)}/{MAX_ROUND_ATTEMPTS} 轮）"
+                        )
+                        _soft_skip_item(
+                            session,
+                            run,
+                            item,
+                            reason=reason,
+                            stage="upload",
+                            kind="upload_form_not_ready",
+                        )
+                        session.commit()
+                        break
                     if phase_name in ("need_sms_verify", "need_human"):
                         kind = "verification_required"
                         stage = "verification"

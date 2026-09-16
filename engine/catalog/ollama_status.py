@@ -264,6 +264,38 @@ def check_ollama(*, timeout: float = 3.0) -> dict[str, Any]:
         return out
 
 
+def align_health_ollama_message(
+    *,
+    base_message: str,
+    reachable: bool,
+    model_present: bool,
+    inference_available: bool,
+    circuit_open: bool,
+    circuit_state: str = "",
+    vision_model: str = "",
+) -> str:
+    """Human message for GET /health/ollama must match status_layers (SA-R1-003).
+
+    ``check_ollama`` may say「就绪」when tags list shows models present. That is
+    only the model_present layer. Inference requires a cached functional chat
+    probe — do not call the stack 「就绪」 until ``inference_available``.
+    """
+    vision = (vision_model or "vision").strip() or "vision"
+    state = (circuit_state or "").strip().lower()
+    if circuit_open or state == "open":
+        return f"Ollama 熔断中；模型在仓：{vision}"
+    if not reachable:
+        return base_message or "Ollama 不可达"
+    if not model_present:
+        return base_message or "模型未就绪"
+    if not inference_available:
+        if state == "half_open":
+            return f"模型已安装（{vision}）；熔断半开试探中，推理未确认"
+        return f"模型已安装（{vision}）；推理探针未确认（待暖机或点强制探针）"
+    # Prefer an explicit ready line so we never keep a stale non-ready base_message.
+    return f"Ollama 就绪：快筛 {vision}"
+
+
 def _placeholder_ollama_status() -> dict[str, Any]:
     """Instant stub used only until the first background probe completes."""
     return {

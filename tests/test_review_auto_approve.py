@@ -852,5 +852,61 @@ def test_output_spec_requires_media_file(tmp_path) -> None:
         spec = _output_spec(out)
         assert spec is not None
         assert spec["output_id"] == out.id
+        empty = tmp_path / "empty.mp4"
+        empty.write_bytes(b"")
+        out.output_path = str(empty)
+        session.commit()
+        assert _output_spec(out) is None
+        out.state = "failed"
+        out.output_path = str(media)
+        session.commit()
+        assert _output_spec(out) is None
+    finally:
+        session.close()
+
+
+def test_batch_hygiene_dissolves_idle_group_on_failed_output(tmp_path) -> None:
+    from engine.catalog.db import PublicationGroup
+    from engine.catalog.review_auto import batch_hygiene_ready_pool
+    from engine.reach.publication_lifecycle import (
+        freeze_publication_group,
+        output_has_active_group,
+    )
+
+    session = _session()
+    try:
+        customer = _customer(session)
+        out = _output(session, _job(session, customer), state="ready", gate_ok=True)
+        media = tmp_path / "clip.mp4"
+        media.write_bytes(b"video")
+        out.output_path = str(media)
+        out.pack_status = "ready"
+        out.pack_dir = str(tmp_path / "pack")
+        (tmp_path / "pack").mkdir(exist_ok=True)
+        session.commit()
+        group, _ = freeze_publication_group(
+            session,
+            customer_id=customer.id,
+            output_id=out.id,
+            targets=[{"platform": "channels", "account_key": "p"}],
+            source="test",
+        )
+        session.commit()
+        assert output_has_active_group(
+            session, customer_id=customer.id, output_id=out.id
+        )
+        out.state = "failed"
+        session.commit()
+        applied = batch_hygiene_ready_pool(
+            session, customer, limit=50, dry_run=False, pack_status=None
+        )
+        assert applied["dissolved_idle_groups"] >= 1
+        session.refresh(group)
+        assert group.status == "abandoned"
+        assert not output_has_active_group(
+            session, customer_id=customer.id, output_id=out.id
+        )
+        # Keep lint quiet if PublicationGroup import used only for typing clarity.
+        assert session.get(PublicationGroup, group.id) is not None
     finally:
         session.close()

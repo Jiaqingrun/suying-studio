@@ -49,12 +49,22 @@ CHANNELS_COVER_MAX_VISION_ATTEMPTS = 2
 # Upload wait poll: state-driven short interval (was fixed 1.0s).
 WAIT_UPLOAD_POLL_SEC = 0.35
 WAIT_UPLOAD_POLL_BUSY_SEC = 0.5
+# Progress % unchanged for this long while state=uploading → stall → recover/retry.
+UPLOAD_PROGRESS_STALL_SEC = 12.0
 # Per-platform wait_upload_ready cap used by upload_video_with_retries.
 WAIT_UPLOAD_TIMEOUT_BY_PLATFORM: dict[str, float] = {
     "douyin": 45.0,
     "channels": 60.0,
     "xhs": 45.0,
     "kuaishou": 45.0,
+}
+# Hunting DOM.setFileInputFiles target. Channels wujie/SPA mounts slowly.
+FILE_INPUT_HUNT_SEC_DEFAULT = 14.0
+FILE_INPUT_HUNT_SEC_BY_PLATFORM: dict[str, float] = {
+    "channels": 42.0,
+    "douyin": 18.0,
+    "xhs": 16.0,
+    "kuaishou": 16.0,
 }
 
 
@@ -77,6 +87,7 @@ def _cover_timeout_result(*, snapshots: list[dict[str, Any]] | None = None) -> d
         "confirms": [],
         "snapshots": list(snapshots or []),
     }
+
 
 
 def _dismiss_cover_ui(sess: CdpSession) -> None:
@@ -743,10 +754,11 @@ def _fill_kuaishou_copy(sess: CdpSession, title: str, body: str) -> dict[str, An
     body = ensure_ai_generated_disclosure(body)
     js = f"""
     (() => {{
+      {_OM_DOCS}
       const title = {json.dumps(title, ensure_ascii=False)};
       const body = {json.dumps(body, ensure_ascii=False)};
       let titleOk=false, bodyOk=false;
-      const inputs = Array.from(document.querySelectorAll('input,textarea'));
+      const inputs = omAll('input,textarea');
       for (const input of inputs) {{
         const ph = (input.getAttribute('placeholder')||'');
         if (/标题|作品/.test(ph)) {{
@@ -759,7 +771,7 @@ def _fill_kuaishou_copy(sess: CdpSession, title: str, body: str) -> dict[str, An
           break;
         }}
       }}
-      const eds = Array.from(document.querySelectorAll('[contenteditable="true"],textarea'));
+      const eds = omAll('[contenteditable="true"],textarea');
       for (const ed of eds) {{
         const ph = (ed.getAttribute('placeholder')||'') + (ed.getAttribute('data-placeholder')||'');
         if (/描述|正文|说点什么|添加/.test(ph) || ed.getAttribute('contenteditable')==='true') {{
@@ -869,6 +881,77 @@ def _ensure_douyin_video_tab(sess: CdpSession) -> str:
     )
 
 
+def _channels_create_spa_probe(sess: CdpSession) -> dict[str, Any]:
+    """Pierce wujie/iframe create page: init banner vs upload affordance vs file input."""
+    raw = sess.evaluate(
+        f"""(() => {{
+          {_OM_DOCS}
+          const t = omBodyText();
+          const href = location.href || '';
+          const files = omAll('input[type=file]');
+          const initializing = /页面初始化中|正在加载|加载中/.test(t);
+          const uploadUi = /上传视频|拖拽视频|点击上传|发表视频|选择视频|添加视频/.test(t)
+            || omAll('div,span,button').some(e => {{
+                 const x = (e.innerText||'').trim();
+                 return x === '+' || x === '＋';
+               }});
+          const login = /扫码登录|手机号登录|短信登录|\\/login\\b|redirectReason=401/i.test(t + href);
+          return {{
+            docs: omDocs().length,
+            files: files.length,
+            initializing: !!initializing,
+            uploadUi: !!uploadUi,
+            login: !!login,
+            href,
+            textLen: t.length,
+          }};
+        }})()"""
+    )
+    return raw if isinstance(raw, dict) else {}
+
+
+def _wait_channels_create_spa_ready(sess: CdpSession, *, timeout_sec: float = 28.0) -> dict[str, Any]:
+    """Wait until channels post/create wujie mounts upload UI or file input.
+
+    Parent document.body often only shows the shell while the create form is
+    still initializing inside shadowRoot iframe — always pierce via omDocs.
+    """
+    deadline = time.time() + max(4.0, float(timeout_sec))
+    last: dict[str, Any] = {}
+    navigated = False
+    while time.time() < deadline:
+        try:
+            _dismiss_channels_dialogs(sess)
+            _dismiss_publisher_popups(sess)
+        except Exception:
+            pass
+        last = _channels_create_spa_probe(sess)
+        if last.get("login"):
+            return {**last, "ready": False, "reason": "need_login"}
+        if int(last.get("files") or 0) > 0:
+            return {**last, "ready": True, "reason": "file_input"}
+        if last.get("uploadUi") and not last.get("initializing"):
+            return {**last, "ready": True, "reason": "upload_ui"}
+        # One soft reload if still stuck on init after half the budget.
+        if (
+            not navigated
+            and last.get("initializing")
+            and time.time() > deadline - (timeout_sec * 0.45)
+        ):
+            try:
+                create_url = UPLOAD_URLS.get("channels") or ""
+                if create_url:
+                    sess.evaluate(f"location.href = {json.dumps(create_url)}")
+                    navigated = True
+                    last = {**last, "soft_reload": True}
+                    time.sleep(0.8)
+                    continue
+            except Exception:
+                pass
+        time.sleep(0.45)
+    return {**last, "ready": bool(int(last.get("files") or 0) > 0), "reason": "timeout"}
+
+
 def upload_video_via_cdp(sess: CdpSession, video_path: str, *, platform: str = "") -> dict[str, Any]:
     """Inject video.mp4 via DOM.setFileInputFiles — never open OS file dialog."""
     if not Path(video_path).is_file():
@@ -876,24 +959,43 @@ def upload_video_via_cdp(sess: CdpSession, video_path: str, *, platform: str = "
 
     # Best-effort: leave article tab / discard draft before hunting file input
     tab = "skip"
+    spa_ready: dict[str, Any] | None = None
+    plat = (platform or "").strip().lower()
     try:
-        plat = (platform or "").strip().lower()
-        if plat == "douyin" or (not plat and "douyin.com" in str(sess.evaluate("location.hostname") or "")):
+        host = str(sess.evaluate("location.hostname") or "")
+        if not plat:
+            if "douyin.com" in host:
+                plat = "douyin"
+            elif "channels.weixin.qq.com" in host:
+                plat = "channels"
+        if plat == "douyin":
             tab = _ensure_douyin_video_tab(sess)
         else:
             tab = "skip_non_douyin"
         _dismiss_publisher_popups(sess)
-        # channels shows「页面初始化中」before file input exists
-        for _ in range(8):
-            init = sess.evaluate(
-                """(() => {
-                  const t = (document.body && document.body.innerText) || '';
-                  return /页面初始化中/.test(t);
-                })()"""
-            )
-            if not init:
-                break
-            time.sleep(0.35)
+        if plat == "channels":
+            spa_ready = _wait_channels_create_spa_ready(sess, timeout_sec=28.0)
+            if spa_ready.get("login"):
+                return {
+                    "ok": False,
+                    "error": "need_login",
+                    "phase": "need_login",
+                    "clicks": [f"tab:{tab}", f"spa:{spa_ready.get('reason')}"],
+                    "spa_ready": spa_ready,
+                    "hint": "当前是登录页，请先在此 Chrome 窗口完成创作者登录",
+                }
+        else:
+            # Generic init banner (parent body only) for non-channels.
+            for _ in range(8):
+                init = sess.evaluate(
+                    """(() => {
+                      const t = (document.body && document.body.innerText) || '';
+                      return /页面初始化中/.test(t);
+                    })()"""
+                )
+                if not init:
+                    break
+                time.sleep(0.35)
         if tab == "navigated":
             # Wait for page ready by probing file input / host, not fixed 2s sleep.
             for _ in range(10):
@@ -936,49 +1038,55 @@ def upload_video_via_cdp(sess: CdpSession, video_path: str, *, platform: str = "
     def _click_upload_affordance() -> str:
         return (
             sess.evaluate(
-                """(() => {
-                  for (const t of ['取消','暂不','关闭','知道了','我知道了','以后再说','放弃']) {
-                    const el = Array.from(document.querySelectorAll('button,div,span,a'))
+                f"""(() => {{
+                  {_OM_DOCS}
+                  for (const t of ['取消','暂不','关闭','知道了','我知道了','以后再说','放弃']) {{
+                    const el = omAll('button,div,span,a')
                       .find(e => (e.innerText||'').trim() === t);
                     if (el) el.click();
-                  }
+                  }}
                   // Prefer video tab before upload button (douyin only)
-                  if (/douyin\\.com/i.test(location.hostname || '')) {
-                    const vtab = Array.from(document.querySelectorAll('div,span,a,button,li'))
+                  if (/douyin\\.com/i.test(location.hostname || '')) {{
+                    const vtab = omAll('div,span,a,button,li')
                       .find(e => (e.innerText||'').trim() === '发布视频');
                     if (vtab) vtab.click();
-                  }
-                  // channels: click the dashed + upload card
-                  const plus = Array.from(document.querySelectorAll('div,span,button'))
-                    .find(e => {
+                  }}
+                  // channels: click the dashed + upload card (pierce wujie)
+                  const plus = omAll('div,span,button')
+                    .find(e => {{
                       const x = (e.innerText||'').trim();
                       return x === '+' || x === '＋';
-                    });
-                  if (plus) { plus.click(); }
+                    }});
+                  if (plus) {{ plus.click(); }}
                   const texts = [
                     '上传视频','拖拽视频到此或点击上传','发表视频','选择视频','点击上传','添加视频',
                     '上传','发视频','拖拽上传','选择文件','+'
                   ];
-                  const els = Array.from(document.querySelectorAll('button,div,span,a,label,p,li'));
-                  for (const t of texts) {
-                    const el = els.find(e => {
+                  const els = omAll('button,div,span,a,label,p,li');
+                  for (const t of texts) {{
+                    const el = els.find(e => {{
                       const x = (e.innerText||'').trim();
                       return x === t || (x.indexOf(t) >= 0 && x.length < 28);
-                    });
-                    if (el) { el.click(); return 'clicked:' + t; }
-                  }
-                  const lab = document.querySelector('label[for]');
-                  if (lab) { lab.click(); return 'clicked:label'; }
+                    }});
+                    if (el) {{ el.click(); return 'clicked:' + t; }}
+                  }}
+                  const lab = omAll('label[for]')[0];
+                  if (lab) {{ lab.click(); return 'clicked:label'; }}
                   return 'none';
-                })()"""
+                }})()"""
             )
             or "none"
         )
 
     clicks: list[str] = [f"tab:{tab}"]
+    if spa_ready is not None:
+        clicks.append(f"spa:{spa_ready.get('reason') or spa_ready.get('ready')}")
     snaps: list[Any] = []
     bid = None
-    deadline = time.time() + 14
+    hunt_sec = float(
+        FILE_INPUT_HUNT_SEC_BY_PLATFORM.get(plat, FILE_INPUT_HUNT_SEC_DEFAULT)
+    )
+    deadline = time.time() + hunt_sec
     while time.time() < deadline:
         bid = _find_bid()
         if bid:
@@ -1012,6 +1120,7 @@ def upload_video_via_cdp(sess: CdpSession, video_path: str, *, platform: str = "
                 "clicks": clicks,
                 "snapshots": snaps,
                 "snapshot": snap,
+                "spa_ready": spa_ready,
                 "hint": (
                     "当前是登录页，请先在此 Chrome 窗口完成创作者登录"
                     if (state == "need_login" or "/login" in page_url.lower())
@@ -1024,6 +1133,8 @@ def upload_video_via_cdp(sess: CdpSession, video_path: str, *, platform: str = "
             "clicks": clicks,
             "snapshots": snaps,
             "snapshot": snap,
+            "spa_ready": spa_ready,
+            "hunt_sec": hunt_sec,
             "hint": "页面上未出现 file input；请确认已打开上传页或登录后重试",
         }
     try:
@@ -1035,9 +1146,17 @@ def upload_video_via_cdp(sess: CdpSession, video_path: str, *, platform: str = "
             "method": "DOM.setFileInputFiles",
             "clicks": clicks,
             "snapshots": snaps,
+            "spa_ready": spa_ready,
+            "hunt_sec": hunt_sec,
         }
     except CdpError as e:
-        return {"ok": False, "error": str(e), "clicks": clicks, "snapshots": snaps}
+        return {
+            "ok": False,
+            "error": str(e),
+            "clicks": clicks,
+            "snapshots": snaps,
+            "spa_ready": spa_ready,
+        }
 
 
 
@@ -1046,6 +1165,7 @@ def wait_upload_ready(sess: CdpSession, timeout: float = 12) -> dict[str, Any]:
 
     Channels form lives in an iframe — probe walks same-origin frames + CDP worlds.
     Default wait cap is 12s (inject → brief wait → fill).
+    Detects progress-stall (same % / uploading signals unchanged) for recovery.
     """
     from engine.reach.vision_reach import snapshot_page
 
@@ -1059,13 +1179,19 @@ def wait_upload_ready(sess: CdpSession, timeout: float = 12) -> dict[str, Any]:
       if (/上传失败|网络错误，请稍后|上传出错/.test(t)) return {{state:'upload_failed'}};
       const hasVideo = omAll('video').length > 0;
       const hasDelete = omAll('button,span,div,a').some(e => (e.innerText||'').trim() === '删除');
+      let pct = null;
+      const m = t.match(/(\\d{{1,3}})\\s*%/);
+      if (m) {{
+        const n = Number(m[1]);
+        if (Number.isFinite(n) && n >= 0 && n <= 100) pct = n;
+      }}
       // Never match bare「上传中」: Douyin keeps the sentence
       // 「如作品还在上传中，请勿关闭页面」after the file is fully ready.
       // Real progress still exposes cancel/progress/processing signals.
       if (/取消上传|转码中|正在上传|视频处理中/.test(t) || /\\b0%\\b/.test(t))
-        return {{state:'uploading', reason:'channels_progress', docs: omDocs().length}};
+        return {{state:'uploading', reason:'channels_progress', docs: omDocs().length, progress_pct: pct}};
       if (hasVideo && /封面预览/.test(t) && /生成中/.test(t) && !hasDelete)
-        return {{state:'uploading', reason:'channels_cover_generating', docs: omDocs().length}};
+        return {{state:'uploading', reason:'channels_cover_generating', docs: omDocs().length, progress_pct: pct}};
       if (hasVideo && (/封面预览|个人主页和分享卡片|删除|视频描述|添加描述/.test(t) || hasDelete))
         return {{state:'form', reason:'channels_preview', docs: omDocs().length}};
       if (/设置封面|作品描述|发布笔记/.test(t) && hasVideo && !/上传失败/.test(t))
@@ -1080,16 +1206,18 @@ def wait_upload_ready(sess: CdpSession, timeout: float = 12) -> dict[str, Any]:
         return {{state:'need_human'}};
       // Do not match bare「上传中」: Douyin keeps it in static help text after upload.
       if (/转码中|正在上传|上传进度|取消上传|封面生成中|视频处理中/.test(t))
-        return {{state:'uploading'}};
-      if (/\\d+%\\s*(取消上传|上传)/.test(t)) return {{state:'uploading'}};
+        return {{state:'uploading', progress_pct: pct}};
+      if (/\\d+%\\s*(取消上传|上传)/.test(t)) return {{state:'uploading', progress_pct: pct}};
       if (/拖拽视频|点击上传|上传视频/.test(t) && !hasVideo) return {{state:'upload'}};
-      return {{state:'waiting', hasVideo, hasDelete, docs: omDocs().length, textLen: t.length}};
+      return {{state:'waiting', hasVideo, hasDelete, docs: omDocs().length, textLen: t.length, progress_pct: pct}};
     }})()
     """
 
     deadline = time.time() + timeout
     last_probe: dict[str, Any] = {}
     t_wait0 = time.monotonic()
+    stall_key: tuple[Any, ...] | None = None
+    stall_since: float | None = None
     while time.time() < deadline:
         probe = sess.evaluate(probe_js) or {"state": "waiting"}
         if probe.get("state") == "waiting" and int(probe.get("docs") or 1) <= 1:
@@ -1116,6 +1244,34 @@ def wait_upload_ready(sess: CdpSession, timeout: float = 12) -> dict[str, Any]:
                 "text_excerpt": snap.get("text_excerpt"),
                 "elapsed_ms": _ms_since(t_wait0),
             }
+        # Stall detection: uploading with unchanged progress fingerprint.
+        if st == "uploading":
+            pct = last_probe.get("progress_pct")
+            reason = last_probe.get("reason")
+            key = (pct if pct is not None else "na", reason or "", bool(last_probe.get("hasVideo")))
+            now = time.monotonic()
+            if stall_key != key:
+                stall_key = key
+                stall_since = now
+            elif stall_since is not None and (now - stall_since) >= UPLOAD_PROGRESS_STALL_SEC:
+                snap = {}
+                try:
+                    snap = snapshot_page(sess, tag="wait_upload_stalled")
+                except Exception:
+                    pass
+                return {
+                    "ok": False,
+                    "state": "upload_stalled",
+                    "probe": {**last_probe, "stall_sec": round(now - stall_since, 2)},
+                    "screenshot": snap.get("screenshot"),
+                    "hint": "upload_progress_stalled",
+                    "url": snap.get("url"),
+                    "text_excerpt": snap.get("text_excerpt"),
+                    "elapsed_ms": _ms_since(t_wait0),
+                }
+        else:
+            stall_key = None
+            stall_since = None
         # Busy while uploading / progress; shorter poll when still waiting for form.
         time.sleep(WAIT_UPLOAD_POLL_BUSY_SEC if st == "uploading" else WAIT_UPLOAD_POLL_SEC)
     snap = {}
@@ -1179,7 +1335,13 @@ def _click_reupload(sess: CdpSession) -> str:
 
 
 def _covers_acceptable(sess: CdpSession, cover_r: dict[str, Any], plat: str) -> bool:
-    """Require App/template covers actually injected. No soft-pass on preview-only."""
+    """Require App/template covers actually injected. No soft-pass on preview-only.
+
+    Intentionally skipped covers (opt-in off / no files) are acceptable — do not
+    treat them as cover failures that need modal dismiss (which can wipe drafts).
+    """
+    if cover_r.get("skipped"):
+        return True
     if not cover_r.get("ok"):
         return False
     covers = cover_r.get("covers") or []
@@ -3805,6 +3967,28 @@ def upload_video_with_retries(
             except Exception:
                 pass
             continue
+        if st == "upload_stalled":
+            # Progress fingerprint unchanged — cancel/reupload once then soft-fail.
+            try:
+                snap = snapshot_page(sess, tag=f"upload_stalled_retry_{i}")
+                attempts[-1]["snapshot"] = snap
+                attempts[-1]["stall_recovery"] = True
+            except Exception:
+                pass
+            if i + 1 < max_attempts:
+                continue
+            return {
+                "ok": False,
+                "upload": last_upload,
+                "ready": last_ready,
+                "attempts": attempts,
+                "error": "upload_stalled",
+                "timings": {
+                    "upload_inject_ms": inject_ms,
+                    "wait_upload_ready_ms": wait_ms,
+                    "upload_total_ms": _ms_since(t0),
+                },
+            }
         if last_ready.get("ok"):
             chk = sess.evaluate(
                 f"""(() => {{
@@ -4539,20 +4723,27 @@ def publish_via_cdp(
             cover_soft_fail = True
             if cover_r.get("timed_out") or cover_r.get("reason") == "cover_timeout_soft_pass":
                 cover_note = f"封面超过{int(COVER_SOFT_TIMEOUT_SEC)}秒未设成功，已放行并用平台默认封面继续发布"
-            elif plat == "xhs" or cover_r.get("skipped"):
+            elif plat == "xhs" or cover_r.get("skipped") or cover_r.get("reason") in (
+                "xhs_cover_optional",
+                "cover_upload_not_confirmed",
+                "cover_skipped_no_files",
+            ):
                 cover_note = "封面未设/已跳过，已放行发布（使用平台默认封面）"
             else:
                 cover_note = "封面核验未通过，已放行并用平台默认封面继续发布"
-            try:
-                _dismiss_cover_ui(sess)
-            except Exception:
-                pass
-            try:
-                _dismiss_publisher_popups(sess)
-                if plat == "xhs":
-                    _clear_xhs_overlays(sess)
-            except Exception:
-                pass
+            # Never open cover UI when we intentionally skipped upload; Escape/取消
+            # on 快手 can hit「放弃」and wipe the draft back to the upload splash.
+            if not cover_r.get("skipped"):
+                try:
+                    _dismiss_cover_ui(sess)
+                except Exception:
+                    pass
+                try:
+                    _dismiss_publisher_popups(sess)
+                    if plat == "xhs":
+                        _clear_xhs_overlays(sess)
+                except Exception:
+                    pass
 
         # XHS: publish stays disabled while video still failed — one more reupload pass
         if plat == "xhs" and click_publish:
@@ -4615,6 +4806,10 @@ def publish_via_cdp(
                 if plat == "channels":
                     fill = _fill_channels_copy(sess, assets["title"], assets["body"])
                 elif plat == "xhs":
+                    fill = _fill_xhs_copy(sess, assets["title"], assets["body"])
+                elif plat == "kuaishou":
+                    fill = _fill_kuaishou_copy(sess, assets["title"], assets["body"])
+                elif plat == "douyin":
                     fill = _fill_xhs_copy(sess, assets["title"], assets["body"])
                 time.sleep(0.3)
                 verify2 = _verify_copy(sess, platform=plat)

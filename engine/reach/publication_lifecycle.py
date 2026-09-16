@@ -286,6 +286,109 @@ def release_unsubmitted_target(
         target.updated_at = _now()
 
 
+def _group_has_live_run(session: Session, *, group_id: int) -> bool:
+    """True when any non-terminal publish item still holds this group."""
+    live = session.scalar(
+        select(ReachPublishRunItem.id).where(
+            ReachPublishRunItem.publication_group_id == group_id,
+            ReachPublishRunItem.phase.not_in(
+                (
+                    "published",
+                    "cancelled",
+                    "skipped",
+                    "failed",
+                    "deferred",
+                    "soft_skipped",
+                    "outcome_unknown",
+                    "awaiting_confirmation",
+                )
+            ),
+        )
+    )
+    return live is not None
+
+
+def dissolve_idle_publication_group(
+    session: Session,
+    *,
+    group_id: int,
+    reason: str = "idle_abandoned",
+) -> dict[str, Any]:
+    """Abandon an active group that never published and has no live run.
+
+    Failed / missing-media / soft-fail pre-submit rows otherwise permanently
+    occupy the immediate candidate pool via ``output_has_active_group``.
+    Never dissolves published / outcome_unknown facts.
+    """
+    group = session.get(PublicationGroup, group_id)
+    if not group:
+        return {"ok": False, "error": "group_missing"}
+    if group.status not in ACTIVE_GROUP_STATUSES:
+        return {"ok": True, "idempotent": True, "status": group.status}
+    targets = list(
+        session.scalars(
+            select(PublicationTarget).where(PublicationTarget.group_id == group.id)
+        ).all()
+    )
+    if any(t.status in ("published", "outcome_unknown", "submitting") for t in targets):
+        return {
+            "ok": False,
+            "error": "group_has_live_or_published_target",
+            "statuses": sorted({t.status for t in targets}),
+        }
+    if _group_has_live_run(session, group_id=group.id):
+        return {"ok": False, "error": "group_has_live_run"}
+    if any(t.status != "pending" for t in targets):
+        return {
+            "ok": False,
+            "error": "targets_not_all_pending",
+            "statuses": sorted({t.status for t in targets}),
+        }
+    group.status = "abandoned"
+    group.updated_at = _now()
+    note = f"abandoned:{reason}"
+    if group.archive_error:
+        group.archive_error = f"{group.archive_error}; {note}"[:500]
+    else:
+        group.archive_error = note[:500]
+    for target in targets:
+        target.status = "abandoned"
+        target.updated_at = _now()
+        target.fact_json = {
+            "outcome": "abandoned",
+            "at": _now().isoformat(),
+            "note": reason,
+        }
+    return {
+        "ok": True,
+        "abandoned": True,
+        "group_id": group.id,
+        "output_id": group.output_id,
+        "reason": reason,
+    }
+
+
+def dissolve_idle_groups_for_output(
+    session: Session,
+    *,
+    customer_id: int,
+    output_id: int,
+    reason: str = "output_unpublishable",
+) -> list[dict[str, Any]]:
+    """Dissolve every idle active group for one output (failed / missing media)."""
+    groups = session.scalars(
+        select(PublicationGroup).where(
+            PublicationGroup.customer_id == customer_id,
+            PublicationGroup.output_id == output_id,
+            PublicationGroup.status.in_(ACTIVE_GROUP_STATUSES),
+        )
+    ).all()
+    return [
+        dissolve_idle_publication_group(session, group_id=g.id, reason=reason)
+        for g in groups
+    ]
+
+
 def _invalidate_after_retirement(
     session: Session, *, group: PublicationGroup
 ) -> None:

@@ -1034,6 +1034,39 @@
         "未确认：require_publish_assets 不拦、CDP 跳过 _set_cover_files",
         "确认后：抖音/快手/视频号仍硬门禁竖版模板封面"
       ]
+    },
+    "0.8.46": {
+      "title": "四平台循环硬化 + 发布效率",
+      "summary": "并入效率线：上传进度停顿≥12s 重传、生产空转降频；登录探针识别抖音/快手/小红书创作者首页为已登录。默认仍不传封面（0.8.45 opt-in）。不降 READY_GATE/旁白/画质；消息 1800 与 L17/词包不动。",
+      "highlights": [
+        "UPLOAD_PROGRESS_STALL_SEC=12 → upload_stalled 后重传一次",
+        "JobWorker 空转：pause 5s / 空队列 2s / 等 render 槽 1s",
+        "登录 DOM 探针：douyin/kuaishou/xhs creator home → shellLoggedIn",
+        "即时发布 upload_cover 默认 false，与 publish_confirm_upload_cover 对齐",
+        "封面确认开关默认关（继承 0.8.45）"
+      ]
+    },
+    "0.8.47": {
+      "title": "四平台真发收尾：封面跳过勿清草稿 + 登录探针",
+      "summary": "修复封面 opt-in 跳过后误走 dismiss 清空快手草稿；视频号根页/助手标题识别为已登录；channels 表单探针兼容 contenteditable=\"\"。默认仍不传封面。不降 READY_GATE/旁白/画质；消息与 L17/词包不动。",
+      "highlights": [
+        "封面 skipped 视为可接受：不再 _dismiss_cover_ui（避免快手点到「放弃」）",
+        "预发文案回读失败时补填快手/抖音",
+        "登录探针：channels.weixin.qq.com/ + 视频号助手 → shellLoggedIn",
+        "表单探针：contenteditable=\"\"（视频号 wujie）计为 form",
+        "快手填写改用 omAll 穿透文档"
+      ]
+    },
+    "0.8.48": {
+      "title": "发布残留加固：视频号 SPA 等待 + 失败成片勿占池",
+      "summary": "视频号 create 页穿透 wujie 等 SPA/file input 就绪（首注降 no_file_input 重试）；失败/缺媒体/空闲发布组 hygiene 释放占坑，勿进可发池；no_file_input 改 soft-skip 不再误判扫码墙。默认仍不传封面。不降 READY_GATE/旁白/画质；消息与 L17/词包不动。",
+      "highlights": [
+        "channels：omDocs 穿透等 SPA ready + file input hunt 42s",
+        "no_file_input → soft-skip(upload_form_not_ready) 可重入，非 true_login_wall",
+        "dissolve_idle_publication_group：全 pending 且无 live run → abandoned",
+        "ready-pool hygiene 扩展：failed/缺媒体/孤儿组自动溶解占坑",
+        "_output_spec 拒 failed/空文件；封面确认默认仍关"
+      ]
     }
   }
 }
