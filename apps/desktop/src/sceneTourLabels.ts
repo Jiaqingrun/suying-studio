@@ -37,12 +37,6 @@ export const PRODUCTION_TEMPLATE_OPTIONS = Object.entries(TEMPLATE_PREFERENCE_LA
   ([value, label]) => ({ value, label }),
 );
 
-export function templatePreferenceLabel(name: string | null | undefined): string {
-  const k = (name ?? "").trim();
-  if (!k) return "—";
-  return TEMPLATE_PREFERENCE_LABELS[k] ?? k;
-}
-
 /** When rule template_preference would override the selected rhythm template. */
 export function ruleWouldOverrideTemplate(
   templateName: string,
