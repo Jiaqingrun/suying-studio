@@ -330,21 +330,49 @@ def resume_jobs_paused_for_rush(session: Session, *, by_job_id: int) -> int:
 
 
 def pause_job(session: Session, job_id: int) -> Job | None:
+    """Pause a job and arm ResourceGate release (PL-01).
+
+    Cooperative cancel is signaled immediately so the holder can exit and
+    release in its ``finally``. A bounded timer force-drops ``job:{id}`` /
+    ``job:{id}:tts`` gate tokens if still held — **gate only**, never SIGKILL
+    of ffmpeg.
+    """
+    from engine.jobs.gate_release import (
+        PAUSE_GATE_RELEASE_AFTER_SEC,
+        request_job_cancel,
+        schedule_pause_gate_release,
+    )
+
     job = session.get(Job, job_id)
     if not job:
         return None
     job.status = "paused"
     session.commit()
-    log_event(session, job.id, "info", "任务已暂停")
+    request_job_cancel(job.id)
+    release_after = schedule_pause_gate_release(job.id)
+    log_event(
+        session,
+        job.id,
+        "info",
+        "任务已暂停",
+        {
+            "gate_release": "cooperative_then_timeout",
+            "gate_release_after_sec": float(release_after),
+            "pause_gate_release_default_sec": float(PAUSE_GATE_RELEASE_AFTER_SEC),
+        },
+    )
     return job
 
 
 def resume_job(session: Session, job_id: int) -> Job | None:
+    from engine.jobs.gate_release import clear_job_cancel
+
     job = session.get(Job, job_id)
     if not job:
         return None
     if job.status not in ("paused", "paused_system", "circuit_open"):
         raise ValueError(f"任务状态 {job.status} 不可恢复")
+    clear_job_cancel(job.id)
     # 僵尸成功态：已达目标且最新成片物料就绪 → 直接完成，勿再入队空转
     if (
         job.mode == "count"

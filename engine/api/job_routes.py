@@ -329,7 +329,14 @@ def post_pause(job_id: int) -> dict[str, Any]:
         job = pause_job(session, job_id)
         if not job:
             raise HTTPException(404, "Job not found")
-        return {"id": job.id, "status": job.status}
+        from engine.jobs.gate_release import PAUSE_GATE_RELEASE_AFTER_SEC
+
+        return {
+            "id": job.id,
+            "status": job.status,
+            "gate_release": "cooperative_then_timeout",
+            "gate_release_after_sec": float(PAUSE_GATE_RELEASE_AFTER_SEC),
+        }
     finally:
         session.close()
 

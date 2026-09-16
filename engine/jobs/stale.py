@@ -37,6 +37,7 @@ def reap_stale_running_jobs(
     held_job_id: int | None,
     stale_after_sec: float = DEFAULT_STALE_AFTER_SEC,
     now: datetime | None = None,
+    release_gate: bool = True,
 ) -> list[dict[str, Any]]:
     """Re-queue running jobs this process does not hold and that look abandoned.
 
@@ -44,7 +45,12 @@ def reap_stale_running_jobs(
     - status == running
     - it is not the job currently held by this worker (held_job_id)
     - last job_event / updated_at is older than stale_after_sec
+
+    PL-15: when re-queuing, also drop orphaned ResourceGate tokens for that job
+    (``job:{id}`` / ``job:{id}:tts``). Does not SIGKILL ffmpeg.
     """
+    from engine.jobs.gate_release import clear_job_cancel, release_job_gate_tokens
+
     now = _aware(now) or datetime.now(timezone.utc)
     cutoff = now - timedelta(seconds=max(30.0, float(stale_after_sec)))
     reaped: list[dict[str, Any]] = []
@@ -61,6 +67,13 @@ def reap_stale_running_jobs(
         snap.pop("_system_pause_hold", None)
         job.config_snapshot_json = snap
         job.updated_at = now
+        gate_info: dict[str, Any] | None = None
+        if release_gate:
+            try:
+                gate_info = release_job_gate_tokens(job.id, reason="stale_reap")
+                clear_job_cancel(job.id)
+            except Exception:  # noqa: BLE001
+                gate_info = {"error": "gate_release_failed"}
         log_event(
             session,
             job.id,
@@ -70,6 +83,7 @@ def reap_stale_running_jobs(
                 "stale_after_sec": float(stale_after_sec),
                 "last_event_at": last.isoformat() if last else None,
                 "held_job_id": held_job_id,
+                "gate_released_slots": (gate_info or {}).get("released_slots"),
             },
         )
         reaped.append(
@@ -78,6 +92,7 @@ def reap_stale_running_jobs(
                 "previous_status": "running",
                 "reason": "stale_running_requeued",
                 "last_event_at": last.isoformat() if last else None,
+                "gate_release": gate_info,
             }
         )
     if reaped:

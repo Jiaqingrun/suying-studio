@@ -1187,6 +1187,8 @@ class JobWorker:
         # Pause/system-stop cancellation: narration rewrite + TTS-slot wait both
         # observe this so a pause/stop does not have to wait out a hung Ollama
         # call or an indefinite TTS-slot queue before the job can be parked.
+        # PL-01: also honor per-job cooperative cancel from pause_job (no ffmpeg kill).
+        from engine.jobs.gate_release import is_job_cancel_requested
         from engine.runtime.pause_coordinator import coordinator as pause_coordinator
 
         narration_cancel_event = threading.Event()
@@ -1195,7 +1197,11 @@ class JobWorker:
         def _pause_monitor() -> None:
             while not pause_monitor_stop.wait(1.0):
                 try:
-                    if not pause_coordinator.should_claim_jobs() or self._stop.is_set():
+                    if (
+                        not pause_coordinator.should_claim_jobs()
+                        or self._stop.is_set()
+                        or is_job_cancel_requested(job.id)
+                    ):
                         narration_cancel_event.set()
                         return
                 except Exception:  # noqa: BLE001
@@ -1247,6 +1253,36 @@ class JobWorker:
             )
         except (TimeoutError, RuntimeError) as exc:
             err = f"{type(exc).__name__}: {exc}"
+            if is_job_cancel_requested(job.id) or "cancel" in err.lower():
+                try:
+                    session.refresh(job)
+                except Exception:  # noqa: BLE001
+                    pass
+                if str(job.status or "") not in ("paused", "paused_system", "cancelled"):
+                    job.status = "paused"
+                snap = dict(job.config_snapshot_json or {})
+                snap["_pipeline_phase"] = "paused"
+                job.config_snapshot_json = snap
+                job.updated_at = datetime.now(timezone.utc)
+                log_event(
+                    session,
+                    job.id,
+                    "info",
+                    "暂停协作退出：旁白/TTS 已中止（未杀 ffmpeg）",
+                    {"stage": str(phase_holder.get("phase") or "tts"), "error": err[:200]},
+                )
+                session.commit()
+                try:
+                    if reservation_key:
+                        from engine.catalog.paper_slip import release_paper_slip
+
+                        release_paper_slip(
+                            session, reservation_key, customer_id=job.customer_id
+                        )
+                        session.commit()
+                except Exception:  # noqa: BLE001
+                    pass
+                return
             skip_current_item(
                 session,
                 job,
@@ -1552,7 +1588,41 @@ class JobWorker:
         # planning/narration/TTS never pin the slot (see resource_gate.py).
         render_token = f"job:{job.id}"
         render_wait_deadline = time.monotonic() + RENDER_SLOT_WAIT_DEADLINE_SEC
+        from engine.jobs.gate_release import is_job_cancel_requested as _job_cancel_req
+
         while not resource_gate.try_acquire("render", render_token):
+            if _job_cancel_req(job.id):
+                # Cooperative pause while waiting for render — do not start ffmpeg.
+                # pause_job already set DB status=paused; keep it (do not re-queue).
+                try:
+                    session.refresh(job)
+                except Exception:  # noqa: BLE001
+                    pass
+                if str(job.status or "") not in ("paused", "paused_system", "cancelled"):
+                    job.status = "paused"
+                snap = dict(job.config_snapshot_json or {})
+                snap["_pipeline_phase"] = "paused"
+                job.config_snapshot_json = snap
+                job.updated_at = datetime.now(timezone.utc)
+                log_event(
+                    session,
+                    job.id,
+                    "info",
+                    "暂停协作退出：渲染前放弃本条（未杀 ffmpeg）",
+                    {"stage": "render_wait"},
+                )
+                session.commit()
+                try:
+                    from engine.catalog.paper_slip import release_paper_slip
+
+                    if reservation_key:
+                        release_paper_slip(
+                            session, reservation_key, customer_id=job.customer_id
+                        )
+                        session.commit()
+                except Exception:  # noqa: BLE001
+                    pass
+                return
             if time.monotonic() >= render_wait_deadline:
                 skip_current_item(
                     session,

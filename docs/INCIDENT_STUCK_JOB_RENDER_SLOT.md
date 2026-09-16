@@ -34,5 +34,5 @@
 ## 待复现后修
 
 - [ ] 用户新开一条成片，观察是否再次卡在「开始处理任务」
-- [ ] 若复现：给 `_process_job` 关键阶段补心跳事件，并对 pause 协作退出 / 超时回收持槽
+- [x] pause 协作退出 / 有界超时回收持槽（**PL-01 · 0.8.36+**：`engine/jobs/gate_release.py`；仅释 ResourceGate，不 SIGKILL ffmpeg）
 - [ ] 同步修本机后重 embed 再 `--skip-models` 推客户机
