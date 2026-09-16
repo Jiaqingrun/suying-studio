@@ -48,8 +48,8 @@
 
 ## 离线 class（`offline_class`）
 
-`ok` · `starting` · `boot_failed` · `control_plane_not_ready` · `not_ready` · `not_listening` · `no_agent` · `license_cache_missing` · `license` · `workspace` · `integrity` · …  
-（禁止引擎再发裸词 `control_plane` 作 `offline_class`；与桌面 `offlineClassLabel` / Rust `classify` 对齐。）
+`ok` · `starting` · `boot_failed` · `control_plane_not_ready` · `not_ready` · `not_listening` · `process_no_listen` · `listen_unhealthy` · `no_agent` · `license_cache_missing` · `license` · `workspace` · `integrity` · …  
+（禁止引擎再发裸词 `control_plane` 作 `offline_class`；与桌面 `offlineClassLabel` / Rust `classify` 对齐。`process_no_listen` = pid 仍在但 8766 无 LISTEN，App/agent 应 kickstart。）
 
 ## 运维动作
 

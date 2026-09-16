@@ -9,6 +9,7 @@ describe("offlineClassLabel", () => {
     expect(offlineClassLabel({ offline_class: "boot_failed" } as never)).toContain("启动失败");
     expect(offlineClassLabel({ offline_class: "not_ready" } as never)).toContain("业务未就绪");
     expect(offlineClassLabel({ offline_class: "listen_unhealthy" } as never)).toContain("控制面");
+    expect(offlineClassLabel({ offline_class: "process_no_listen" } as never)).toContain("kickstart");
   });
 });
 

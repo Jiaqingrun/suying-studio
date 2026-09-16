@@ -418,8 +418,9 @@ fn status_inner(state: &Mutex<EngineState>, message: Option<String>) -> EngineSt
     let python = resolve_python()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|e| format!("(不可用) {e}"));
+    // V-08 H2: do not report running=true solely from a stale/zombie pid without LISTEN.
     EngineStatus {
-        running: reachable || listen || pid.is_some(),
+        running: reachable || listen,
         healthy,
         pid,
         repo: repo_root().display().to_string(),
@@ -454,14 +455,23 @@ fn ensure_engine_via_agent_or_spawn(
     // Path A: LaunchAgent install / kickstart (bundled product authority).
     if bundled_studio_root().is_some() || engine_supervisor::agent_plist_exists() {
         let mut agent_notes: Vec<String> = Vec::new();
+        let listen_now = listener_pid_on_port(ENGINE_PORT).is_some();
+        let zombie = !listen_now && engine_pid_alive_without_listen();
         if !engine_supervisor::agent_plist_exists() {
             match engine_supervisor::try_install_agent(&root) {
                 Ok(msg) => agent_notes.push(msg),
                 Err(e) => agent_notes.push(format!("agent install: {e}")),
             }
-        } else if !engine_reachable() {
+        } else if zombie || !listen_now || !engine_reachable() {
+            // V-08 H3: process_no_listen / !LISTEN → prefer kickstart over spawn.
             match engine_supervisor::try_kickstart_agent() {
-                Ok(msg) => agent_notes.push(msg),
+                Ok(msg) => {
+                    agent_notes.push(if zombie {
+                        format!("{msg} (process_no_listen)")
+                    } else {
+                        msg
+                    })
+                }
                 Err(e) => agent_notes.push(format!("agent kickstart: {e}")),
             }
         }

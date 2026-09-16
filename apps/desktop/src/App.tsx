@@ -1183,11 +1183,20 @@ function App() {
         heal.busy = true;
         setEngineBusy(true);
         try {
+          // V-08 H3: process_no_listen / !listen → startEngine → Rust kickstart agent
+          // (not a bare spawn). Offline label points ops at engine-agent.err.log.
           await startEngine();
         } catch (e) {
           if (heal.failCount >= 3 && heal.failCount % 3 === 0) {
             const label = offlineClassLabel(st);
-            notify(`引擎自愈失败（${label}）：${String(e)}`, "err", { placement: "toast", actionTab: "ops" });
+            const hint =
+              st.offline_class === "process_no_listen" || st.listen === false
+                ? " · 见 ~/Suying/logs/engine-agent.err.log"
+                : "";
+            notify(`引擎自愈失败（${label}）：${String(e)}${hint}`, "err", {
+              placement: "toast",
+              actionTab: "ops",
+            });
           }
         } finally {
           heal.busy = false;

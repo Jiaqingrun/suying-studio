@@ -149,6 +149,7 @@ def prepare_narration_for_plan(
     exclude_openers: list[str] | None = None,
     industry_lines: list[str] | None = None,
     recent_copy_records: list[Any] | None = None,
+    paid_voice_dir: Path | None = None,
 ) -> dict[str, Any]:
     """
     Synthesize voiceover WAV + SRT for this plan.
@@ -165,6 +166,10 @@ def prepare_narration_for_plan(
     successful rewrite (``{"script": ..., "emoji_cues": [...]}``) — used by TTS
     failure retries so a flaky Edge/clone synth does not burn a second LLM call
     (and does not risk the retry failing narration rewrite too).
+
+    ``paid_voice_dir`` (G1C): when set, reuse a previously paid WAV/SRT if the
+    voice stamp (script+provider+voice+rate/pitch/volume) matches. Callers must
+    exclude scene_tour. Does not relax READY_GATE.
 
     ``tts_wait_deadline_sec`` bounds how long this call waits for the shared
     TTS slot before giving up (``None`` waits indefinitely, prior behavior).
@@ -928,177 +933,309 @@ def prepare_narration_for_plan(
                     **clone_kwargs,
                 )
 
-            if tts_token:
-                import time as _time
+            # G1C: reuse paid voice when stamp matches (skip Edge/clone synth).
+            _voice_stamp = None
+            _g1c_reused = False
+            if paid_voice_dir is not None and not out.get("scene_tour"):
+                from engine.pack.voice_artifact import (
+                    compute_voice_stamp,
+                    try_reuse_voice_artifact,
+                )
 
-                from engine.runtime.resource_gate import gate as resource_gate
+                _voice_stamp = compute_voice_stamp(
+                    script=str(script or ""),
+                    provider=str(provider or ""),
+                    voice=str(
+                        voice
+                        if provider != "clone"
+                        else (out.get("voice") or "")
+                    ),
+                    rate=rate,
+                    pitch=pitch,
+                    volume=volume,
+                )
+                reused = try_reuse_voice_artifact(
+                    Path(paid_voice_dir),
+                    stamp=_voice_stamp,
+                    dest_work_dir=work_dir,
+                )
+                if reused and reused.get("narration_path"):
+                    narr_path = Path(reused["narration_path"])
+                    if reused.get("srt_path"):
+                        try:
+                            voice_srt_body = Path(reused["srt_path"]).read_text(
+                                encoding="utf-8"
+                            )
+                        except OSError:
+                            voice_srt_body = ""
+                    out["voice_artifact_reused"] = True
+                    out["voice_artifact_stamp"] = _voice_stamp
+                    _g1c_reused = True
 
-                deadline = (
-                    _time.monotonic() + float(tts_wait_deadline_sec)
-                    if tts_wait_deadline_sec is not None
-                    else None
-                )
-                while not resource_gate.try_acquire("tts", tts_token):
-                    if cancel_event is not None and getattr(cancel_event, "is_set", lambda: False)():
-                        raise RuntimeError("cancelled_waiting_for_tts_slot")
-                    if deadline is not None and _time.monotonic() >= deadline:
-                        raise TimeoutError(f"tts_slot_wait_timeout ({tts_wait_deadline_sec:.0f}s)")
-                    _time.sleep(0.25)
-                try:
-                    # Renew lease during long clone/edge synth so 600s sweep cannot steal mid-job.
-                    with resource_gate.heartbeat("tts", tts_token, interval_sec=45.0):
-                        narr = _synth_under_slot()
-                finally:
-                    resource_gate.release("tts", tts_token)
-            else:
-                narr = _synth_under_slot()
-            if lock_requires_edge and narr.provider != "edge":
-                raise RuntimeError(
-                    f"VIDEO_LOCK requires Edge TTS, got provider={narr.provider}"
-                )
-            if lock_requires_clone and narr.provider != "clone":
-                raise RuntimeError(
-                    f"VIDEO_LOCK requires clone TTS, got provider={narr.provider}"
-                )
-            bed_gap = float((narr.extras or {}).get("inter_sentence_gap_sec") or gap)
-            # Clip-aligned bed already includes per-slot silence; never re-concat segments
-            # (each segment's audio_path may point at the full slot oneshot → VO loops).
-            if str((narr.extras or {}).get("mode") or "") == "clip_aligned_slots":
-                bed_gap = 0.0
-            bed = narration_bed_from_result(narr, narr_path, gap_sec=bed_gap)
-            # 跟镜精品：按镜配音后，镜长必须等于该镜旁白——禁止再用字数比例重切
-            if out.get("scene_tour"):
-                from engine.pack.scene_tour_timing import (
-                    apply_slot_speech_durations,
-                    expand_plan_clips_to_cover_narration,
-                )
+            if _g1c_reused:
+                from types import SimpleNamespace
+
                 from engine.pack.tts import probe_audio_duration
 
-                timing_meta: dict[str, Any]
-                slot_secs = list((narr.extras or {}).get("slot_speech_sec") or [])
-                if slot_secs and str((narr.extras or {}).get("mode") or "") == "clip_aligned_slots":
-                    timing_meta = apply_slot_speech_durations(
-                        plan, slot_secs, gap_sec=max(0.08, float(gap))
+                narr = SimpleNamespace(
+                    provider=provider,
+                    extras={},
+                    segments=[],
+                    total_duration_sec=float(probe_audio_duration(narr_path) or 0.0),
+                )
+                bed = narr_path
+                bed_gap = float(gap)
+                fit_meta = {"applied": False, "reason": "voice_artifact_reused"}
+                out["narration_fit_to_picture"] = fit_meta
+                out["narration_path"] = str(bed)
+                out["provider"] = provider
+                out["requested_provider"] = provider
+                out["lock_requires_edge"] = lock_requires_edge
+                out["lock_requires_clone"] = lock_requires_clone
+                out["tts_mode"] = "voice_artifact_reuse"
+                out["inter_sentence_gap_sec"] = bed_gap
+                if voice_srt_body.strip() and Path(bed).is_file():
+                    voice_srt_body = tighten_srt_to_voiceover(
+                        voice_srt_body,
+                        bed,
+                        tail_trim_seconds=tail_trim,
                     )
-                    # 仅当总画面仍短于旁白时，把差额加到最后一镜（不重切前序镜）
-                    bed_now = Path(bed)
-                    if bed_now.is_file() and plan.clips:
-                        ndur = float(probe_audio_duration(bed_now) or 0)
-                        pic = sum(float(c.duration_sec or 0) for c in plan.clips)
-                        deficit = (ndur + 0.15) - pic
-                        if deficit > 0.08:
-                            last = plan.clips[-1]
-                            from engine.pack.scene_tour_timing import clip_available_sec_for_plan_clip
+                out["subtitle_tail_trim_sec"] = tail_trim
+                out["subtitle_aligned_to_voice"] = True
+                if strip_punct:
+                    from engine.pack.text_sanitize import strip_all_punctuation
 
-                            room = max(
-                                0.0,
-                                clip_available_sec_for_plan_clip(last)
-                                - float(last.duration_sec or 0),
-                            )
-                            add = min(room, deficit)
-                            last.duration_sec = round(float(last.duration_sec or 0) + add, 3)
-                            timing_meta["tail_pad_sec"] = round(add, 3)
-                            if add + 0.05 < deficit:
-                                timing_meta["need_fit"] = True
-                        timing_meta["reason"] = "slot_aligned_locked"
-                    # 硬校验：任一镜旁白仍明显长于画面 → 拒配音（禁止错位出片）
-                    overflow = []
-                    for row in timing_meta.get("slots") or []:
-                        if not isinstance(row, dict):
-                            continue
-                        sp = float(row.get("speech_sec") or 0)
-                        du = float(row.get("duration_sec") or 0)
-                        if sp > du + 0.35:
-                            overflow.append(
-                                f"镜{int(row.get('index', 0)) + 1}旁白{sp:.2f}s>画面{du:.2f}s"
-                            )
-                    if overflow:
-                        raise RuntimeError(
-                            "跟镜声画未对齐，已拒绝出片：" + "；".join(overflow[:4])
-                        )
-                    out["scene_tour_clip_aligned"] = True
-                else:
-                    timing_meta = expand_plan_clips_to_cover_narration(
-                        plan,
-                        narration_path=bed,
-                        min_exceed_sec=0.15,
+                    out["script_display"] = (
+                        strip_all_punctuation(script) if lang.startswith("zh") else script
                     )
-                out["scene_tour_timing"] = timing_meta
-                try:
-                    plan_dur = sum(float(c.duration_sec or 0) for c in (plan.clips or []))
-                    out["target_duration_sec"] = float(plan_dur)
-                except Exception:  # noqa: BLE001
-                    pass
-            # Prefer adaptive tempo over end-frame freeze when VO > picture (L15 still holds).
-            fit_meta: dict[str, Any] = {"applied": False, "reason": "disabled"}
-            fit_enabled = True
-            if isinstance(effective_rules, dict) and "narration_fit_to_picture" in effective_rules:
-                fit_enabled = bool(effective_rules.get("narration_fit_to_picture"))
-            elif isinstance(voice_lock, dict) and "fit_to_picture" in voice_lock:
-                fit_enabled = bool(voice_lock.get("fit_to_picture"))
             else:
-                fit_enabled = bool(getattr(settings, "narration_fit_to_picture", True))
-            # 跟镜精品按镜对齐后：禁止整段全局 tempo-fit（会毁掉镜切=句切）
-            if out.get("scene_tour") and out.get("scene_tour_clip_aligned"):
-                fit_enabled = False
-            elif out.get("scene_tour"):
-                timing = out.get("scene_tour_timing") if isinstance(out.get("scene_tour_timing"), dict) else {}
-                fit_enabled = bool(timing.get("need_fit"))
-            if fit_enabled and plan_dur > 0.5 and Path(bed).is_file():
-                from engine.pack.tts import fit_narration_to_picture_duration
+                if tts_token:
+                    import time as _time
 
-                max_fit = float(
-                    getattr(settings, "narration_fit_max_speed", 1.35) or 1.35
-                )
-                if max_fit < 1.05:
-                    max_fit = 1.05
-                if max_fit > 1.6:
-                    max_fit = 1.6
-                total_holder: list[float] = []
-                fit_meta = fit_narration_to_picture_duration(
-                    Path(bed),
-                    picture_duration_sec=float(plan_dur),
-                    segments=list(getattr(narr, "segments", None) or []),
-                    total_duration_holder=total_holder,
-                    max_speed=max_fit,
-                    min_tail_sec=0.15,
-                )
-                if total_holder:
+                    from engine.runtime.resource_gate import gate as resource_gate
+
+                    deadline = (
+                        _time.monotonic() + float(tts_wait_deadline_sec)
+                        if tts_wait_deadline_sec is not None
+                        else None
+                    )
+                    while not resource_gate.try_acquire("tts", tts_token):
+                        if cancel_event is not None and getattr(
+                            cancel_event, "is_set", lambda: False
+                        )():
+                            raise RuntimeError("cancelled_waiting_for_tts_slot")
+                        if deadline is not None and _time.monotonic() >= deadline:
+                            raise TimeoutError(
+                                f"tts_slot_wait_timeout ({tts_wait_deadline_sec:.0f}s)"
+                            )
+                        _time.sleep(0.25)
                     try:
-                        narr.total_duration_sec = float(total_holder[0])
+                        # Renew lease during long clone/edge synth so 600s sweep cannot steal mid-job.
+                        with resource_gate.heartbeat("tts", tts_token, interval_sec=45.0):
+                            narr = _synth_under_slot()
+                    finally:
+                        resource_gate.release("tts", tts_token)
+                else:
+                    narr = _synth_under_slot()
+                if lock_requires_edge and narr.provider != "edge":
+                    raise RuntimeError(
+                        f"VIDEO_LOCK requires Edge TTS, got provider={narr.provider}"
+                    )
+                if lock_requires_clone and narr.provider != "clone":
+                    raise RuntimeError(
+                        f"VIDEO_LOCK requires clone TTS, got provider={narr.provider}"
+                    )
+                bed_gap = float((narr.extras or {}).get("inter_sentence_gap_sec") or gap)
+                # Clip-aligned bed already includes per-slot silence; never re-concat segments
+                # (each segment's audio_path may point at the full slot oneshot → VO loops).
+                if str((narr.extras or {}).get("mode") or "") == "clip_aligned_slots":
+                    bed_gap = 0.0
+                bed = narration_bed_from_result(narr, narr_path, gap_sec=bed_gap)
+                # 跟镜精品：按镜配音后，镜长必须等于该镜旁白——禁止再用字数比例重切
+                if out.get("scene_tour"):
+                    from engine.pack.scene_tour_timing import (
+                        apply_slot_speech_durations,
+                        expand_plan_clips_to_cover_narration,
+                    )
+                    from engine.pack.tts import probe_audio_duration
+
+                    timing_meta: dict[str, Any]
+                    slot_secs = list((narr.extras or {}).get("slot_speech_sec") or [])
+                    if (
+                        slot_secs
+                        and str((narr.extras or {}).get("mode") or "") == "clip_aligned_slots"
+                    ):
+                        timing_meta = apply_slot_speech_durations(
+                            plan, slot_secs, gap_sec=max(0.08, float(gap))
+                        )
+                        # 仅当总画面仍短于旁白时，把差额加到最后一镜（不重切前序镜）
+                        bed_now = Path(bed)
+                        if bed_now.is_file() and plan.clips:
+                            ndur = float(probe_audio_duration(bed_now) or 0)
+                            pic = sum(float(c.duration_sec or 0) for c in plan.clips)
+                            deficit = (ndur + 0.15) - pic
+                            if deficit > 0.08:
+                                last = plan.clips[-1]
+                                from engine.pack.scene_tour_timing import (
+                                    clip_available_sec_for_plan_clip,
+                                )
+
+                                room = max(
+                                    0.0,
+                                    clip_available_sec_for_plan_clip(last)
+                                    - float(last.duration_sec or 0),
+                                )
+                                add = min(room, deficit)
+                                last.duration_sec = round(
+                                    float(last.duration_sec or 0) + add, 3
+                                )
+                                timing_meta["tail_pad_sec"] = round(add, 3)
+                                if add + 0.05 < deficit:
+                                    timing_meta["need_fit"] = True
+                            timing_meta["reason"] = "slot_aligned_locked"
+                        # 硬校验：任一镜旁白仍明显长于画面 → 拒配音（禁止错位出片）
+                        overflow = []
+                        for row in timing_meta.get("slots") or []:
+                            if not isinstance(row, dict):
+                                continue
+                            sp = float(row.get("speech_sec") or 0)
+                            du = float(row.get("duration_sec") or 0)
+                            if sp > du + 0.35:
+                                overflow.append(
+                                    f"镜{int(row.get('index', 0)) + 1}旁白{sp:.2f}s>画面{du:.2f}s"
+                                )
+                        if overflow:
+                            raise RuntimeError(
+                                "跟镜声画未对齐，已拒绝出片：" + "；".join(overflow[:4])
+                            )
+                        out["scene_tour_clip_aligned"] = True
+                    else:
+                        timing_meta = expand_plan_clips_to_cover_narration(
+                            plan,
+                            narration_path=bed,
+                            min_exceed_sec=0.15,
+                        )
+                    out["scene_tour_timing"] = timing_meta
+                    try:
+                        plan_dur = sum(
+                            float(c.duration_sec or 0) for c in (plan.clips or [])
+                        )
+                        out["target_duration_sec"] = float(plan_dur)
                     except Exception:  # noqa: BLE001
                         pass
-            out["narration_fit_to_picture"] = fit_meta
-            out["narration_path"] = str(bed)
-            out["provider"] = narr.provider
-            out["requested_provider"] = provider
-            out["lock_requires_edge"] = lock_requires_edge
-            out["lock_requires_clone"] = lock_requires_clone
-            out["tts_mode"] = (narr.extras or {}).get("mode")
-            out["inter_sentence_gap_sec"] = bed_gap
-            if (narr.extras or {}).get("clone_pack"):
-                out["clone_pack"] = narr.extras["clone_pack"]
-            voice_srt_body = srt_from_narration_segments(
-                narr.segments,
-                bottom_dual_line=False,
-                tail_trim_seconds=tail_trim,
-                inter_sentence_gap_seconds=bed_gap,
-                forbid_title=on_screen_title if forbid_title_in_sub else None,
-            )
-            # Nuclear post-pass against the real VO bed — 话说完字幕必须消失
-            if voice_srt_body.strip() and Path(bed).is_file():
-                voice_srt_body = tighten_srt_to_voiceover(
-                    voice_srt_body,
-                    bed,
-                    tail_trim_seconds=tail_trim,
-                )
-            out["subtitle_tail_trim_sec"] = tail_trim
-            out["subtitle_aligned_to_voice"] = True
-            # Display script without punctuation for sidecar clarity
-            if strip_punct:
-                from engine.pack.text_sanitize import strip_all_punctuation
+                # Prefer adaptive tempo over end-frame freeze when VO > picture (L15 still holds).
+                fit_meta: dict[str, Any] = {"applied": False, "reason": "disabled"}
+                fit_enabled = True
+                if (
+                    isinstance(effective_rules, dict)
+                    and "narration_fit_to_picture" in effective_rules
+                ):
+                    fit_enabled = bool(effective_rules.get("narration_fit_to_picture"))
+                elif isinstance(voice_lock, dict) and "fit_to_picture" in voice_lock:
+                    fit_enabled = bool(voice_lock.get("fit_to_picture"))
+                else:
+                    fit_enabled = bool(getattr(settings, "narration_fit_to_picture", True))
+                # 跟镜精品按镜对齐后：禁止整段全局 tempo-fit（会毁掉镜切=句切）
+                if out.get("scene_tour") and out.get("scene_tour_clip_aligned"):
+                    fit_enabled = False
+                elif out.get("scene_tour"):
+                    timing = (
+                        out.get("scene_tour_timing")
+                        if isinstance(out.get("scene_tour_timing"), dict)
+                        else {}
+                    )
+                    fit_enabled = bool(timing.get("need_fit"))
+                if fit_enabled and plan_dur > 0.5 and Path(bed).is_file():
+                    from engine.pack.tts import fit_narration_to_picture_duration
 
-                out["script_display"] = strip_all_punctuation(script) if lang.startswith("zh") else script
+                    max_fit = float(
+                        getattr(settings, "narration_fit_max_speed", 1.35) or 1.35
+                    )
+                    if max_fit < 1.05:
+                        max_fit = 1.05
+                    if max_fit > 1.6:
+                        max_fit = 1.6
+                    total_holder: list[float] = []
+                    fit_meta = fit_narration_to_picture_duration(
+                        Path(bed),
+                        picture_duration_sec=float(plan_dur),
+                        segments=list(getattr(narr, "segments", None) or []),
+                        total_duration_holder=total_holder,
+                        max_speed=max_fit,
+                        min_tail_sec=0.15,
+                    )
+                    if total_holder:
+                        try:
+                            narr.total_duration_sec = float(total_holder[0])
+                        except Exception:  # noqa: BLE001
+                            pass
+                out["narration_fit_to_picture"] = fit_meta
+                out["narration_path"] = str(bed)
+                out["provider"] = narr.provider
+                out["requested_provider"] = provider
+                out["lock_requires_edge"] = lock_requires_edge
+                out["lock_requires_clone"] = lock_requires_clone
+                out["tts_mode"] = (narr.extras or {}).get("mode")
+                out["inter_sentence_gap_sec"] = bed_gap
+                if (narr.extras or {}).get("clone_pack"):
+                    out["clone_pack"] = narr.extras["clone_pack"]
+                voice_srt_body = srt_from_narration_segments(
+                    narr.segments,
+                    bottom_dual_line=False,
+                    tail_trim_seconds=tail_trim,
+                    inter_sentence_gap_seconds=bed_gap,
+                    forbid_title=on_screen_title if forbid_title_in_sub else None,
+                )
+                # Nuclear post-pass against the real VO bed — 话说完字幕必须消失
+                if voice_srt_body.strip() and Path(bed).is_file():
+                    voice_srt_body = tighten_srt_to_voiceover(
+                        voice_srt_body,
+                        bed,
+                        tail_trim_seconds=tail_trim,
+                    )
+                out["subtitle_tail_trim_sec"] = tail_trim
+                out["subtitle_aligned_to_voice"] = True
+                # Display script without punctuation for sidecar clarity
+                if strip_punct:
+                    from engine.pack.text_sanitize import strip_all_punctuation
+
+                    out["script_display"] = (
+                        strip_all_punctuation(script) if lang.startswith("zh") else script
+                    )
+                # G1C: persist paid artifact for same-job retries (not scene_tour).
+                if (
+                    paid_voice_dir is not None
+                    and not out.get("scene_tour")
+                    and Path(bed).is_file()
+                ):
+                    from engine.pack.voice_artifact import (
+                        compute_voice_stamp,
+                        save_voice_artifact,
+                    )
+
+                    stamp = _voice_stamp or compute_voice_stamp(
+                        script=str(script or ""),
+                        provider=str(narr.provider or provider or ""),
+                        voice=str(out.get("voice") or voice or ""),
+                        rate=rate,
+                        pitch=pitch,
+                        volume=volume,
+                    )
+                    try:
+                        save_voice_artifact(
+                            Path(paid_voice_dir),
+                            stamp=stamp,
+                            narr_path=Path(bed),
+                            srt_path=None,  # SRT finalized below; worker may refresh
+                            meta={
+                                "provider": narr.provider,
+                                "script": script,
+                            },
+                        )
+                        out["voice_artifact_stamp"] = stamp
+                        out["voice_artifact_saved"] = True
+                    except (OSError, ValueError):
+                        pass
         except Exception as e:  # noqa: BLE001 — render must continue with BGM-only
             out["error"] = str(e)
             out["narration_path"] = None
@@ -1280,6 +1417,31 @@ def prepare_narration_for_plan(
             out["subtitle_align_pass"] = "final_bed"
         except Exception as exc:  # noqa: BLE001
             out["subtitle_align_error"] = str(exc)[:240]
+
+    # G1C: refresh paid cache with final on-disk SRT (after emoji/tighten).
+    if (
+        paid_voice_dir is not None
+        and out.get("voice_artifact_stamp")
+        and out.get("narration_path")
+        and not out.get("scene_tour")
+        and not out.get("error")
+    ):
+        from engine.pack.voice_artifact import save_voice_artifact
+
+        try:
+            save_voice_artifact(
+                Path(paid_voice_dir),
+                stamp=str(out["voice_artifact_stamp"]),
+                narr_path=Path(str(out["narration_path"])),
+                srt_path=Path(str(out["srt_path"])) if out.get("srt_path") else None,
+                meta={
+                    "provider": out.get("provider"),
+                    "script": out.get("script"),
+                },
+            )
+            out["voice_artifact_saved"] = True
+        except (OSError, ValueError, TypeError):
+            pass
 
     return out
 

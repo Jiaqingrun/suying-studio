@@ -1104,6 +1104,11 @@ class JobWorker:
             )
 
         voice_dir = rendering_dir / f"job{job.id}_{attempt}_voice"
+        from engine.pack.voice_artifact import paid_voice_cache_dir
+
+        # 跟镜精品锁定旁白：不走 Ollama；G1C 也不复用 voice 工件
+        scene_tour_job = str(job.theme or "") == "scene_tour" or str(job.category or "") == "scene_tour"
+        paid_voice_dir = None if scene_tour_job else paid_voice_cache_dir(rendering_dir, job.id)
         # Recheck immediately before TTS; an expired/released lease must fail closed.
         try:
             assert_reservation_active(
@@ -1134,7 +1139,6 @@ class JobWorker:
         session.commit()
         ollama_on = bool(getattr(settings, "ollama_narration_enabled", False))
         # 跟镜精品锁定旁白：不走 Ollama，心跳直接进 TTS
-        scene_tour_job = str(job.theme or "") == "scene_tour" or str(job.category or "") == "scene_tour"
         if scene_tour_job:
             ollama_on = False
         if ollama_on:
@@ -1250,6 +1254,7 @@ class JobWorker:
                 phase_holder=phase_holder,
                 exclude_openers=exclude_openers,
                 recent_copy_records=recent_copy_records,
+                paid_voice_dir=paid_voice_dir,
             )
         except (TimeoutError, RuntimeError) as exc:
             err = f"{type(exc).__name__}: {exc}"
@@ -1468,6 +1473,7 @@ class JobWorker:
                 phase_holder=phase_holder,
                 exclude_openers=exclude_openers,
                 recent_copy_records=recent_copy_records,
+                paid_voice_dir=paid_voice_dir,
             )
             vlang = str(voice_info.get("voice_lang") or "zh")
             edge_label = "Edge 晓晓" if vlang.startswith("zh") else f"Edge（{vlang}）"
@@ -1527,6 +1533,8 @@ class JobWorker:
                 {
                     "provider": voice_info.get("provider"),
                     "mode": voice_info.get("tts_mode"),
+                    "voice_artifact_reused": bool(voice_info.get("voice_artifact_reused")),
+                    "voice_artifact_saved": bool(voice_info.get("voice_artifact_saved")),
                 },
             )
             session.commit()
@@ -2202,6 +2210,14 @@ class JobWorker:
             snap["item_retry_count"] = 0
             snap.pop("next_attempt_at", None)
             job.config_snapshot_json = dict(snap)
+            # G1C: clear paid voice cache after successful ready (next item gets fresh TTS).
+            if paid_voice_dir is not None:
+                try:
+                    from engine.pack.voice_artifact import clear_voice_artifact
+
+                    clear_voice_artifact(Path(paid_voice_dir))
+                except Exception:  # noqa: BLE001
+                    pass
             record_keyword_usage(session, plan.title, theme, job.id, customer_id=job.customer_id)
             # PAPER_SLIP：仅 ready 成功才记账（滚动避重；强制参考 docs/PAPER_SLIP_LOCK.md）
             from engine.catalog.paper_slip import commit_paper_slip_for_ready

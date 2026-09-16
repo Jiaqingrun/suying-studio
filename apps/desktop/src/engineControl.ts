@@ -81,6 +81,8 @@ export function offlineClassLabel(st: EngineStatus | null | undefined): string {
       return "服务在线，业务未就绪";
     case "listen_unhealthy":
       return "端口在听但控制面探针失败";
+    case "process_no_listen":
+      return "引擎进程在但端口未监听（将 kickstart agent）";
     case "not_listening":
       return "引擎未监听";
     case "no_agent":

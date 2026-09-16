@@ -27,6 +27,11 @@ else
   bad "port ${PORT} not listening"
 fi
 
+# V-08 H4: engine.main pid alive but PORT not LISTEN → zombie_listener
+if pgrep -f 'engine\.main' >/dev/null 2>&1 && [[ "$LISTEN" -eq 0 ]]; then
+  bad "zombie_listener: engine pid alive but port ${PORT} not listening"
+fi
+
 HEALTH_JSON="$(curl -fsS --max-time 3 "http://127.0.0.1:${PORT}/health" 2>/dev/null || true)"
 if [[ -n "$HEALTH_JSON" ]]; then
   ok "GET /health answered"
