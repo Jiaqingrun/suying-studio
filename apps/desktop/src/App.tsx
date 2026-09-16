@@ -322,7 +322,7 @@ function App() {
   const [outputs, setOutputs] = useState<Array<Record<string, unknown>>>([]);
   const [report, setReport] = useState<ReportSummary | null>(null);
   const [opsReport, setOpsReport] = useState<Awaited<ReturnType<typeof api.reportOps>> | null>(null);
-  const [reviewFilter, setReviewFilter] = useState<"all" | "missing_voice" | "missing_sub" | "tts_bad">(() => {
+  const [reviewFilter, setReviewFilter] = useState<"all" | "missing_voice" | "missing_sub" | "tts_bad" | "missing_media">(() => {
     try {
       const v = localStorage.getItem("suying.reviewFilter.v1");
       if (v === "all" || v === "missing_voice" || v === "missing_sub" || v === "tts_bad") return v;
@@ -2655,9 +2655,17 @@ function App() {
       ),
     [outputs],
   );
+  const missingMediaCount = useMemo(
+    () => openUncertainOutputs.filter((o) => o.media_ok === false).length,
+    [openUncertainOutputs],
+  );
   const readyOutputs = useMemo(
     () =>
       openUncertainOutputs.filter((o) => {
+        const mediaOk = o.media_ok !== false;
+        if (reviewFilter === "missing_media") return !mediaOk;
+        // PL-03: default human queue hides confirmed-missing media.
+        if (!mediaOk) return false;
         if (reviewFilter === "missing_voice") return !o.has_voice;
         if (reviewFilter === "missing_sub") return !o.subtitle_burned;
         if (reviewFilter === "tts_bad") return Boolean(o.tts_noncompliant) || o.tts_compliant === false;
@@ -2692,7 +2700,7 @@ function App() {
     "";
 
   const pendingReviewCount = useMemo(
-    () => openUncertainOutputs.length,
+    () => openUncertainOutputs.filter((o) => o.media_ok !== false).length,
     [openUncertainOutputs],
   );
   const readyCount = useMemo(
@@ -3351,6 +3359,7 @@ function App() {
             setCinemaMode={setCinemaMode}
             reviewFilter={reviewFilter}
             setReviewFilter={setReviewFilter}
+            missingMediaCount={missingMediaCount}
             missingVoiceCount={missingVoiceCount}
             ttsBadCount={ttsBadCount}
             batchBusy={batchBusy}

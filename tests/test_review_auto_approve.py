@@ -740,3 +740,117 @@ def test_archive_unusable_manual() -> None:
         assert latest_review(session, out.id).note == ARCHIVE_MANUAL_NOTE
     finally:
         session.close()
+
+
+def test_classify_media_path_volume_offline(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from engine.catalog.review_auto import classify_media_path
+
+    offline = "/Volumes/DoesNotExistSuyingVolXYZ/clip.mp4"
+    assert classify_media_path(offline) == "volume_offline"
+    assert classify_media_path("") == "empty"
+    present = tmp_path / "ok.mp4"
+    present.write_bytes(b"x")
+    assert classify_media_path(str(present)) == "present"
+    assert classify_media_path(str(tmp_path / "nope.mp4")) == "missing"
+
+
+def test_batch_archive_missing_skips_volume_offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    from engine.catalog.review_auto import (
+        VOLUME_OFFLINE_NOTE,
+        batch_archive_missing_uncertain,
+    )
+
+    session = _session()
+    try:
+        customer = _customer(session)
+        job = _job(session, customer)
+        missing = _output(session, job, state="review", gate_ok=None)
+        missing.output_path = "/tmp/suying-missing-hygiene.mp4"
+        offline = _output(session, job, state="review", gate_ok=None)
+        offline.output_path = "/Volumes/DoesNotExistSuyingVolXYZ/clip.mp4"
+        session.commit()
+        for out in (missing, offline):
+            record_review_decision(
+                session,
+                out,
+                status="uncertain",
+                note="待人工：审片状态或证据冲突",
+                source="worker",
+            )
+        session.commit()
+
+        dry = batch_archive_missing_uncertain(
+            session, customer, limit=50, dry_run=True
+        )
+        assert dry["would_archive_missing"] == 1
+        assert dry["volume_offline"] == 1
+        assert dry["items"][0]["output_id"] == missing.id
+
+        applied = batch_archive_missing_uncertain(
+            session, customer, limit=50, dry_run=False
+        )
+        assert applied["archived_missing"] == 1
+        assert applied["volume_offline"] == 1
+        assert missing.state == "failed"
+        assert offline.state == "review"
+        assert latest_review(session, offline.id).status == "uncertain"
+        assert any(
+            VOLUME_OFFLINE_NOTE in str(row.get("note") or "")
+            for row in applied["deferred_offline"]
+        )
+    finally:
+        session.close()
+
+
+def test_batch_hygiene_ready_pool_archives_missing_pending() -> None:
+    from engine.catalog.review_auto import batch_hygiene_ready_pool
+
+    session = _session()
+    try:
+        customer = _customer(session)
+        out = _output(session, _job(session, customer), state="ready", gate_ok=True)
+        out.output_path = "/tmp/suying-ready-pending-missing.mp4"
+        out.pack_status = "pending"
+        session.commit()
+        dry = batch_hygiene_ready_pool(
+            session, customer, limit=20, dry_run=True, pack_status="pending"
+        )
+        assert dry["would_archive_missing"] == 1
+        applied = batch_hygiene_ready_pool(
+            session, customer, limit=20, dry_run=False, pack_status="pending"
+        )
+        assert applied["archived_missing"] == 1
+        assert out.state == "failed"
+    finally:
+        session.close()
+
+
+def test_output_spec_requires_media_file(tmp_path) -> None:
+    from engine.reach.publish_sources import _output_spec
+
+    session = _session()
+    try:
+        customer = _customer(session)
+        out = _output(session, _job(session, customer), state="ready", gate_ok=True)
+        pack = tmp_path / "pack"
+        pack.mkdir()
+        out.pack_status = "ready"
+        out.pack_dir = str(pack)
+        out.platform_asset_status = {
+            "douyin": {"status": "ready"},
+            "channels": {"status": "ready"},
+            "xhs": {"status": "ready"},
+            "kuaishou": {"status": "ready"},
+        }
+        out.output_path = str(tmp_path / "missing.mp4")
+        session.commit()
+        assert _output_spec(out) is None
+        media = tmp_path / "ok.mp4"
+        media.write_bytes(b"data")
+        out.output_path = str(media)
+        session.commit()
+        spec = _output_spec(out)
+        assert spec is not None
+        assert spec["output_id"] == out.id
+    finally:
+        session.close()

@@ -61,6 +61,10 @@ AUTO_APPROVE_SOURCES = frozenset(
 BACKFILL_LIMIT_DEFAULT = 50
 BATCH_APPROVE_LIMIT_DEFAULT = 50
 RECONCILE_LIMIT_DEFAULT = 50
+# Ops hygiene batches (PL-03/04): higher than interactive reconcile, still bounded.
+HYGIENE_LIMIT_DEFAULT = 500
+HYGIENE_LIMIT_MAX = 2000
+VOLUME_OFFLINE_NOTE = "暂缓归档：成片所在卷未挂载，避免误归档暂时离线片"
 
 
 def _emit_review_ops_log(
@@ -755,6 +759,37 @@ def _media_present(output: RenderOutput) -> bool:
     return bool(output.output_path and Path(output.output_path).is_file())
 
 
+def classify_media_path(path: str | None) -> str:
+    """Classify on-disk availability without treating unmounted volumes as deleted.
+
+    Returns one of: ``present`` | ``missing`` | ``volume_offline`` | ``empty``.
+    ``volume_offline`` means the path lives under ``/Volumes/<name>/...`` and that
+    volume root is not currently mounted — do **not** archive these as missing.
+    """
+    raw = str(path or "").strip()
+    if not raw:
+        return "empty"
+    p = Path(raw)
+    if p.is_file():
+        return "present"
+    parts = p.parts
+    if len(parts) >= 3 and parts[0] == "/" and parts[1] == "Volumes":
+        volume_root = Path("/") / "Volumes" / parts[2]
+        if not volume_root.exists():
+            return "volume_offline"
+    return "missing"
+
+
+def media_availability(output: RenderOutput) -> dict[str, Any]:
+    status = classify_media_path(output.output_path)
+    return {
+        "media_status": status,
+        "media_ok": status == "present",
+        "volume_offline": status == "volume_offline",
+        "output_path": output.output_path,
+    }
+
+
 def _open_uncertain_outputs(
     session: Session,
     customer: Customer,
@@ -902,6 +937,16 @@ def reconcile_ready_gate_output(
         }
 
     if not _media_present(output):
+        avail = media_availability(output)
+        if avail["volume_offline"]:
+            return {
+                "ok": False,
+                "output_id": output.id,
+                "action": "volume_offline",
+                "ready_gate_ok": False,
+                "error": VOLUME_OFFLINE_NOTE,
+                **avail,
+            }
         if archive_missing:
             archived = archive_unusable_output(
                 session, customer, output, reason="missing"
@@ -920,6 +965,7 @@ def reconcile_ready_gate_output(
             "action": "media_missing",
             "ready_gate_ok": False,
             "error": "成片文件缺失，无法重验出片门禁",
+            **avail,
         }
 
     if require_ollama is None:
@@ -1059,6 +1105,7 @@ def batch_reconcile_ready_gate(
         "archived_gate_fail": 0,
         "gate_failed": 0,
         "already_gate_ok": 0,
+        "volume_offline": 0,
         "skipped": 0,
         "errors": 0,
     }
@@ -1103,9 +1150,262 @@ def batch_reconcile_ready_gate(
         "archived_gate_fail": counts["archived_gate_fail"],
         "gate_failed": counts["gate_failed"],
         "already_gate_ok": counts["already_gate_ok"],
+        "volume_offline": counts["volume_offline"],
         "skipped": counts["skipped"],
         "items": items,
         "errors": errors,
         "archive_missing": archive_missing,
         "archive_gate_fail": archive_gate_fail,
+    }
+
+
+def _hygiene_limit(limit: int | None) -> int:
+    raw = int(limit or HYGIENE_LIMIT_DEFAULT)
+    return max(1, min(raw, HYGIENE_LIMIT_MAX))
+
+
+def batch_archive_missing_uncertain(
+    session: Session,
+    customer: Customer,
+    *,
+    limit: int = HYGIENE_LIMIT_DEFAULT,
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    """PL-03: archive open uncertain rows whose media is confirmed missing.
+
+    Never archives ``volume_offline`` paths (temporarily unmounted external volumes).
+    """
+    lim = _hygiene_limit(limit)
+    rows = _open_uncertain_outputs(session, customer, limit=lim * 3)
+    items: list[dict[str, Any]] = []
+    deferred_offline: list[dict[str, Any]] = []
+    present = 0
+    for output in rows:
+        avail = media_availability(output)
+        status = str(avail["media_status"])
+        if status == "present":
+            present += 1
+            continue
+        if status == "volume_offline":
+            deferred_offline.append(
+                {
+                    "output_id": output.id,
+                    "action": "volume_offline",
+                    "note": VOLUME_OFFLINE_NOTE,
+                    **avail,
+                }
+            )
+            continue
+        if len(items) >= lim:
+            break
+        if dry_run:
+            items.append(
+                {
+                    "ok": True,
+                    "output_id": output.id,
+                    "action": "would_archive_missing",
+                    "decision": "rejected",
+                    **avail,
+                }
+            )
+            continue
+        archived = archive_unusable_output(
+            session, customer, output, reason="missing"
+        )
+        items.append(
+            {
+                **archived,
+                "action": "archived_missing",
+                **avail,
+            }
+        )
+    if not dry_run:
+        session.commit()
+    return {
+        "ok": True,
+        "dry_run": dry_run,
+        "limit": lim,
+        "scanned": len(rows),
+        "present_skipped": present,
+        "archived_missing": 0 if dry_run else len(items),
+        "would_archive_missing": len(items) if dry_run else 0,
+        "volume_offline": len(deferred_offline),
+        "items": items,
+        "deferred_offline": deferred_offline,
+    }
+
+
+def _ready_pool_outputs(
+    session: Session,
+    customer: Customer,
+    *,
+    limit: int,
+    pack_status: str | None = None,
+) -> list[RenderOutput]:
+    stmt = (
+        select(RenderOutput)
+        .join(Job, RenderOutput.job_id == Job.id)
+        .where(Job.customer_id == customer.id, RenderOutput.state == "ready")
+        .order_by(RenderOutput.id.desc())
+        .limit(max(1, min(int(limit), HYGIENE_LIMIT_MAX)))
+    )
+    if pack_status is not None:
+        stmt = stmt.where(RenderOutput.pack_status == pack_status)
+    return list(session.scalars(stmt).all())
+
+
+def batch_hygiene_ready_pool(
+    session: Session,
+    customer: Customer,
+    *,
+    limit: int = HYGIENE_LIMIT_DEFAULT,
+    dry_run: bool = True,
+    heal_pending: bool = True,
+    archive_missing: bool = True,
+    pack_status: str | None = None,
+) -> dict[str, Any]:
+    """PL-04: clear dead ready rows (any pack_status) and heal pending packs when media exists.
+
+    - missing / empty media → archive (unless volume_offline)
+    - present + pack pending → ``ensure_publish_pack`` when ``heal_pending``
+    """
+    lim = _hygiene_limit(limit)
+    rows = _ready_pool_outputs(
+        session, customer, limit=lim * 3, pack_status=pack_status
+    )
+    items: list[dict[str, Any]] = []
+    counts = {
+        "would_archive_missing": 0,
+        "archived_missing": 0,
+        "would_heal_pack": 0,
+        "healed_pack": 0,
+        "heal_failed": 0,
+        "volume_offline": 0,
+        "present_ok": 0,
+        "skipped": 0,
+        "errors": 0,
+    }
+    deferred_offline: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+
+    for output in rows:
+        if len(items) >= lim:
+            break
+        avail = media_availability(output)
+        status = str(avail["media_status"])
+        try:
+            if status == "volume_offline":
+                counts["volume_offline"] += 1
+                row = {
+                    "ok": False,
+                    "output_id": output.id,
+                    "action": "volume_offline",
+                    "pack_status": output.pack_status,
+                    "note": VOLUME_OFFLINE_NOTE,
+                    **avail,
+                }
+                deferred_offline.append(row)
+                items.append(row)
+                continue
+            if status in {"missing", "empty"}:
+                if not archive_missing:
+                    counts["skipped"] += 1
+                    items.append(
+                        {
+                            "ok": False,
+                            "output_id": output.id,
+                            "action": "media_missing",
+                            "pack_status": output.pack_status,
+                            **avail,
+                        }
+                    )
+                    continue
+                if dry_run:
+                    counts["would_archive_missing"] += 1
+                    items.append(
+                        {
+                            "ok": True,
+                            "output_id": output.id,
+                            "action": "would_archive_missing",
+                            "pack_status": output.pack_status,
+                            **avail,
+                        }
+                    )
+                else:
+                    archived = archive_unusable_output(
+                        session, customer, output, reason="missing"
+                    )
+                    counts["archived_missing"] += 1
+                    items.append(
+                        {
+                            **archived,
+                            "action": "archived_missing",
+                            "pack_status": output.pack_status,
+                            **avail,
+                        }
+                    )
+                continue
+
+            if heal_pending and str(output.pack_status or "") != "ready":
+                if dry_run:
+                    counts["would_heal_pack"] += 1
+                    items.append(
+                        {
+                            "ok": True,
+                            "output_id": output.id,
+                            "action": "would_heal_pack",
+                            "pack_status": output.pack_status,
+                            **avail,
+                        }
+                    )
+                else:
+                    pack = ensure_publish_pack(session, customer, output)
+                    ok = bool(pack.get("ok"))
+                    action = "healed_pack" if ok else "heal_failed"
+                    counts[action] += 1
+                    items.append(
+                        {
+                            "ok": ok,
+                            "output_id": output.id,
+                            "action": action,
+                            "pack_status": output.pack_status,
+                            "pack": {
+                                k: pack.get(k)
+                                for k in ("ok", "error", "skipped", "pack_dir")
+                                if k in pack
+                            },
+                            **avail,
+                        }
+                    )
+                continue
+
+            counts["present_ok"] += 1
+            items.append(
+                {
+                    "ok": True,
+                    "output_id": output.id,
+                    "action": "present_ok",
+                    "pack_status": output.pack_status,
+                    **avail,
+                }
+            )
+        except Exception as e:  # noqa: BLE001
+            counts["errors"] += 1
+            errors.append({"output_id": output.id, "error": str(e)[:500]})
+
+    if not dry_run:
+        session.commit()
+    return {
+        "ok": True,
+        "dry_run": dry_run,
+        "limit": lim,
+        "scanned": len(rows),
+        "pack_status_filter": pack_status,
+        "heal_pending": heal_pending,
+        "archive_missing": archive_missing,
+        "processed": len(items),
+        **counts,
+        "items": items,
+        "deferred_offline": deferred_offline,
+        "errors": errors,
     }

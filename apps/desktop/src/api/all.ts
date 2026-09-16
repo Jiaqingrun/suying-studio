@@ -930,6 +930,55 @@ export const api = {
       limit?: number;
     }>(`/review/reconcile-gate?${q.toString()}`, { method: "POST" });
   },
+  reviewArchiveMissing: (opts?: { limit?: number; dryRun?: boolean }) => {
+    const q = new URLSearchParams({
+      limit: String(opts?.limit ?? 500),
+      dry_run: opts?.dryRun === false ? "false" : "true",
+    });
+    return request<{
+      ok: boolean;
+      dry_run?: boolean;
+      scanned?: number;
+      present_skipped?: number;
+      archived_missing?: number;
+      would_archive_missing?: number;
+      volume_offline?: number;
+      items?: Array<Record<string, unknown>>;
+      deferred_offline?: Array<Record<string, unknown>>;
+      limit?: number;
+    }>(`/review/archive-missing?${q.toString()}`, { method: "POST" });
+  },
+  reviewReadyPoolHygiene: (opts?: {
+    limit?: number;
+    dryRun?: boolean;
+    healPending?: boolean;
+    archiveMissing?: boolean;
+    packStatus?: string;
+  }) => {
+    const q = new URLSearchParams({
+      limit: String(opts?.limit ?? 500),
+      dry_run: opts?.dryRun === false ? "false" : "true",
+      heal_pending: opts?.healPending === false ? "false" : "true",
+      archive_missing: opts?.archiveMissing === false ? "false" : "true",
+      pack_status: opts?.packStatus ?? "all",
+    });
+    return request<{
+      ok: boolean;
+      dry_run?: boolean;
+      scanned?: number;
+      archived_missing?: number;
+      would_archive_missing?: number;
+      healed_pack?: number;
+      would_heal_pack?: number;
+      heal_failed?: number;
+      volume_offline?: number;
+      present_ok?: number;
+      items?: Array<Record<string, unknown>>;
+      deferred_offline?: Array<Record<string, unknown>>;
+      errors?: Array<{ output_id: number; error: string }>;
+      limit?: number;
+    }>(`/review/ready-pool-hygiene?${q.toString()}`, { method: "POST" });
+  },
   reviewReconcileGateOne: (id: number) =>
     request<{
       ok: boolean;

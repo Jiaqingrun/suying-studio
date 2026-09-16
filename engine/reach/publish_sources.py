@@ -234,7 +234,10 @@ def _output_spec(out: RenderOutput) -> dict[str, Any] | None:
     pack_dir = Path(out.pack_dir)
     if not pack_dir.is_dir():
         return None
-    out_path = Path(str(out.output_path))
+    out_path = Path(str(out.output_path or ""))
+    # PL-04: never surface ready-pool candidates whose media is missing/offline.
+    if not out_path.is_file():
+        return None
     return {
         "output_id": out.id,
         "video_path": out.output_path,

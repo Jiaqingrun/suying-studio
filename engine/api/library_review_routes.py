@@ -1252,6 +1252,81 @@ def review_reconcile_gate_batch(
         session.close()
 
 
+@router.post("/review/archive-missing")
+def review_archive_missing_batch(
+    limit: int = 500,
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    """PL-03: dry-run/apply archive for uncertain rows with confirmed-missing media."""
+    from engine.catalog.review_auto import (
+        HYGIENE_LIMIT_DEFAULT,
+        HYGIENE_LIMIT_MAX,
+        batch_archive_missing_uncertain,
+    )
+
+    settings = load_settings()
+    session = get_session()
+    try:
+        _, customer, _ = active_scope(session, settings)
+        return batch_archive_missing_uncertain(
+            session,
+            customer,
+            limit=min(
+                max(1, int(limit or HYGIENE_LIMIT_DEFAULT)),
+                HYGIENE_LIMIT_MAX,
+            ),
+            dry_run=bool(dry_run),
+        )
+    finally:
+        session.close()
+
+
+@router.post("/review/ready-pool-hygiene")
+def review_ready_pool_hygiene(
+    limit: int = 500,
+    dry_run: bool = True,
+    heal_pending: bool = True,
+    archive_missing: bool = True,
+    pack_status: str = "all",
+) -> dict[str, Any]:
+    """PL-04: archive dead ready(+pending) media / heal pending packs when on disk."""
+    from engine.catalog.review_auto import (
+        HYGIENE_LIMIT_DEFAULT,
+        HYGIENE_LIMIT_MAX,
+        batch_hygiene_ready_pool,
+    )
+
+    pack_filter: str | None
+    raw = str(pack_status or "pending").strip().lower()
+    if raw in {"", "all", "*"}:
+        pack_filter = None
+    elif raw == "pending":
+        pack_filter = "pending"
+    elif raw in {"ready", "failed", "asset_blocked"}:
+        pack_filter = raw
+    else:
+        raise HTTPException(400, "pack_status must be pending/all/ready/failed")
+
+    settings = load_settings()
+    session = get_session()
+    try:
+        _, customer, _ = active_scope(session, settings)
+        return batch_hygiene_ready_pool(
+            session,
+            customer,
+            limit=min(
+                max(1, int(limit or HYGIENE_LIMIT_DEFAULT)),
+                HYGIENE_LIMIT_MAX,
+            ),
+            dry_run=bool(dry_run),
+            heal_pending=bool(heal_pending),
+            archive_missing=bool(archive_missing),
+            pack_status=pack_filter,
+        )
+    finally:
+        session.close()
+
+
 @router.post("/review/{output_id}/reconcile-gate")
 def review_reconcile_gate_one(output_id: int) -> dict[str, Any]:
     from engine.catalog.review_auto import reconcile_ready_gate_output

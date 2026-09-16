@@ -41,10 +41,11 @@ export interface ReviewPageProps {
   readyOutputs: Array<Record<string, unknown>>;
   cinemaMode: boolean;
   setCinemaMode: Dispatch<SetStateAction<boolean>>;
-  reviewFilter: "all" | "missing_voice" | "missing_sub" | "tts_bad";
-  setReviewFilter: (v: "all" | "missing_voice" | "missing_sub" | "tts_bad") => void;
+  reviewFilter: "all" | "missing_voice" | "missing_sub" | "tts_bad" | "missing_media";
+  setReviewFilter: (v: "all" | "missing_voice" | "missing_sub" | "tts_bad" | "missing_media") => void;
   missingVoiceCount: number;
   ttsBadCount: number;
+  missingMediaCount: number;
   batchBusy: boolean;
   setBatchBusy: (v: boolean) => void;
   notify: NotifyFn;
@@ -74,6 +75,7 @@ export function ReviewPage({
   setReviewFilter,
   missingVoiceCount,
   ttsBadCount,
+  missingMediaCount,
   batchBusy,
   setBatchBusy,
   notify,
@@ -201,6 +203,44 @@ export function ReviewPage({
     }
   }
 
+
+  async function runArchiveMissing() {
+    if (batchBusy) return;
+    setBatchBusy(true);
+    try {
+      const preview = await api.reviewArchiveMissing({ limit: 500, dryRun: true });
+      const n = Number(preview.would_archive_missing ?? 0);
+      const offline = Number(preview.volume_offline ?? 0);
+      if (n <= 0) {
+        notify(
+          offline
+            ? `无可归档缺文件（暂缓离线卷 ${offline}）`
+            : "无可归档缺文件",
+          "warn",
+        );
+        return;
+      }
+      const ok = window.confirm(
+        `将归档 ${n} 条缺文件待审成片（不会标为通过）。\n离线卷暂缓 ${offline} 条。\n确认执行？`,
+      );
+      if (!ok) {
+        notify(`已取消（dry-run 可见 ${n} 条）`, "warn");
+        return;
+      }
+      const r = await api.reviewArchiveMissing({ limit: 500, dryRun: false });
+      notify(
+        `缺文件归档：已处理 ${r.archived_missing ?? 0} · 暂缓离线卷 ${r.volume_offline ?? 0}`,
+        (r.archived_missing ?? 0) > 0 ? "ok" : "warn",
+      );
+      await refreshAll();
+      setMediaEpoch((x) => x + 1);
+    } catch (e) {
+      notify(String(e), "err");
+    } finally {
+      setBatchBusy(false);
+    }
+  }
+
   async function runAutoBackfill() {
     if (batchBusy) return;
     setBatchBusy(true);
@@ -307,7 +347,7 @@ export function ReviewPage({
       />
       <p className="hint">
         出片门禁明确通过的成片会强制自动通过，不进本页待人工列表；可在下方「决策历史」或「日志 → 质检门禁」查看「审片自动通过」。
-        无门禁证据的旧片请先「重验门禁」；文件丢失或确认弃用请「归档出队」（不会绕过出片门禁标为通过）。
+        无门禁证据的旧片请先「重验门禁」；文件丢失请用「归档缺文件」或单条「归档出队」（不会绕过出片门禁标为通过）。默认列表只显示可核验成片。
         一键审核通过仍不能绕过出片门禁；可勾选跳过无旁白/无烧录字幕/音色违规成片。
         快捷键：J/K 上下、A 通过（仅门禁已过）、R 重渲、F 影院。
       </p>
@@ -320,6 +360,15 @@ export function ReviewPage({
           title="对最多 50 条待人工成片重新跑出片门禁；通过则自动过审；缺文件默认归档出队"
         >
           {batchBusy ? "处理中…" : "重验门禁并收口"}
+        </button>
+        <button
+          type="button"
+          className={batchBusy ? "is-busy" : undefined}
+          disabled={batchBusy || missingMediaCount === 0}
+          onClick={() => void runArchiveMissing()}
+          title="先 dry-run 再确认：批量归档已确认缺失的待审成片；离线卷路径不会误归档"
+        >
+          归档缺文件
         </button>
         <button
           type="button"
@@ -405,10 +454,11 @@ export function ReviewPage({
           <select
             value={reviewFilter}
             onChange={(e) =>
-              setReviewFilter(e.target.value as "all" | "missing_voice" | "missing_sub" | "tts_bad")
+              setReviewFilter(e.target.value as "all" | "missing_voice" | "missing_sub" | "tts_bad" | "missing_media")
             }
           >
-            <option value="all">全部待人工</option>
+            <option value="all">可核验待人工（默认藏缺文件）</option>
+            <option value="missing_media">仅缺文件（{missingMediaCount}）</option>
             <option value="missing_voice">仅无旁白（{missingVoiceCount}）</option>
             <option value="missing_sub">仅无烧录字幕</option>
             <option value="tts_bad">音色违规 say（{ttsBadCount}）</option>
