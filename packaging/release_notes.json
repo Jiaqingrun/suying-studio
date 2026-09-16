@@ -1017,13 +1017,12 @@
       ]
     },
     "0.8.44": {
-      "title": "V-08 端口健康复活 + G1C 已付 voice 复用",
-      "summary": "LaunchAgent attach 环验 LISTEN+/readiness，僵尸态 process_no_listen 优先 kickstart；同 job 失败重试用 stamp 复用已付 TTS 工件（跟镜除外）。不放松 READY_GATE/PL-21，不伤入场发布消息。",
+      "title": "V-08/G1C + 合规默认（合体）",
+      "summary": "端口健康复活与 G1C 已付 voice 复用；并含已合 main 的合规默认（LICENSE/关于/Edge·F5/AI 可选默认关/隐私稿/PL-07 温和）。重打一体包覆盖先前仅合规核的 0.8.42 T2S 包。",
       "highlights": [
-        "scripts/install-engine-agent.sh：H1 健康 attach + 僵尸 engine.main TERM（不杀 ffmpeg）",
-        "check-engine-supervisor：zombie_listener；Rust running 不以无听 pid 报绿",
-        "App heal / engine_start：!listen 或 process_no_listen → kickstart agent",
-        "G1C voice_artifact：stamp 命中跳过 Edge；ready 成功后清缓存"
+        "V-08：端口健康复活；G1C paid voice reuse",
+        "合规：LICENSE 占位、设置→关于、Edge/F5 NC、AI 标识默认关、PRIVACY/OPS 白名单",
+        "词包/L17 不动；PL-07 localhost 旁路收紧待真人确认"
       ]
     }
   }
