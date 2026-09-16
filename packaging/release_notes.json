@@ -985,6 +985,16 @@
         "SCHEMA_METADATA.recommended_content_categories 含 store_culture",
         "engine_status：process_no_listen 区分僵尸进程与纯未监听"
       ]
+    },
+    "0.8.41": {
+      "title": "V-02 · align 预检 + 尾句 tighten 锚定",
+      "summary": "PL-13：尾句 cue 越过 VO 床时 tighten 不再压出 end≤start；render 前 preflight_align_gate 与 READY G.ALIGN 同源 _check_align，align 失败早退 align_preflight、不烧 ffmpeg。不放松 READY_GATE / PL-21 阈值。",
+      "highlights": [
+        "tighten_srt_to_voiceover：start>=vo_cap 回锚末 speech span；vo_cap 二次收束",
+        "preflight_align_gate 包装 _check_align（max_overhang=0.08 不变）",
+        "worker：TTS 后、render 槽前 align_preflight fail-fast",
+        "单测 test_align_preflight_v02 + test_align_homology 回归"
+      ]
     }
   }
 }
