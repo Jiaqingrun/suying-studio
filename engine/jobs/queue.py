@@ -45,6 +45,8 @@ class CreateJobRequest(BaseModel):
     topic_intent: TopicIntentRequest | None = None
     # When true, pause other queued jobs for this customer so this one starts next.
     rush: bool = False
+    # V-03: keep requested template_name; skip rule preference / pace remaps.
+    force_template: bool = False
 
 
 def ensure_default_template(session: Session) -> None:
@@ -152,6 +154,7 @@ def create_job(session: Session, req: CreateJobRequest, *, customer_id: int | No
         template_name=req.template_name,
         strict_semantic_v1=req.strict_semantic_v1 or req.topic_intent is not None,
         rules=eff_rules,
+        force_template=bool(req.force_template),
     )
     tpl_name = resolved["template_name"]
     theme = resolved["theme"]
@@ -194,6 +197,8 @@ def create_job(session: Session, req: CreateJobRequest, *, customer_id: int | No
             "content_category": content_category,
             "asset_category": asset_category or None,
             "template_name": tpl_name,
+            "requested_template_name": req.template_name,
+            "force_template": bool(req.force_template),
             "sources": resolved["sources"],
             "rejected": resolved["rejected"],
             "clamped": resolved["clamped"],

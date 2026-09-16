@@ -64,6 +64,7 @@ class DryRunRequest(BaseModel):
     use_active_rule: bool = True
     rule_rotation: bool | None = None
     topic_intent: TopicIntentRequest | None = None
+    force_template: bool = False
 
 
 def _watcher():
@@ -668,11 +669,12 @@ def dry_run(body: DryRunRequest) -> dict[str, Any]:
             template_name=body.template_name or "default-vertical",
             strict_semantic_v1=want_strict,
             rules=eff_rules,
+            force_template=bool(body.force_template),
         )
         tpl_name = resolved["template_name"]
         theme = resolved["theme"]
         category = content_category
-        if tpl_name == "default-vertical":
+        if not body.force_template and tpl_name == "default-vertical":
             mapped = template_for_theme(theme, pack_id=pack_id)
             if mapped != tpl_name:
                 tpl_name = mapped
@@ -731,6 +733,8 @@ def dry_run(body: DryRunRequest) -> dict[str, Any]:
                 "content_category": content_category,
                 "asset_category": asset_category,
                 "template_name": tpl_name,
+                "requested_template_name": body.template_name or "default-vertical",
+                "force_template": bool(body.force_template),
                 "orientation": body.orientation,
                 "strict_semantic_v1": resolved["strict_semantic_v1"],
                 "sources": resolved["sources"],

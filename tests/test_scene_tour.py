@@ -260,6 +260,7 @@ class SceneTourSchemaTests(unittest.TestCase):
 
         cats = SCHEMA_METADATA.get("recommended_content_categories") or []
         self.assertIn("scene_tour", cats)
+        self.assertIn("store_culture", cats)
 
 
 class SceneTourRecipeTests(unittest.TestCase):

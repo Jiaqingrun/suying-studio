@@ -17,6 +17,9 @@ import {
   pipelinePhaseLabel,
   productionThemeLabel,
   PRODUCTION_CATEGORY_OPTIONS,
+  PRODUCTION_TEMPLATE_OPTIONS,
+  ruleWouldOverrideTemplate,
+  templatePreferenceLabel,
   topicModeLabel,
 } from "../sceneTourLabels";
 import type { ProduceWorkspace, SemanticBackfillStatus, Tab } from "../types";
@@ -42,6 +45,10 @@ export interface ProductionPageProps {
   setCategory: (v: string) => void;
   assetCategory: string;
   setAssetCategory: (v: string) => void;
+  templateName: string;
+  setTemplateName: (v: string) => void;
+  forceTemplate: boolean;
+  setForceTemplate: (v: boolean) => void;
   topicMode: string;
   setTopicMode: (v: string) => void;
   topicClusterIds: string;
@@ -76,6 +83,7 @@ export interface ProductionPageProps {
   jobRuleProfileId: number | null;
   setJobRuleProfileId: (id: number | null) => void;
   activeRuleSummary: string;
+  activeRuleTemplatePreference?: string;
   ruleRotation: boolean;
   onRuleRotationChange: (enabled: boolean) => void;
   rotationPoolCount: number;
@@ -177,6 +185,10 @@ export function ProductionPage({
   setCategory,
   assetCategory,
   setAssetCategory,
+  templateName,
+  setTemplateName,
+  forceTemplate,
+  setForceTemplate,
   topicMode,
   setTopicMode,
   topicClusterIds,
@@ -210,6 +222,7 @@ export function ProductionPage({
   assets,
   setJobRuleProfileId,
   activeRuleSummary,
+  activeRuleTemplatePreference = "",
   ruleRotation,
   onRuleRotationChange,
   rotationPoolCount,
@@ -333,6 +346,11 @@ export function ProductionPage({
   }
 
   const hasActiveRule = activeRuleSummary !== "未启用";
+  const templateOverridePending = ruleWouldOverrideTemplate(
+    templateName,
+    activeRuleTemplatePreference,
+    forceTemplate,
+  );
   const canUseRotationPool = ruleRotation && rotationPoolCount > 0;
   const canProduce = hasActiveRule || canUseRotationPool;
   const rotationHint = ruleRotation
@@ -634,6 +652,37 @@ export function ProductionPage({
                 value={targetCount}
                 onChange={(e) => setTargetCount(Number(e.target.value))}
               />
+            </label>
+            <label>
+              节奏模板
+              <select
+                value={templateName || "default-vertical"}
+                onChange={(e) => setTemplateName(e.target.value)}
+              >
+                {PRODUCTION_TEMPLATE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <span className="hint" style={{ display: "block", marginTop: 4 }}>
+                {forceTemplate
+                  ? "已强制使用所选模板，忽略规则偏好与节奏映射"
+                  : templateOverridePending && activeRuleTemplatePreference
+                    ? `未勾选强制时，启用规则可能改为 ${templatePreferenceLabel(activeRuleTemplatePreference)}`
+                    : templateName === "default-vertical"
+                      ? "选「竖屏默认」时，规则可指定 template_preference 或快发节奏"
+                      : "非默认模板通常按所选节奏执行"}
+              </span>
+            </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={forceTemplate}
+                disabled={Boolean(actionBusy)}
+                onChange={(e) => setForceTemplate(e.target.checked)}
+              />
+              强制模板（忽略规则偏好）
             </label>
             <label>
               启用规则（规则实验室）

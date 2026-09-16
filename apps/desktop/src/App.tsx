@@ -363,6 +363,7 @@ function App() {
   const [activeCustomerId, setActiveCustomerId] = useState<number | null>(null);
   const [jobRuleProfileId, setJobRuleProfileId] = useState<number | null>(null);
   const [activeRuleSummary, setActiveRuleSummary] = useState("");
+  const [activeRuleTemplatePreference, setActiveRuleTemplatePreference] = useState("");
   const [ruleRotation, setRuleRotation] = useState(true);
   const [rotationPoolCount, setRotationPoolCount] = useState(0);
   const [ruleOptions, setRuleOptions] = useState<
@@ -375,6 +376,8 @@ function App() {
   const [theme, setTheme] = useState("default");
   const [category, setCategory] = useState("default");
   const [assetCategory, setAssetCategory] = useState("");
+  const [templateName, setTemplateName] = useState("default-vertical");
+  const [forceTemplate, setForceTemplate] = useState(false);
   const [topicMode, setTopicMode] = useState("");
   const [topicClusterIds, setTopicClusterIds] = useState("");
   const [topicEvidenceIds, setTopicEvidenceIds] = useState("");
@@ -1034,6 +1037,7 @@ function App() {
           // Stale response after customer switch — keep current tenant cards empty rather than leak.
           setRuleOptions([]);
           setActiveRuleSummary("未启用");
+          setActiveRuleTemplatePreference("");
           setRuleRotation(true);
           setRotationPoolCount(0);
         } else {
@@ -1057,9 +1061,13 @@ function App() {
           const orientLabel =
             productionOrientation === "landscape" ? "横屏" : "竖屏";
           const cat = String(active?.content_category || category || "default");
+          const eff = (active?.effective_rules as Record<string, unknown> | undefined) || {};
+          const tplPref = String(eff.template_preference || "").trim();
+          setActiveRuleTemplatePreference(tplPref);
+          const tplHint = tplPref ? ` · 规则模板偏好 ${tplPref}` : "";
           setActiveRuleSummary(
             active
-              ? `${String(active.name)} · r${Number(active.revision || 1)} · ${orientLabel} · ${cat}`
+              ? `${String(active.name)} · r${Number(active.revision || 1)} · ${orientLabel} · ${cat}${tplHint}`
               : "未启用",
           );
           setRuleRotation(pr.rotation_policy !== false);
@@ -1068,6 +1076,7 @@ function App() {
       } catch {
         setRuleOptions([]);
         setActiveRuleSummary("未启用");
+        setActiveRuleTemplatePreference("");
         setRuleRotation(true);
         setRotationPoolCount(0);
       }
@@ -1884,6 +1893,8 @@ function App() {
         theme,
         content_category: category,
         category,
+        template_name: templateName,
+        force_template: forceTemplate,
         orientation: productionOrientation,
         use_active_rule: true,
         rule_rotation: ruleRotation,
@@ -1925,6 +1936,8 @@ function App() {
         theme,
         content_category: category,
         category,
+        template_name: templateName,
+        force_template: forceTemplate,
         orientation: productionOrientation,
         use_active_rule: true,
         rush,
@@ -3261,6 +3274,10 @@ function App() {
             setCategory={setCategory}
             assetCategory={assetCategory}
             setAssetCategory={setAssetCategory}
+            templateName={templateName}
+            setTemplateName={setTemplateName}
+            forceTemplate={forceTemplate}
+            setForceTemplate={setForceTemplate}
             topicMode={topicMode}
             setTopicMode={setTopicMode}
             topicClusterIds={topicClusterIds}
@@ -3295,6 +3312,7 @@ function App() {
             jobRuleProfileId={jobRuleProfileId}
             setJobRuleProfileId={setJobRuleProfileId}
             activeRuleSummary={activeRuleSummary}
+            activeRuleTemplatePreference={activeRuleTemplatePreference}
             ruleRotation={ruleRotation}
             onRuleRotationChange={(enabled) => {
               const prev = ruleRotation;

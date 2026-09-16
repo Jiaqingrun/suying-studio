@@ -33,6 +33,29 @@ export const TEMPLATE_PREFERENCE_LABELS: Record<string, string> = {
   "stable-product": "稳态产品",
 };
 
+export const PRODUCTION_TEMPLATE_OPTIONS = Object.entries(TEMPLATE_PREFERENCE_LABELS).map(
+  ([value, label]) => ({ value, label }),
+);
+
+export function templatePreferenceLabel(name: string | null | undefined): string {
+  const k = (name ?? "").trim();
+  if (!k) return "—";
+  return TEMPLATE_PREFERENCE_LABELS[k] ?? k;
+}
+
+/** When rule template_preference would override the selected rhythm template. */
+export function ruleWouldOverrideTemplate(
+  templateName: string,
+  ruleTemplatePreference: string | null | undefined,
+  forceTemplate: boolean,
+): boolean {
+  if (forceTemplate) return false;
+  const pref = (ruleTemplatePreference ?? "").trim();
+  if (!pref) return false;
+  const tpl = (templateName || "default-vertical").trim() || "default-vertical";
+  return tpl === "default-vertical" || tpl !== pref;
+}
+
 export const TOPIC_MODE_LABELS: Record<string, string> = {
   "": "普通生产",
   single_product: "单品专题",

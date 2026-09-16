@@ -117,6 +117,25 @@ def test_resolve_job_inputs_and_template_pace():
     assert abs(float(tpl.target_duration) - 25.0) < 0.01
 
 
+def test_resolve_job_inputs_force_template_skips_rule_preference():
+    resolved = resolve_job_inputs(
+        template_name="default-vertical",
+        rules={"template_preference": "stable-product", "pace": "fast"},
+        force_template=True,
+    )
+    assert resolved["template_name"] == "default-vertical"
+    assert resolved["sources"]["template_name"] == "task_forced"
+    assert resolved["force_template"] is True
+
+
+def test_recommended_content_categories_include_store_culture():
+    from engine.template.rule_schema import SCHEMA_METADATA
+
+    cats = SCHEMA_METADATA.get("recommended_content_categories") or []
+    assert "store_culture" in cats
+    assert "scene_tour" in cats
+
+
 def test_strict_semantic_cannot_be_turned_off_by_rule():
     report = validate_and_clamp(
         {"strict_semantic_v1": False},
@@ -635,6 +654,7 @@ def test_grulelabopt_api_schema_and_cross_category_copy(tmp_path: Path, monkeypa
     assert body["orientation_defaults"]["portrait"]["title_font_size"] == 92
     assert "default" in body.get("recommended_content_categories", [])
     assert "premium" in body.get("recommended_content_categories", [])
+    assert "store_culture" in body.get("recommended_content_categories", [])
 
     created = client.post(
         "/production-rules",

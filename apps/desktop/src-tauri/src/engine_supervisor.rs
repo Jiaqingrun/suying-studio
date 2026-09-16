@@ -158,6 +158,7 @@ pub fn classify(
     health_ok: bool,
     business_ready: bool,
     readiness_msg: &str,
+    engine_pid_alive: bool,
 ) -> (String, String) {
     if business_ready {
         return ("ok".into(), String::new());
@@ -177,6 +178,12 @@ pub fn classify(
         );
     }
     if !listen {
+        if engine_pid_alive {
+            return (
+                "process_no_listen".into(),
+                "引擎进程仍在但 8766 未监听；请 kickstart agent 或查 engine.log / engine-agent.err.log".into(),
+            );
+        }
         if !agent_plist_exists() {
             return (
                 "no_agent".into(),
@@ -209,8 +216,10 @@ pub fn snapshot(engine_log: &std::path::Path) -> SupervisorSnapshot {
     } else {
         "无法读取 /readiness".to_string()
     };
+    let engine_pid_alive = crate::listener_pid_on_port(ENGINE_PORT).is_none()
+        && crate::engine_pid_alive_without_listen();
     let (offline_class, offline_detail) =
-        classify(listen, health_ok, business_ready, &readiness_msg);
+        classify(listen, health_ok, business_ready, &readiness_msg, engine_pid_alive);
     SupervisorSnapshot {
         agent_label: AGENT_LABEL.into(),
         agent_plist_exists: agent_plist_exists(),

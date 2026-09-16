@@ -25,8 +25,14 @@ SCHEMA_METADATA: dict[str, Any] = {
     "lifecycle": ["draft", "approved", "archived"],
     "physical_delete": "unapproved_unactivated_unreferenced_draft_only",
     "job_snapshot": "immutable",
-    # GRuleLabOpt: recommended category keys (free-form still allowed)
-    "recommended_content_categories": ["default", "premium", "scene_tour"],
+    # GRuleLabOpt: recommended category keys (free-form still allowed).
+    # Keep in sync with RULE_CONTENT_CATEGORIES / App CONTENT_CATEGORY_LABELS (四槽).
+    "recommended_content_categories": [
+        "default",
+        "premium",
+        "scene_tour",
+        "store_culture",
+    ],
 }
 
 # Safe ranges + glyph defaults per orientation (must match normalize_requested_rules).
@@ -1410,8 +1416,13 @@ def resolve_job_inputs(
     template_name: str = "default-vertical",
     strict_semantic_v1: bool = False,
     rules: dict[str, Any] | None = None,
+    force_template: bool = False,
 ) -> dict[str, Any]:
-    """Merge task overrides with effective customer rules."""
+    """Merge task overrides with effective customer rules.
+
+    When ``force_template`` is True, keep the requested ``template_name`` and skip
+    rule ``template_preference`` / pace / product-pace-guard remaps (V-03).
+    """
     report = validate_and_clamp(rules, job_strict_semantic=strict_semantic_v1)
     eff = report["effective_rules"]
 
@@ -1431,25 +1442,29 @@ def resolve_job_inputs(
     if out_category in {"", "default"} and eff.get("category"):
         out_category = str(eff["category"])
         sources["category"] = "rule"
-    if out_tpl == "default-vertical" and eff.get("template_preference"):
-        out_tpl = str(eff["template_preference"])
-        sources["template_name"] = "rule"
-    elif out_tpl == "default-vertical" and eff.get("pace") == "fast":
-        out_tpl = "fast-ship"
-        sources["template_name"] = "rule_pace"
 
-    # Product-first semantic prefs + fast-ship is a known mismatch: VO can't keep up
-    # with ~2s cuts and titles drift to 装车. Prefer stable-product holds.
-    prefer = [str(x).lower() for x in (eff.get("prefer_semantic_labels") or []) if str(x).strip()]
-    productish = sum(1 for p in prefer if "product" in p or p in {"closeup", "sku", "shelf"})
-    loadingish = sum(
-        1
-        for p in prefer
-        if any(k in p for k in ("load", "deliver", "warehouse", "truck", "shipping", "装", "仓", "配"))
-    )
-    if out_tpl == "fast-ship" and productish >= 1 and productish >= loadingish:
-        out_tpl = "stable-product"
-        sources["template_name"] = "rule_product_pace_guard"
+    if force_template:
+        sources["template_name"] = "task_forced"
+    else:
+        if out_tpl == "default-vertical" and eff.get("template_preference"):
+            out_tpl = str(eff["template_preference"])
+            sources["template_name"] = "rule"
+        elif out_tpl == "default-vertical" and eff.get("pace") == "fast":
+            out_tpl = "fast-ship"
+            sources["template_name"] = "rule_pace"
+
+        # Product-first semantic prefs + fast-ship is a known mismatch: VO can't keep up
+        # with ~2s cuts and titles drift to 装车. Prefer stable-product holds.
+        prefer = [str(x).lower() for x in (eff.get("prefer_semantic_labels") or []) if str(x).strip()]
+        productish = sum(1 for p in prefer if "product" in p or p in {"closeup", "sku", "shelf"})
+        loadingish = sum(
+            1
+            for p in prefer
+            if any(k in p for k in ("load", "deliver", "warehouse", "truck", "shipping", "装", "仓", "配"))
+        )
+        if out_tpl == "fast-ship" and productish >= 1 and productish >= loadingish:
+            out_tpl = "stable-product"
+            sources["template_name"] = "rule_product_pace_guard"
 
     out_strict = bool(strict_semantic_v1) or bool(eff.get("strict_semantic_v1"))
     if out_strict and not strict_semantic_v1:
@@ -1466,6 +1481,7 @@ def resolve_job_inputs(
         "template_name": out_tpl,
         "strict_semantic_v1": out_strict,
         "content_facet": facet,
+        "force_template": bool(force_template),
         "sources": sources,
     }
 

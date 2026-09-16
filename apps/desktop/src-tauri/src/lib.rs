@@ -149,6 +149,24 @@ pub(crate) fn listener_pid_on_port(port: u16) -> Option<u32> {
     txt.parse().ok()
 }
 
+/// V-08: engine process may outlive its TCP bind (8766 LISTEN gone, pid still alive).
+pub(crate) fn engine_pid_alive_without_listen() -> bool {
+    if listener_pid_on_port(ENGINE_PORT).is_some() {
+        return false;
+    }
+    let Ok(txt) = fs::read_to_string(pid_file()) else {
+        return false;
+    };
+    let Ok(pid) = txt.trim().parse::<u32>() else {
+        return false;
+    };
+    Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 fn process_command_line(pid: u32) -> Option<String> {
     let pid_s = pid.to_string();
     let out = Command::new("ps")
@@ -355,8 +373,14 @@ fn status_inner(state: &Mutex<EngineState>, message: Option<String>) -> EngineSt
     } else {
         "无法读取 /readiness".to_string()
     };
-    let (offline_class, offline_detail) =
-        engine_supervisor::classify(listen, reachable, business_ready, &readiness_msg);
+    let engine_pid_alive = !listen && engine_pid_alive_without_listen();
+    let (offline_class, offline_detail) = engine_supervisor::classify(
+        listen,
+        reachable,
+        business_ready,
+        &readiness_msg,
+        engine_pid_alive,
+    );
     let mut st = state.lock().unwrap();
     let mut pid = None;
     if let Some(child) = st.child.as_mut() {
