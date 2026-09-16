@@ -15,6 +15,8 @@ class CreatorShellLoginProbeSourceTests(unittest.TestCase):
             "douyinShell",
             "kuaishouShell",
             "xhsShell",
+            "channelsHost",
+            "视频号助手",
             "creator-micro",
             "xiaohongshu",
             "shellKind",

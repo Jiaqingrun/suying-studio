@@ -2278,18 +2278,22 @@ def _probe_login_ready_across_frames(sess: Any) -> dict[str, Any]:
         if (style.display === 'none' || style.visibility === 'hidden') return false;
         return /暂时无法使用该功能/.test(el.innerText || '');
       });
+      // channels wujie uses contenteditable="" (empty), NOT contenteditable="true".
       const form = /短标题|视频描述|添加描述|上传时长|发表动态|作品描述|设置封面|发布笔记|上传视频|选择视频|从手机上传|拖拽视频|立即发表|定时发表|原创声明/.test(t)
         || !!document.querySelector(
-          'input[type=file], .input-editor, [data-placeholder=\"添加描述\"], [contenteditable=\"true\"], textarea'
+          'input[type=file], .input-editor, [data-placeholder=\"添加描述\"], [contenteditable], textarea'
         );
       const avatar = Array.from(document.images || []).some(
         (img) => /finderhead|qlogo\\.cn|avatar|aweme|douyin|xhscdn|kuaishou/i.test(String(img.src || ''))
       );
-      // channels: shell SPA; other creators: home/dashboard without upload form still means logged-in.
-      const channelsShell = /channels\\.weixin\\.qq\\.com\\/(platform|micro)\\//.test(u)
-        && (avatar
-            || /finder-page|MicroPost|side-bar|视频号\\s*[·.]\\s*助手/.test(html)
-            || /\\/platform\\//.test(u));
+      // channels: shell SPA; root entry (channels.weixin.qq.com/) with 视频号助手
+      // title also means logged-in — /platform|/micro not always present yet.
+      const channelsHost = /channels\\.weixin\\.qq\\.com\\//.test(u) && !/\\/login/.test(u);
+      const channelsShell = channelsHost
+        && ( /\\/(platform|micro)\\//.test(u)
+            || avatar
+            || /finder-page|MicroPost|side-bar|视频号\\s*[·.]\\s*助手|视频号助手/.test(html + (document.title||'') + t)
+          );
       const douyinShell = /creator\\.douyin\\.com\\//.test(u)
         && !/\\/login|passport|sso/i.test(u)
         && (avatar

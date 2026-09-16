@@ -1045,6 +1045,17 @@
         "即时发布 upload_cover 默认 false，与 publish_confirm_upload_cover 对齐",
         "封面确认开关默认关（继承 0.8.45）"
       ]
+    },
+    "0.8.47": {
+      "title": "四平台真发收尾：封面跳过勿清草稿 + 登录探针",
+      "summary": "修复封面 opt-in 跳过后误走 dismiss 清空快手草稿；视频号根页/助手标题识别为已登录；channels 表单探针兼容 contenteditable=\"\"。默认仍不传封面。不降 READY_GATE/旁白/画质；消息与 L17/词包不动。",
+      "highlights": [
+        "封面 skipped 视为可接受：不再 _dismiss_cover_ui（避免快手点到「放弃」）",
+        "预发文案回读失败时补填快手/抖音",
+        "登录探针：channels.weixin.qq.com/ + 视频号助手 → shellLoggedIn",
+        "表单探针：contenteditable=\"\"（视频号 wujie）计为 form",
+        "快手填写改用 omAll 穿透文档"
+      ]
     }
   }
 }

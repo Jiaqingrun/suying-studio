@@ -137,6 +137,13 @@ class CoverUploadOptInTests(unittest.TestCase):
         self.assertEqual(r["reason"], "cover_upload_not_confirmed")
         self.assertEqual(r["covers"], [])
 
+    def test_skipped_cover_is_acceptable(self) -> None:
+        from engine.reach.cdp_publish import _covers_acceptable
+
+        skipped = _skipped_cover_result(reason="cover_upload_not_confirmed")
+        self.assertTrue(_covers_acceptable(None, skipped, "kuaishou"))
+        self.assertTrue(_covers_acceptable(None, skipped, "douyin"))
+
 
 if __name__ == "__main__":
     unittest.main()

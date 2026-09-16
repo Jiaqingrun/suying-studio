@@ -746,10 +746,11 @@ def _fill_kuaishou_copy(sess: CdpSession, title: str, body: str) -> dict[str, An
     body = ensure_ai_generated_disclosure(body)
     js = f"""
     (() => {{
+      {_OM_DOCS}
       const title = {json.dumps(title, ensure_ascii=False)};
       const body = {json.dumps(body, ensure_ascii=False)};
       let titleOk=false, bodyOk=false;
-      const inputs = Array.from(document.querySelectorAll('input,textarea'));
+      const inputs = omAll('input,textarea');
       for (const input of inputs) {{
         const ph = (input.getAttribute('placeholder')||'');
         if (/标题|作品/.test(ph)) {{
@@ -762,7 +763,7 @@ def _fill_kuaishou_copy(sess: CdpSession, title: str, body: str) -> dict[str, An
           break;
         }}
       }}
-      const eds = Array.from(document.querySelectorAll('[contenteditable="true"],textarea'));
+      const eds = omAll('[contenteditable="true"],textarea');
       for (const ed of eds) {{
         const ph = (ed.getAttribute('placeholder')||'') + (ed.getAttribute('data-placeholder')||'');
         if (/描述|正文|说点什么|添加/.test(ph) || ed.getAttribute('contenteditable')==='true') {{
@@ -1219,7 +1220,13 @@ def _click_reupload(sess: CdpSession) -> str:
 
 
 def _covers_acceptable(sess: CdpSession, cover_r: dict[str, Any], plat: str) -> bool:
-    """Require App/template covers actually injected. No soft-pass on preview-only."""
+    """Require App/template covers actually injected. No soft-pass on preview-only.
+
+    Intentionally skipped covers (opt-in off / no files) are acceptable — do not
+    treat them as cover failures that need modal dismiss (which can wipe drafts).
+    """
+    if cover_r.get("skipped"):
+        return True
     if not cover_r.get("ok"):
         return False
     covers = cover_r.get("covers") or []
@@ -4609,16 +4616,19 @@ def publish_via_cdp(
                 cover_note = "封面未设/已跳过，已放行发布（使用平台默认封面）"
             else:
                 cover_note = "封面核验未通过，已放行并用平台默认封面继续发布"
-            try:
-                _dismiss_cover_ui(sess)
-            except Exception:
-                pass
-            try:
-                _dismiss_publisher_popups(sess)
-                if plat == "xhs":
-                    _clear_xhs_overlays(sess)
-            except Exception:
-                pass
+            # Never open cover UI when we intentionally skipped upload; Escape/取消
+            # on 快手 can hit「放弃」and wipe the draft back to the upload splash.
+            if not cover_r.get("skipped"):
+                try:
+                    _dismiss_cover_ui(sess)
+                except Exception:
+                    pass
+                try:
+                    _dismiss_publisher_popups(sess)
+                    if plat == "xhs":
+                        _clear_xhs_overlays(sess)
+                except Exception:
+                    pass
 
         # XHS: publish stays disabled while video still failed — one more reupload pass
         if plat == "xhs" and click_publish:
@@ -4681,6 +4691,10 @@ def publish_via_cdp(
                 if plat == "channels":
                     fill = _fill_channels_copy(sess, assets["title"], assets["body"])
                 elif plat == "xhs":
+                    fill = _fill_xhs_copy(sess, assets["title"], assets["body"])
+                elif plat == "kuaishou":
+                    fill = _fill_kuaishou_copy(sess, assets["title"], assets["body"])
+                elif plat == "douyin":
                     fill = _fill_xhs_copy(sess, assets["title"], assets["body"])
                 time.sleep(0.3)
                 verify2 = _verify_copy(sess, platform=plat)
