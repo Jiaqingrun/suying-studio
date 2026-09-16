@@ -344,13 +344,14 @@ struct EngineStatus {
 
 fn status_inner(state: &Mutex<EngineState>, message: Option<String>) -> EngineStatus {
     // Control-plane + business-ready from one /readiness (kickstart-aligned; avoid /health).
-    let (reachable, healthy) = workspace_events::engine_reach_and_healthy();
+    // S2 / PL-10: reuse the same body for failure copy — never GET /readiness twice per tick.
+    let (reachable, healthy, readiness_body) = workspace_events::engine_reach_and_ready_body();
     let business_ready = healthy;
     let listen = listener_pid_on_port(ENGINE_PORT).is_some();
     let readiness_msg = if business_ready {
         String::new()
-    } else if reachable {
-        workspace_events::readiness_failure_message()
+    } else if let Some(ref body) = readiness_body {
+        workspace_events::readiness_failure_message_from(body)
     } else {
         "无法读取 /readiness".to_string()
     };

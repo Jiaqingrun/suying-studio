@@ -199,11 +199,13 @@ pub fn classify(
 
 pub fn snapshot(engine_log: &std::path::Path) -> SupervisorSnapshot {
     let listen = crate::listener_pid_on_port(ENGINE_PORT).is_some();
-    let (health_ok, business_ready) = crate::workspace_events::engine_reach_and_healthy();
+    // S2: one /readiness for control_plane + business_ready + failure copy.
+    let (health_ok, business_ready, readiness_body) =
+        crate::workspace_events::engine_reach_and_ready_body();
     let readiness_msg = if business_ready {
         String::new()
-    } else if health_ok {
-        crate::workspace_events::readiness_failure_message()
+    } else if let Some(ref body) = readiness_body {
+        crate::workspace_events::readiness_failure_message_from(body)
     } else {
         "无法读取 /readiness".to_string()
     };

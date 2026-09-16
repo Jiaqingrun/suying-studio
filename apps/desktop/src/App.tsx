@@ -808,12 +808,7 @@ function App() {
       } else if (h.onboarded) {
         setShowWizard(false);
       }
-
-      try {
-        setServices(await api.servicesStatus());
-      } catch {
-        setServices(null);
-      }
+      // S1: do not hit /ops/services on every 5s health tick — see POLL_TICK.servicesEvery.
     } catch (e) {
       const text = String(e);
       const now = Date.now();
@@ -964,6 +959,11 @@ function App() {
 
   const refreshAll = useCallback(async () => {
     await refreshHealth();
+    try {
+      setServices(await api.servicesStatus());
+    } catch {
+      setServices(null);
+    }
     try {
       setAssets(await api.listAssets());
       const jobRows = await api.listJobs();
@@ -1203,6 +1203,16 @@ function App() {
             }
           })
           .catch(() => undefined);
+      }
+      // S1 / PL-10: /ops/services ~30s (or on Ops toggle / refreshAll), not every health tick.
+      if (
+        healthTickRef.current === 1 ||
+        healthTickRef.current % POLL_TICK.servicesEvery === 0
+      ) {
+        void api
+          .servicesStatus()
+          .then((s) => setServices(s))
+          .catch(() => setServices(null));
       }
     }, POLL_BUDGET_MS.health);
     return () => {
