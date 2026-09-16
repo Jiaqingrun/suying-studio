@@ -187,6 +187,7 @@
 | 2026-09-01 | **臻享 B 档·结构进度**：`0ce0faa` 修复 life-service `scene_aliases`（须重启引擎）；改后 5 条见 `~/Suying/logs/daily-diversity-zhenxiang-20260830/C2-after-sample.md`（out#663/665/666/670/672）；标题与配方主段已分化；hook 仍 L20 家族相似；连跑 rush 仍可能熔断；**未**宣称同质化已彻底解决 |
 | 2026-09-01 | **臻享 D3 第三 facet**：规则 **#99** `身体与形体 · 日更 · 晓晓` 入轮换；D1 矩阵见同目录 `D1-coverage-matrix.md`；间隔 rush out#677/#679 验证；C1「≥3 facet」达标；护肤护理仍 6/8 未入池 |
 | 2026-09-01 | **臻享 D3+D4 第四 facet + 正式日产**：护肤护理 cliplet 改标至 **8**、规则 **#100** 入轮换；周历 `seed_zhenxiang_calendar_week.py`；活动客户切臻享；**09-01 日历槽** job#513 → out#680「护肤过程好温柔」；`auto_daily` 仍关 |
+| 2026-09-08 | **运营改锚始峰**：用户确认臻享非成交；极限计划以北京始峰伟业为主力；live 轮换收回 **38+90**；证据 `~/Suying/logs/extreme-plan-shifeng-20260908/`；B 档双意图周检板待人签 |
 
 ---
 
