@@ -6,6 +6,7 @@ import {
   offlineClassLabel,
   type SupervisorSnapshot,
 } from "../engineControl";
+import { isAppSurfaceActive } from "../appSurfaceActive";
 import { CarrierOpsStrip } from "../CarrierOpsStrip";
 import { briefResult } from "../shell/briefResult";
 import { PageHeader, StepFooter } from "../shell/PageChrome";
@@ -181,7 +182,7 @@ export function OpsPage({
     if (!active || section !== "services") return;
     let cancelled = false;
     const tick = () => {
-      if (cancelled || document.visibilityState !== "visible") return;
+      if (cancelled || !isAppSurfaceActive()) return;
       void getEngineSupervisor().then((s) => {
         if (!cancelled) setSuperv(s);
       });

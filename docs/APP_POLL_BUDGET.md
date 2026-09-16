@@ -20,3 +20,5 @@
 | runtime-health | **10s** | `GET /ops/runtime-health` | 总览运行健康条 |
 
 运维观察：空闲时引擎侧 `health_qps_approx` 应 **≤1**（见 `GET /ops/runtime-health`）。
+
+**P0.3**：最小化 / 失焦时须真正停轮询（`apps/desktop/src/appSurfaceActive.ts` + Rust `suying://app-surface`）；勿只依赖 `document.visibilityState`。

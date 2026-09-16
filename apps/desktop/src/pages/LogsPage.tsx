@@ -4,6 +4,7 @@ import { formatBeijingTime } from "../beijingTime";
 import { formatDisplayNo, outputDisplayLabel } from "../displayId";
 import { openMediaTarget } from "../openMediaTarget";
 import { POLL_BUDGET_MS } from "../pollBudget";
+import { isAppSurfaceActive, subscribeAppSurfaceActive } from "../appSurfaceActive";
 import { EmptyState, PageHeader, PageSection, SegmentNav } from "../shell/PageChrome";
 import type { Tab } from "../types";
 
@@ -163,10 +164,14 @@ export function LogsPage({
   }, [search]);
 
   useEffect(() => {
-    const onVis = () => setPageVisible(document.visibilityState === "visible");
+    const onVis = () => setPageVisible(isAppSurfaceActive());
     document.addEventListener("visibilitychange", onVis);
+    const unSub = subscribeAppSurfaceActive(onVis);
     onVis();
-    return () => document.removeEventListener("visibilitychange", onVis);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      unSub();
+    };
   }, []);
 
   const active = Boolean(tabActive) && pageVisible;

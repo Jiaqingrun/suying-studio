@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import { POLL_BUDGET_MS } from "./pollBudget";
+import { isAppSurfaceActive } from "./appSurfaceActive";
 import type { NotifyFn } from "./pages/pageTypes";
 import type { VectorizationStatus } from "./types";
 
@@ -118,7 +119,7 @@ export function VectorControl({
     if (!pageActive) return;
     let cancelled = false;
     const tick = () => {
-      if (cancelled || document.visibilityState !== "visible") return;
+      if (cancelled || !isAppSurfaceActive()) return;
       void (async () => {
         try {
           const orient = orientation;

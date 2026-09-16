@@ -6,11 +6,11 @@
 
 | 位置 | 间隔 | 接口 / 作用 | 备注 |
 |------|------|-------------|------|
-| `App.tsx` 主 tick | **5s** | `/health` · `/jobs` · Rust `engine_status`（单次 `/readiness`） | `document.hidden` 时跳过 |
+| `App.tsx` 主 tick | **5s** | `/health` · `/jobs` · Rust `engine_status`（单次 `/readiness`） | `isAppSurfaceActive()`：document.hidden **或** Tauri 最小化/失焦时跳过（P0.3） |
 | `App.tsx` services | **~30s**（`POLL_TICK.servicesEvery=6`） | `GET /ops/services` | S1：已从每 5s health 剥离；Ops 开关后即时刷新 |
 | `App.tsx` reportOps | **~10s** | `/reports/ops` | tick×2 |
 | `App.tsx` humanAlerts | **~15s** | `/ops/human-alerts` | tick×3 |
-| `App.tsx` messages | **30s** | 消息未读同步 | **硬底线 ≥30s** |
+| `App.tsx` messages | **30s** | 消息未读同步 | **硬底线 ≥30s**；表面不活跃时暂停，回前台 flush |
 | `ProductionPage.tsx` pipeline | 闲 **15s** / 忙 **3s** | `/jobs/pipeline` | S3：有 running/queued 才 3s |
 | `OverviewPage.tsx` | **10s** | reportOps 条 | FrozenTab `active` |
 | `OpsPage.tsx` | **10s** | 运维页局部 | 仅 `active` |

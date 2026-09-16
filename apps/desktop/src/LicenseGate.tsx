@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { isAppSurfaceActive, subscribeAppSurfaceActive } from "./appSurfaceActive";
 import { isTauri, stopEngine } from "./engineControl";
 import {
   createLicenseRequest,
@@ -113,17 +114,21 @@ export function LicenseGate({ children }: Props) {
       }
     };
     const onVisibility = () => {
-      if (document.visibilityState === "visible") void refresh();
+      if (isAppSurfaceActive()) void refresh();
     };
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 15_000);
+    const timer = window.setInterval(() => {
+      if (isAppSurfaceActive()) void refresh();
+    }, 15_000);
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onVisibility);
+    const unSub = subscribeAppSurfaceActive(onVisibility);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onVisibility);
+      unSub();
     };
   }, []);
 

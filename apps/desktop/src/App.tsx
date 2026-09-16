@@ -42,6 +42,11 @@ import {
   type WorkspaceSyncPrefs,
 } from "./workspaceSync";
 import { POLL_BUDGET_MS, POLL_TICK } from "./pollBudget";
+import {
+  installAppSurfaceBridge,
+  isAppSurfaceActive,
+  subscribeAppSurfaceActive,
+} from "./appSurfaceActive";
 import { remainingProductionCount as countRemainingProduction } from "./taskMetrics";
 import {
   TAB_BLURB,
@@ -1098,6 +1103,14 @@ function App() {
   // Boot once: never re-run heal loop when refreshAll/notify identity churns.
   useEffect(() => {
     let cancelled = false;
+    let disposeSurface: (() => void) | undefined;
+    void installAppSurfaceBridge().then((fn) => {
+      if (cancelled) {
+        fn();
+        return;
+      }
+      disposeSurface = fn;
+    });
     (async () => {
       if (isTauri()) {
         setEngineBusy(true);
@@ -1137,13 +1150,15 @@ function App() {
     })();
     return () => {
       cancelled = true;
+      disposeSurface?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only boot; polling is separate
   }, []);
 
   useEffect(() => {
     const t = window.setInterval(() => {
-      if (document.visibilityState === "hidden") return;
+      // P0.3: pause on document.hidden OR Tauri minimize/blur (not document alone).
+      if (!isAppSurfaceActive()) return;
       healthTickRef.current += 1;
       // Poll budget: docs/APP_POLL_BUDGET.md — do not add ≤1s full polls here.
       void refreshHealth({
@@ -1420,21 +1435,23 @@ function App() {
   useEffect(() => {
     let cancelled = false;
     const tick = async () => {
-      if (document.visibilityState === "hidden") return;
+      if (!isAppSurfaceActive()) return;
       if (!cancelled) {
         await refreshReachMessages(true);
         await refreshContentMessages();
       }
     };
     const timer = window.setInterval(() => void tick(), POLL_BUDGET_MS.messages);
-    const onVis = () => {
-      if (document.visibilityState === "visible") void tick();
+    const onSurface = () => {
+      if (isAppSurfaceActive()) void tick();
     };
-    document.addEventListener("visibilitychange", onVis);
+    document.addEventListener("visibilitychange", onSurface);
+    const unSub = subscribeAppSurfaceActive(onSurface);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVis);
+      document.removeEventListener("visibilitychange", onSurface);
+      unSub();
     };
   }, [refreshReachMessages, refreshContentMessages]);
 
@@ -1442,7 +1459,7 @@ function App() {
   // Force video + content login probes (list endpoints already DOM-probe when Chrome is managed).
   useEffect(() => {
     const syncPublishState = () => {
-      if (document.visibilityState !== "visible") return;
+      if (!isAppSurfaceActive()) return;
       void (async () => {
         try {
           await Promise.all([
@@ -1466,10 +1483,12 @@ function App() {
     };
     document.addEventListener("visibilitychange", syncPublishState);
     window.addEventListener("focus", syncPublishState);
+    const unSub = subscribeAppSurfaceActive(syncPublishState);
     syncPublishState();
     return () => {
       document.removeEventListener("visibilitychange", syncPublishState);
       window.removeEventListener("focus", syncPublishState);
+      unSub();
     };
   }, [notify, refreshReach, refreshContentMessages]);
 

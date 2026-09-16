@@ -18,6 +18,7 @@ import type { HumanAlert, PublishWorkspace, Tab } from "../types";
 import { WorkspaceSyncControl } from "../WorkspaceSyncControl";
 import type { WorkspaceProbeView, WorkspaceSyncPrefs } from "../workspaceSync";
 import { POLL_BUDGET_MS } from "../pollBudget";
+import { isAppSurfaceActive } from "../appSurfaceActive";
 import { productionThemeLabel } from "../sceneTourLabels";
 import type { NotifyFn, OpsReportView } from "./pageTypes";
 
@@ -103,7 +104,7 @@ export function OverviewPage({
     if (!active) return;
     let cancelled = false;
     const tick = () => {
-      if (cancelled || document.visibilityState !== "visible") return;
+      if (cancelled || !isAppSurfaceActive()) return;
       void refreshAll();
     };
     const timer = window.setInterval(tick, POLL_BUDGET_MS.reportOps);

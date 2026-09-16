@@ -868,6 +868,24 @@ pub fn run() {
             workspace_events::install(app.handle().clone());
             Ok(())
         })
+        // P0.3: minimize / focus → frontend poll pause (document.hidden alone is not enough on macOS).
+        .on_window_event(|window, event| {
+            use tauri::{Emitter, WindowEvent};
+            match event {
+                WindowEvent::Focused(_) | WindowEvent::Resized(_) => {
+                    let minimized = window.is_minimized().unwrap_or(false);
+                    let focused = window.is_focused().unwrap_or(false);
+                    let _ = window.emit(
+                        "suying://app-surface",
+                        serde_json::json!({
+                            "minimized": minimized,
+                            "focused": focused,
+                        }),
+                    );
+                }
+                _ => {}
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running 速影");
 }

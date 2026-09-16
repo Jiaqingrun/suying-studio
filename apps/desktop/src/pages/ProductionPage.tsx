@@ -1,4 +1,5 @@
 import { POLL_BUDGET_MS } from "../pollBudget";
+import { isAppSurfaceActive } from "../appSurfaceActive";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { BrandLogoPanel, type BrandLogoState } from "../BrandLogoPanel";
@@ -377,7 +378,7 @@ export function ProductionPage({
     };
 
     const tick = async () => {
-      if (cancelled || document.visibilityState !== "visible") return;
+      if (cancelled || !isAppSurfaceActive()) return;
       try {
         const snap = await api.jobsPipeline();
         if (cancelled) return;

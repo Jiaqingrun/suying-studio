@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
+import { isAppSurfaceActive, subscribeAppSurfaceActive } from "./appSurfaceActive";
 import type { NotifyFn } from "./pages/pageTypes";
 import { reviewStatusBadgeClass, uiStatusLabel } from "./reviewLabels";
 import type { ChromeProfile } from "./types";
@@ -126,14 +127,16 @@ export function ArticleWorkbench({
 
   useEffect(() => {
     const syncLogin = () => {
-      if (document.visibilityState !== "visible") return;
+      if (!isAppSurfaceActive()) return;
       void refreshChrome().catch((e) => notify(`软文登录态同步失败：${String(e)}`, "warn"));
     };
     document.addEventListener("visibilitychange", syncLogin);
     window.addEventListener("focus", syncLogin);
+    const unSub = subscribeAppSurfaceActive(syncLogin);
     return () => {
       document.removeEventListener("visibilitychange", syncLogin);
       window.removeEventListener("focus", syncLogin);
+      unSub();
     };
   }, [notify, refreshChrome]);
 

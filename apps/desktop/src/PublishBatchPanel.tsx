@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
+import { isAppSurfaceActive } from "./appSurfaceActive";
 import { AutomationTasksPanel } from "./AutomationTasksPanel";
 import { PageSection } from "./shell/PageChrome";
 import type {
@@ -95,7 +96,7 @@ export function PublishBatchPanel({
     if (!pageActive) return;
     let cancelled = false;
     const poll = async () => {
-      if (cancelled || document.visibilityState !== "visible" || refreshInFlight.current) return;
+      if (cancelled || !isAppSurfaceActive() || refreshInFlight.current) return;
       refreshInFlight.current = true;
       try {
         await Promise.all([refreshRun(), refreshPanels()]);

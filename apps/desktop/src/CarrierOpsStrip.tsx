@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
+import { isAppSurfaceActive } from "./appSurfaceActive";
 
 export function CarrierOpsStrip({ pageActive = true }: { pageActive?: boolean } = {}) {
   const [carrier, setCarrier] = useState<Awaited<ReturnType<typeof api.carrierStatus>> | null>(null);
@@ -31,7 +32,7 @@ export function CarrierOpsStrip({ pageActive = true }: { pageActive?: boolean } 
     if (!pageActive) return;
     let cancelled = false;
     const tick = async () => {
-      if (cancelled || document.visibilityState !== "visible") return;
+      if (cancelled || !isAppSurfaceActive()) return;
       try {
         const [c, k, u, r] = await Promise.all([
           api.carrierStatus(),

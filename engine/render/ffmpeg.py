@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -15,6 +17,31 @@ from engine.render.logo import (
     resolve_logo_path,
 )
 from engine.template.engine import MontagePlan
+
+
+def ffmpeg_thread_cap() -> int:
+    """Leave one core for UI/HTTP; never below 1. P2.1 — does not change CRF/preset."""
+    n = os.cpu_count() or 2
+    return max(1, n - 1)
+
+
+def prepare_ffmpeg_argv(cmd: list[str], *, nice_n: int = 10) -> list[str]:
+    """Inject ``-threads`` cap and optional ``nice`` prefix for encode jobs.
+
+    Hard rule: do **not** alter ``-crf`` / ``-preset`` / resolution args.
+    """
+    out = list(cmd)
+    if out and out[0] == "ffmpeg" and "-threads" not in out:
+        out = ["ffmpeg", "-threads", str(ffmpeg_thread_cap()), *out[1:]]
+    nice_bin = shutil.which("nice")
+    if nice_bin and out and out[0] == "ffmpeg":
+        out = [nice_bin, "-n", str(nice_n), *out]
+    return out
+
+
+def run_ffmpeg(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[Any]:
+    """Run an ffmpeg encode with thread cap + nice (P2.1)."""
+    return subprocess.run(prepare_ffmpeg_argv(cmd), **kwargs)
 
 
 def _find_font(
@@ -703,7 +730,8 @@ def _render_segment(
             "-shortest",
             str(seg),
         ]
-    return subprocess.run(cmd, capture_output=True, check=False).returncode == 0
+    # P2.1: -threads cap + nice; CRF/preset unchanged above.
+    return run_ffmpeg(cmd, capture_output=True, check=False).returncode == 0
 
 
 def resolve_canvas_size(
@@ -1400,10 +1428,11 @@ def render_plan(
     final_cmd.append(str(output_path))
 
     # Production encode wall-clock: stall killing so a wedged ffmpeg cannot pin an item forever.
+    # P2.1: -threads + nice via run_ffmpeg; CRF/preset above untouched.
     RENDER_ENCODE_TIMEOUT_SEC = 120.0
     try:
         ok = (
-            subprocess.run(
+            run_ffmpeg(
                 final_cmd,
                 capture_output=True,
                 check=False,
