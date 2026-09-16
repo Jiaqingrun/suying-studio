@@ -7,4 +7,4 @@ Do not hardcode version literals in route handlers.
 from __future__ import annotations
 
 # Keep in sync with apps/desktop package.json via bump_app_version.py
-ENGINE_VERSION = "0.8.45"
+ENGINE_VERSION = "0.8.46"
