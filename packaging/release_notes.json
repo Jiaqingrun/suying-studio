@@ -965,6 +965,16 @@
         "_output_spec / 候选池要求成片在盘；scripts/pl_p0_data_hygiene.py",
         "实机归档 288 条；uncertain 可审率与 ready media_ok/可发率至 100%"
       ]
+    },
+    "0.8.39": {
+      "title": "V-01 · Ollama half_open 旁白可恢复",
+      "summary": "half_open 与健康探针共享单次试验槽，旁白不再饿死进 paused_ollama_infra；快照 allows_request/allows_narration 与真实可旁白对齐；新增 /ops/ollama/circuit 与有界 /ops/ollama/recover（不扩 Ops-Token，PL-07 未裁）。不改成片质量/发布/消息/L17/词包。",
+      "highlights": [
+        "circuit_allows_request：half_open 允许一条旁白/重请求试验；narration peek 不占槽",
+        "circuit_snapshot.allows_request 仅 closed 或 half_open 且槽空为 true",
+        "GET /ops/ollama/circuit · POST /ops/ollama/recover（有界 kickstart+warmup）",
+        "单测覆盖 half_open 旁白试验与 ops recover"
+      ]
     }
   }
 }
