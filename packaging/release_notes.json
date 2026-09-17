@@ -1077,6 +1077,16 @@
         "unittest test_ollama_health_message_align 4/4",
         "分层审计 R1 Track B 30/30 ready 证据保留于 Store media/stratified-audit-r1"
       ]
+    },
+    "0.8.50": {
+      "title": "分层审计 R2：GET /outputs 热路径去写锁",
+      "summary": "系统对抗轮确认 GET /outputs 因 list 内 backfill_display_nos 写 SQLite 可饿死 API（SA-R2-005）；热路径去掉 backfill，并加 job_id/limit。Track B 30/30 ready。不降 READY_GATE；封面默认仍确认才传；消息 1800 与 L17/词包不动。",
+      "highlights": [
+        "list_outputs：禁止 backfill 写；支持 job_id + limit≤500",
+        "unittest test_list_outputs_hot_path",
+        "分层审计 R2 Track B 30/30 + 冒烟各档≥2（Store media/stratified-audit-r2）",
+        "R1 残留 P2/P3 带入 R3（不当已修）"
+      ]
     }
   }
 }
