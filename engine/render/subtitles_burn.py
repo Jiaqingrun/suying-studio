@@ -870,20 +870,30 @@ def _burn_with_overlay(
                     if effect == "karaoke"
                     else 0
                 )
-                render_vertical_cue_png(
-                    text,
-                    canvas_w=w,
-                    canvas_h=h,
-                    font_size=font_size,
-                    out=png,
-                    side=vside if vside in {"left", "right"} else "left",
-                    color=color,
-                    stroke_color=stroke_color,
-                    stroke_width=stroke_width,
-                    highlight_count=hi,
-                    center_x_pct=center_x_pct,
-                    center_y_pct=center_y_pct,
-                )
+                try:
+                    render_vertical_cue_png(
+                        text,
+                        canvas_w=w,
+                        canvas_h=h,
+                        font_size=font_size,
+                        out=png,
+                        side=vside if vside in {"left", "right"} else "left",
+                        color=color,
+                        stroke_color=stroke_color,
+                        stroke_width=stroke_width,
+                        highlight_count=hi,
+                        center_x_pct=center_x_pct,
+                        center_y_pct=center_y_pct,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    # HARD E3/E8: vertical emoji must Twemoji — never silent tofu/fallback
+                    return {
+                        "ok": False,
+                        "out": str(out),
+                        "error": f"vertical subtitle burn failed: {exc}"[-1200:],
+                        "method": "overlay",
+                        "cues": 0,
+                    }
             else:
                 _render_cue_png(
                     text,

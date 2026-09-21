@@ -69,6 +69,7 @@
 | 3i1b | [`TERM_LICENSE_PLAN.md`](TERM_LICENSE_PLAN.md) | 年期 term（365 天）默认正式许可；客户无感；运维台账续签 |
 | 3i2 | [`OFFLINE_DEPOT_LEGAL_DELIVERY.zh-CN.md`](OFFLINE_DEPOT_LEGAL_DELIVERY.zh-CN.md) | 离线仓法务交付说明 |
 | 3i3 | [`legal/SALES_CONTRACT_速影Studio.zh-CN.md`](legal/SALES_CONTRACT_速影Studio.zh-CN.md) | 客户向许可及技术服务合同模板 **v2.0**（高风险功能确认 / 广告法与深度合成 / 许可种类须与装机一致） |
+| 3i3b | [`legal/PRODUCT_INTRODUCTION.zh-CN.md`](legal/PRODUCT_INTRODUCTION.zh-CN.md) | **客户向产品介绍**（对照本机代码与权威库；非正式合同；冲突以合同与 HARD_LOCKS 为准） |
 | 3j | [`STORAGE_SYNC_SAFETY.md`](STORAGE_SYNC_SAFETY.md) | 本机 APFS 权威库与同步沙盒 |
 | 3j2 | [`DISK_CLEANUP_LOCK.md`](DISK_CLEANUP_LOCK.md) | 磁盘清理允许/禁止范围锁（白名单 + facade） |
 | 3k | [`REMOTE_DEPLOY.md`](REMOTE_DEPLOY.md) | **客户机远程部署唯一正式路径** |

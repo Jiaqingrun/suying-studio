@@ -435,14 +435,17 @@ def prepare_narration_for_plan(
             )
 
             if bool(vflags.get("product_display")):
+                # Never feed raw CV captions into product VO rewrite — that is how
+                # "穿黑衣男子站在画面左侧 / 障碍物上有孔洞" leaks into subtitles.
                 ollama_hints = commercial_product_lines_from_hints(visual_hints, limit=6)
-                if not ollama_hints:
-                    ollama_hints = clip_description_hints_as_lines(visual_hints, limit=4)
+                ollama_feed = list(ollama_hints or [])
+                out["ollama_hints_commercial_only"] = True
             else:
                 ollama_hints = clip_description_hints_as_lines(visual_hints, limit=4) or visual_hints[:4]
+                ollama_feed = list(ollama_hints or visual_hints or [])
             rewritten = rewrite_narration_with_ollama(
                 base_script=script,
-                visual_hints=ollama_hints or visual_hints,
+                visual_hints=ollama_feed,
                 theme=str(plan.theme or "default"),
                 brand=brand_name,
                 target_duration_sec=plan_dur,
@@ -462,15 +465,59 @@ def prepare_narration_for_plan(
             out["ollama_narration_model"] = model
             out["ollama_narration_attempts"] = rewritten.get("attempts")
             if rewritten.get("ok") and rewritten.get("script"):
-                script = str(rewritten["script"])
+                base_before_ollama = str(script or "")
+                candidate = str(rewritten["script"])
                 if not speak_title:
-                    script = scrub_title_from_spoken(script, on_screen_title)
+                    candidate = scrub_title_from_spoken(candidate, on_screen_title)
                 from engine.pack.emoji_stickers import (
                     ensure_theme_emoji_cues,
                     strip_emoji_for_speech,
                 )
+                from engine.pack.narration_script import (
+                    scrub_video_meta_sentences,
+                    script_has_vague_vision_speak,
+                    strip_vague_vision_spans,
+                )
 
-                script = strip_emoji_for_speech(script)
+                candidate = strip_emoji_for_speech(candidate)
+                cleaned = strip_vague_vision_spans(
+                    scrub_video_meta_sentences(candidate)
+                )
+                base_clean = strip_vague_vision_spans(
+                    scrub_video_meta_sentences(base_before_ollama)
+                )
+                # User rule: unidentified / pose-caption inventory must never ship.
+                # If Ollama injects CV paraphrase, keep scrubbed commercial meat or
+                # fall back to the pre-Ollama draft — never TTS the inventory.
+                # Product reels: prefer base draft whenever CV inventory appears —
+                # scrubbed Ollama hybrids still sound like machine captions.
+                if script_has_vague_vision_speak(candidate):
+                    if bool(vflags.get("product_display")):
+                        script = base_clean or base_before_ollama
+                        out["ollama_vague_vision_rejected"] = True
+                        out["vague_vision_stripped"] = True
+                    elif (
+                        cleaned
+                        and not script_has_vague_vision_speak(cleaned)
+                        and len(cleaned) >= max(12, len(base_clean or "") // 2)
+                    ):
+                        script = cleaned
+                        out["vague_vision_stripped"] = True
+                    else:
+                        script = base_clean or base_before_ollama
+                        out["ollama_vague_vision_rejected"] = True
+                        out["vague_vision_stripped"] = True
+                else:
+                    script = cleaned or candidate
+                    if cleaned and cleaned != candidate:
+                        out["vague_vision_stripped"] = True
+                    # Second pass: product still must not keep residual CV crumbs
+                    if bool(vflags.get("product_display")) and script_has_vague_vision_speak(
+                        str(script or "")
+                    ):
+                        script = base_clean or base_before_ollama
+                        out["ollama_vague_vision_rejected"] = True
+                        out["vague_vision_stripped"] = True
                 out["script"] = script
                 out["script_display"] = script
                 out["emoji_cues"] = ensure_theme_emoji_cues(
@@ -641,6 +688,33 @@ def prepare_narration_for_plan(
             list(out.get("visual_hints") or visual_hints or []),
             source="base_script",
         )
+
+    # Final belt: strip unidentified-object CV inventory (strip_punctuation safe)
+    try:
+        from engine.pack.narration_script import (
+            scrub_video_meta_sentences,
+            script_has_vague_vision_speak,
+            strip_vague_vision_spans,
+        )
+
+        cleaned = scrub_video_meta_sentences(str(out.get("script") or script or ""))
+        cleaned = strip_vague_vision_spans(cleaned)
+        if cleaned and cleaned != str(out.get("script") or ""):
+            out["script"] = cleaned
+            script = cleaned
+            if out.get("script_display"):
+                out["script_display"] = strip_vague_vision_spans(
+                    scrub_video_meta_sentences(str(out.get("script_display") or ""))
+                )
+            out["vague_vision_stripped"] = True
+        if script_has_vague_vision_speak(str(out.get("script") or "")):
+            raise ValueError(
+                "旁白仍含未识别物品/纯画面盘点（能看到/手持物体等）；拒绝配音"
+            )
+    except ValueError:
+        raise
+    except Exception:
+        pass
 
     # HARD: emoji_cues always available for subtitle injection (even if Ollama off/fail)
     if not out.get("emoji_cues"):

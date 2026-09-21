@@ -58,17 +58,19 @@
     "emoji_in_subtitle": true
   },
   "voice": {
-    "provider": "edge",
-    "voice": "zh-CN-XiaoxiaoNeural",
-    "label": "晓晓（女·默认）",
-    "rate": "-8%",
+    "provider": "clone",
+    "label": "阿姨慢速旁白",
+    "rate": "+0%",
     "pitch": "+18Hz",
     "volume": "+10%",
     "fill_video_duration": true,
     "forbid_theme_announce": true,
-    "chars_per_sec_zh": 3.2,
+    "chars_per_sec_zh": 3.3,
     "max_chars_per_breath": 18,
-    "emotion_boost": true
+    "emotion_boost": true,
+    "clone_speed": 1.05,
+    "_rate_note": "2026-09-19 用户反馈688语速偏快：clone_speed 1.2→1.05；并禁未识别物品口播",
+    "voice_pack": "aunt_slow"
   },
   "logo": {
     "enabled": false

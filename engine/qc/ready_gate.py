@@ -285,10 +285,13 @@ def _check_breath(sidecar: dict[str, Any], srt: str) -> list[str]:
                         fails.append(f"breath: manifest segment max={mx}")
             except Exception as e:  # noqa: BLE001
                 fails.append(f"breath: manifest read err {e}")
-    # 晓晓情感语速锁仅约束中文 Edge 旁白；clone / 外文跳过
+    # 中文 Edge 旁白语速：以 Job 冻结规则 narration_rate 为准（缺省仍 -8% / L2）
+    # clone / 外文跳过。允许客户配置 +0% 等正常语速，禁止写死只认 -8%。
     if zh_voice and str(meta.get("tts_provider") or "") != "clone":
-        if rate and str(rate) != "-8%":
-            fails.append(f"breath: rate={rate!r} want -8%")
+        rules = _frozen_rules(meta)
+        expected_rate = str(rules.get("narration_rate") or "-8%")
+        if rate and str(rate) != expected_rate:
+            fails.append(f"breath: rate={rate!r} want {expected_rate}")
         elif not rate:
             narr = meta.get("narration_path")
             man = Path(narr).parent / "narration" / "narration_manifest.json" if narr else None
@@ -350,6 +353,18 @@ def _check_voice(sidecar: dict[str, Any]) -> list[str]:
     script = str(meta.get("narration_script") or "")
     if script and (script != strip_emoji_for_speech(script) or _EMOJI_RE.search(script)):
         fails.append("voice: narration_script contains emoji (must not be spoken)")
+    # Unidentified CV inventory must never ship in ready VO / burned subtitles
+    if script:
+        try:
+            from engine.pack.narration_script import script_has_vague_vision_speak
+
+            if script_has_vague_vision_speak(script):
+                fails.append(
+                    "voice: narration_script has vague vision inventory "
+                    "(能看到/手持物体/未识别物品 — refuse forced naming)"
+                )
+        except Exception:
+            pass
     return fails
 
 

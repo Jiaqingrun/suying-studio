@@ -125,12 +125,13 @@
   "voice": {
     "provider": "edge",
     "voice": "zh-CN-XiaoxiaoNeural",
-    "label": "晓晓",
-    "rate": "-8%",
+    "label": "晓晓（正常语速）",
+    "rate": "+0%",
     "pitch": "+20Hz",
     "fill_video_duration": true,
     "forbid_theme_announce": true,
-    "chars_per_sec_zh": 3.8
+    "chars_per_sec_zh": 4.0,
+    "clone_speed": 1.2
   },
   "logo": {
     "enabled": false

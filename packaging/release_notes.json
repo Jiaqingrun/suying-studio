@@ -1087,6 +1087,16 @@
         "分层审计 R2 Track B 30/30 + 冒烟各档≥2（Store media/stratified-audit-r2）",
         "R1 残留 P2/P3 带入 R3（不当已修）"
       ]
+    },
+    "0.8.51": {
+      "title": "旁白禁未识别强行点名 + 竖屏字幕 emoji",
+      "summary": "识别不出的货品/画面元描述不得进旁白与烧录字幕（scrub + READY_GATE）；竖屏字幕 Twemoji 不再豆腐块；中文 Edge 语速以 Job 冻结 narration_rate 为准（可配置，非写死 -8%）。不降 L17/词包；封面默认仍确认才传。",
+      "highlights": [
+        "vague vision speak ban：VO/字幕剔除「能看到/手持物体」类库存腔",
+        "ready_gate：含模糊视觉点名则拒 READY",
+        "竖屏 cue PNG Twemoji chroma 回归",
+        "breath 语速对齐冻结规则 narration_rate"
+      ]
     }
   }
 }

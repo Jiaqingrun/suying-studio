@@ -202,6 +202,135 @@ VIDEO_META_SPEAK_MARKERS: tuple[str, ...] = (
     "手写文字",
     "可见白色",
     "可见文字",
+    # Vague CV inventory — unidentified objects must never be spoken
+    # (user: 识别不出就不要在字幕里强行介绍)
+    "能看到",
+    "可以看到",
+    "看得见",
+    "人物手持",
+    "人物正",
+    "手持黑色",
+    "手持白色",
+    "黑色物体",
+    "黑色物品",
+    "黄色物品",
+    "黄色物体",
+    "白色物品",
+    "白色物体",
+    "桶状物体",
+    "银灰色",
+    "堆叠着",
+    "堆叠的",
+    "堆叠高度",
+    "表面包裹",
+    "透明塑料膜",
+    "塑料薄膜",
+    "边缘整齐",
+    "带有孔洞",
+    "孔洞的",
+    "多层带有",
+    "前景有",
+    "后景有",
+    "左侧地面",
+    "右侧依然",
+    "木质托盘",
+    "打包带",
+    "弯腰在",
+    # Ollama paraphrase inventory (708 leak)
+    "可见蓝色",
+    "可见黄色",
+    "可见部分",
+    "背景货架",
+    "结构清晰",
+    "蓝色立柱",
+    "橙色横梁",
+    "包装物",
+    "印有黑色汉字",
+    "印有汉字",
+    "箱体正面印有",
+    "左侧箱体可见",
+    "箱体可见",
+    # 709 paraphrase inventory
+    "上方货架",
+    "货架上有",
+    "袋装物品",
+    "堆叠整齐",
+    "侧面有",
+    "金属框架",
+    "整齐码放",
+    "黑色图案",
+    "码放着多摞",
+    "黄色和灰色",
+    "左侧背景",
+    "右侧背景",
+    "背景处",
+    "背景有",
+    "袋子上有",
+    "袋子上印有",
+    "堆叠在一起",
+    "包装膜",
+    "有反光",
+    "条纹和文字",
+    "金属结构",
+    "塑料包装",
+    "印有红色",
+    "物体表面",
+    "物体堆叠",
+    "特写显示",
+    "圆柱体",
+    "反光带",
+    "塑料质感",
+    "缠绕有",
+    "表面呈现",
+    "方格反光",
+    "堆叠紧密",
+    "穿黑色短袖",
+    "站在画面",
+    "画面左侧",
+    "画面右侧",
+    "手扶着",
+    "手放在",
+    "伸出左臂",
+    "伸出右臂",
+    "长条状",
+    "货物堆",
+    "一名穿",
+    "穿黑衣",
+    "穿白衣",
+    "男子站在",
+    "女子站在",
+    "的人站在",
+    "站在画面左侧",
+    "站在画面右侧",
+    "覆盖在物体",
+    "物体上",
+    "防水布",
+    "工作人员正",
+    "忙碌地装载",
+    "屋顶结构",
+    "波纹金属",
+    "材质的屋顶",
+    "之间有空隙",
+    "木箱之间",
+    "光线较暗",
+    "排列着",
+    "占据画面",
+    "画面右半",
+    "画面左半",
+    "浅色木箱",
+    "人物左手",
+    "人物右手",
+    "人物双眼",
+    "佩戴",
+    "双眼闭合",
+    "手腕佩戴",
+    "包装纸上",
+    "障碍物",
+    "圆形孔洞",
+    "并排竖立",
+    "米色纸箱",
+    "大型米色",
+    "顶部劳防",
 )
 
 # Soft questionnaire / paperwork speak → rewrite or drop in VO (all content types).
@@ -282,7 +411,226 @@ _VIDEO_META_RE = re.compile(
     r"位置与|仓内可看|看得见的地方|工作位一致|"
     # Caption inventory speak (clothing / pile / clarity checklist)
     r"身穿|胸前有|堆放着|停放着|清晰可见|孔洞清晰|"
-    r"背景中|背景光线|金属立柱|木质托盘上)"
+    r"背景中|背景光线|金属立柱|木质托盘上|"
+    # Vague unidentified-object speak (must not force-name unknowns in VO/subtitles)
+    r"(能看到|可以看到|看得见)|"
+    r"人物|"
+    r"人物?(手持|正)|"
+    r"(男子|女子|工作人员)(正)?(弯腰|手持|站在|走向)|"
+    r"[黑白黄红蓝绿灰银橙]色?的?(桶状|板状|柱状|长条)?(物体|物品|东西)|"
+    r"(前景|后景|左侧|右侧|上方|下方|中间|地面)(有|是|依然是)|"
+    r"(左侧|右侧|上方|下方|中间)堆叠着|"
+    r"堆叠着多层|堆叠的|堆叠高度较高|"
+    r"表面包裹|"
+    r"透明塑料膜|塑料薄膜|"
+    r"边缘整齐|"
+    r"带有孔洞|"
+    r"银灰色金属|金属板材|"
+    r"木质托盘|空的木质|"
+    r"打包带|捆扎|"
+    r"桶状物体|板状货物|"
+    r"弯腰在|进行操作|"
+    # Ollama paraphrase inventory (visible / shelf / print readout)
+    r"可见(蓝色|黄色|绿色|部分|立柱)|"
+    r"背景货架|"
+    r"结构清晰|"
+    r"蓝色立柱|金属立柱|"
+    r"橙色横梁|红色横梁|"
+    r"包装物|"
+    r"印有(黑色)?汉字|"
+    r"箱体(正面)?印有|"
+    r"左侧箱体|"
+    r"上方货架|货架上有|"
+    r"袋装物品|"
+    r"堆叠整齐|"
+    r"侧面有|"
+    r"金属框架|"
+    r"整齐码放|码放着多摞|"
+    r"黑色图案|"
+    r"左侧背景|右侧背景|背景处|"
+    r"背景有|"
+    r"袋子上(有|印有)|"
+    r"堆叠在一起|"
+    r"包装膜|有反光|条纹和文字|"
+    r"金属结构|"
+    r"塑料包装|"
+    r"印有|"
+    r"物体(表面|堆叠|缠绕)|"
+    r"特写显示|特写|"
+    r"圆柱体|"
+    r"反光带|"
+    r"塑料质感|表面呈现|"
+    r"缠绕有|"
+    r"方格反光|"
+    r"堆叠紧密|"
+    r"穿.{0,12}短袖|"
+    r"站在画面|画面左侧|画面右侧|"
+    r"手扶着|手放在|伸出[左右]臂|"
+    r"长条状|货物堆|"
+    r"一名穿|一位穿|"
+    r"穿[黑白灰蓝红]衣|"
+    r"(男子|女子|的人)站在|"
+    r"站在画面(左侧|右侧)|"
+    r"覆盖在物体|物体上|"
+    r"防水布|"
+    r"工作人员正|"
+    r"忙碌地装载|"
+    r"屋顶结构|波纹金属|材质的屋顶|"
+    r"之间有空隙|木箱之间|"
+    r"光线较暗|"
+    r"排列着|"
+    r"占据画面|"
+    r"画面[左右]半|"
+    r"浅色木箱|"
+    r"画面|"
+    r"佩戴|双眼闭合|手腕|"
+    r"包装纸上|"
+    r"障碍物|"
+    r"圆形孔洞|"
+    r"并排竖立|"
+    r"米色纸箱)"
+)
+
+# Commercial CTA / service lines — span cut must stop before these (strip_punctuation).
+_COMMERCIAL_RESUME = (
+    r"缺哪样|到店跟我们|跟我们配|跟我们说|需要哪类|报单我们|帮着配|少跑几趟|配齐|"
+    r"仓库又忙|到货先卸|试机的时候|从货架到车斗|当面看货|工地常用|"
+    r"货架又满|冷切锯|备货装车|干货不说|"
+    r"货以当面|当面看的为准|三轮车场内|生料带|配送时间|省的是|"
+    r"切割片|纸箱怕水|先到始峰|把过程听清楚|配件都仔细|"
+    r"劳防手套|搬运操作|保手|车门敞开|向内码放|一步都交代"
+)
+# One char that is not the start of a commercial resume phrase.
+_VAGUE_SAFE_CHAR = rf"(?:(?!(?:{_COMMERCIAL_RESUME}))[\u4e00-\u9fffA-Za-z0-9，,])"
+
+# Whole CV-inventory dump from first marker up to (not including) commercial CTA.
+_INVENTORY_BLOCK_BEFORE_CTA_RE = re.compile(
+    rf"(?:能看到|可以看到|看得见|可见|"
+    rf"人物?手持|人物正|"
+    rf"(?:男子|女子|工作人员)(?:正)?(?:弯腰|手持|站在|走向)|"
+    rf"前景有|后景有|背景有|左侧地面有|右侧依然是|"
+    rf"(?:左侧|右侧|上方|下方|中间|侧面)(?:货架上)?(?:有|是|依然是|堆叠着)|"
+    rf"地面有|堆叠着多层|表面包裹|货架上有|上方货架|"
+    rf"背景货架|结构清晰|箱体正面印有|左侧箱体|印有|"
+    rf"袋子上(?:有|印有)|袋装物品|堆叠整齐|堆叠在一起|"
+    rf"金属框架|金属结构|整齐码放|码放着|黑色图案|"
+    rf"包装膜|有反光|反光带|条纹和文字|塑料包装|"
+    rf"物体表面|物体堆叠|特写显示|特写|圆柱体|塑料质感|缠绕有|表面呈现|方格反光|堆叠紧密|"
+    rf"穿[一-鿿]{{0,12}}(?:短袖|[黑白灰蓝红]?衣)|穿[黑白灰蓝红]衣|站在画面|画面左侧|画面右侧|"
+    rf"(?:男子|女子|的人)站在|手扶着|手放在|伸出[左右]臂|长条状|货物堆|一名穿|一位穿|"
+    rf"覆盖在物体|物体上|(?:一块巨大的)?(?:[黑白黄红蓝绿灰银橙]色)?防水布|工作人员正|忙碌地装载|"
+    rf"屋顶结构|波纹金属|材质的屋顶|之间有空隙|木箱之间|"
+    rf"光线较暗|排列着|占据画面|画面[左右]半|浅色木箱|画面|"
+    rf"人物|佩戴|双眼闭合|手腕|包装纸上|"
+    rf"障碍物|圆形孔洞|并排竖立|米色纸箱|"
+    rf"左侧背景|右侧背景|背景处|"
+    rf"[黑白黄红蓝绿灰银橙]色?的?(?:桶状|板状|柱状|长条|圆形|袋装)?(?:物体|物品|东西|包装物))"
+    rf".{{0,200}}?"
+    rf"(?=(?:{_COMMERCIAL_RESUME})|$)"
+)
+
+# Spans to cut from strip_punctuation scripts (no 。 splits available).
+_VAGUE_VISION_SPAN_RE = re.compile(
+    rf"(?:能看到|可以看到|看得见|可见){_VAGUE_SAFE_CHAR}{{0,48}}"
+    rf"|人物?手持{_VAGUE_SAFE_CHAR}{{0,32}}"
+    rf"|人物正{_VAGUE_SAFE_CHAR}{{0,32}}"
+    rf"|(?:男子|女子|工作人员)(?:正)?(?:弯腰|手持|站在|走向){_VAGUE_SAFE_CHAR}{{0,36}}"
+    rf"|[黑白黄红蓝绿灰银橙]色和[黑白黄红蓝绿灰银橙]色的?(?:桶状|板状|柱状|长条|圆形|袋装)?(?:物体|物品|东西|板材|包装物)"
+    rf"|[黑白黄红蓝绿灰银橙]色?的?(?:桶状|板状|柱状|长条|圆形|袋装)?(?:物体|物品|东西|板材|包装物)"
+    rf"|左侧地面有{_VAGUE_SAFE_CHAR}{{0,40}}"
+    rf"|右侧依然是{_VAGUE_SAFE_CHAR}{{0,48}}"
+    rf"|上方货架(?:上)?{_VAGUE_SAFE_CHAR}{{0,40}}"
+    rf"|货架上有{_VAGUE_SAFE_CHAR}{{0,36}}"
+    rf"|(?:前景|后景|背景|左侧|右侧|上方|下方|中间|地面|侧面)(?:货架上)?(?:有|是|依然是){_VAGUE_SAFE_CHAR}{{0,48}}"
+    rf"|(?:左侧|右侧|上方|下方|中间)堆叠着{_VAGUE_SAFE_CHAR}{{0,40}}"
+    rf"|堆叠着多层{_VAGUE_SAFE_CHAR}{{0,36}}"
+    rf"|堆叠的{_VAGUE_SAFE_CHAR}{{0,28}}"
+    rf"|堆叠高度较高{_VAGUE_SAFE_CHAR}{{0,16}}"
+    rf"|堆叠整齐{_VAGUE_SAFE_CHAR}{{0,12}}"
+    rf"|表面包裹{_VAGUE_SAFE_CHAR}{{0,20}}"
+    rf"|透明塑料膜|塑料薄膜"
+    rf"|边缘整齐|结构清晰"
+    rf"|带有孔洞的{_VAGUE_SAFE_CHAR}{{0,28}}"
+    rf"|银灰色金属板材|金属板材"
+    rf"|空的木质托盘|木质托盘"
+    rf"|货物用绿色打包带捆扎|用绿色打包带捆扎|打包带捆扎|绿色打包带"
+    rf"|橙色卡车(?:车头)?"
+    rf"|背景货架(?:上|结构)?{_VAGUE_SAFE_CHAR}{{0,36}}"
+    rf"|(?:蓝色|金属)?立柱{_VAGUE_SAFE_CHAR}{{0,24}}"
+    rf"|(?:橙色|红色)?横梁{_VAGUE_SAFE_CHAR}{{0,16}}"
+    rf"|箱体正面印有{_VAGUE_SAFE_CHAR}{{0,24}}"
+    rf"|左侧箱体可见{_VAGUE_SAFE_CHAR}{{0,24}}"
+    rf"|印有(?:黑色)?汉字{_VAGUE_SAFE_CHAR}{{0,16}}"
+    rf"|金属框架(?:支撑)?{_VAGUE_SAFE_CHAR}{{0,16}}"
+    rf"|整齐码放(?:着)?{_VAGUE_SAFE_CHAR}{{0,24}}"
+    rf"|码放着多摞{_VAGUE_SAFE_CHAR}{{0,16}}"
+    rf"|黑色图案{_VAGUE_SAFE_CHAR}{{0,12}}"
+    rf"|左侧背景(?:处)?{_VAGUE_SAFE_CHAR}{{0,24}}"
+    rf"|右侧背景(?:处)?{_VAGUE_SAFE_CHAR}{{0,24}}"
+    rf"|背景处{_VAGUE_SAFE_CHAR}{{0,16}}"
+    rf"|背景有{_VAGUE_SAFE_CHAR}{{0,40}}"
+    rf"|袋子上(?:有|印有){_VAGUE_SAFE_CHAR}{{0,36}}"
+    rf"|堆叠在一起{_VAGUE_SAFE_CHAR}{{0,20}}"
+    rf"|包装膜{_VAGUE_SAFE_CHAR}{{0,20}}"
+    rf"|有反光{_VAGUE_SAFE_CHAR}{{0,12}}"
+    rf"|条纹和文字{_VAGUE_SAFE_CHAR}{{0,16}}"
+    rf"|金属结构{_VAGUE_SAFE_CHAR}{{0,20}}"
+    rf"|塑料包装{_VAGUE_SAFE_CHAR}{{0,16}}"
+    rf"|印有{_VAGUE_SAFE_CHAR}{{0,28}}"
+    rf"|物体表面{_VAGUE_SAFE_CHAR}{{0,40}}"
+    rf"|物体堆叠{_VAGUE_SAFE_CHAR}{{0,20}}"
+    rf"|特写显示{_VAGUE_SAFE_CHAR}{{0,40}}"
+    rf"|特写{_VAGUE_SAFE_CHAR}{{0,36}}"
+    rf"|圆柱体{_VAGUE_SAFE_CHAR}{{0,36}}"
+    rf"|反光带{_VAGUE_SAFE_CHAR}{{0,24}}"
+    rf"|塑料质感{_VAGUE_SAFE_CHAR}{{0,16}}"
+    rf"|缠绕有{_VAGUE_SAFE_CHAR}{{0,36}}"
+    rf"|表面呈现{_VAGUE_SAFE_CHAR}{{0,20}}"
+    rf"|方格反光{_VAGUE_SAFE_CHAR}{{0,20}}"
+    rf"|堆叠紧密{_VAGUE_SAFE_CHAR}{{0,12}}"
+    rf"|穿[黑白灰蓝红]衣(?:的?(?:男子|女子|人))?{_VAGUE_SAFE_CHAR}{{0,40}}"
+    rf"|穿[一-鿿]{{0,12}}(?:短袖|衣){_VAGUE_SAFE_CHAR}{{0,40}}"
+    rf"|(?:男子|女子|的人)站在{_VAGUE_SAFE_CHAR}{{0,36}}"
+    rf"|站在画面{_VAGUE_SAFE_CHAR}{{0,28}}"
+    rf"|画面左侧{_VAGUE_SAFE_CHAR}{{0,28}}"
+    rf"|画面右侧{_VAGUE_SAFE_CHAR}{{0,28}}"
+    rf"|手扶着{_VAGUE_SAFE_CHAR}{{0,28}}"
+    rf"|手放在{_VAGUE_SAFE_CHAR}{{0,28}}"
+    rf"|伸出[左右]臂{_VAGUE_SAFE_CHAR}{{0,28}}"
+    rf"|长条状{_VAGUE_SAFE_CHAR}{{0,16}}"
+    rf"|货物堆{_VAGUE_SAFE_CHAR}{{0,16}}"
+    rf"|一名穿{_VAGUE_SAFE_CHAR}{{0,48}}"
+    rf"|一位穿{_VAGUE_SAFE_CHAR}{{0,48}}"
+    rf"|覆盖在物体{_VAGUE_SAFE_CHAR}{{0,24}}"
+    rf"|物体上{_VAGUE_SAFE_CHAR}{{0,16}}"
+    rf"|(?:一块巨大的)?(?:[黑白黄红蓝绿灰银橙]色)?防水布{_VAGUE_SAFE_CHAR}{{0,36}}"
+    rf"|工作人员正{_VAGUE_SAFE_CHAR}{{0,28}}"
+    rf"|忙碌地装载{_VAGUE_SAFE_CHAR}{{0,16}}"
+    rf"|屋顶结构{_VAGUE_SAFE_CHAR}{{0,16}}"
+    rf"|波纹金属{_VAGUE_SAFE_CHAR}{{0,24}}"
+    rf"|材质的屋顶{_VAGUE_SAFE_CHAR}{{0,16}}"
+    rf"|之间有空隙{_VAGUE_SAFE_CHAR}{{0,12}}"
+    rf"|木箱之间{_VAGUE_SAFE_CHAR}{{0,16}}"
+    rf"|光线较暗{_VAGUE_SAFE_CHAR}{{0,12}}"
+    rf"|排列着{_VAGUE_SAFE_CHAR}{{0,24}}"
+    rf"|占据画面{_VAGUE_SAFE_CHAR}{{0,24}}"
+    rf"|画面[左右]半部分{_VAGUE_SAFE_CHAR}{{0,16}}"
+    rf"|浅色木箱{_VAGUE_SAFE_CHAR}{{0,20}}"
+    rf"|画面{_VAGUE_SAFE_CHAR}{{0,28}}"
+    rf"|人物{_VAGUE_SAFE_CHAR}{{0,40}}"
+    rf"|佩戴{_VAGUE_SAFE_CHAR}{{0,24}}"
+    rf"|双眼闭合{_VAGUE_SAFE_CHAR}{{0,12}}"
+    rf"|手腕{_VAGUE_SAFE_CHAR}{{0,24}}"
+    rf"|包装纸上{_VAGUE_SAFE_CHAR}{{0,20}}"
+    rf"|障碍物{_VAGUE_SAFE_CHAR}{{0,28}}"
+    rf"|圆形孔洞{_VAGUE_SAFE_CHAR}{{0,16}}"
+    rf"|并排竖立{_VAGUE_SAFE_CHAR}{{0,16}}"
+    rf"|米色纸箱{_VAGUE_SAFE_CHAR}{{0,20}}"
+    rf"|右侧排列着{_VAGUE_SAFE_CHAR}{{0,28}}"
+    rf"|左侧排列着{_VAGUE_SAFE_CHAR}{{0,28}}"
+    rf"|袋装物品"
+    rf"|桶状物体|板状货物|包装物"
+    rf"|进行操作"
 )
 
 # Performative fillers that sound scripted on Edge TTS (Phase B · user ban + peers).
@@ -366,6 +714,8 @@ PRODUCT_PACKAGING_BANS: tuple[str, ...] = (
     "正面朝上",
     "盒装",
     "塑封",
+    "透明塑料膜",
+    "塑料薄膜",
     "白色平面",
     "绿色平面",
     "木质桌面",
@@ -656,6 +1006,9 @@ def scrub_video_meta_sentences(script: str) -> str:
     raw = (script or "").strip()
     if not raw:
         return ""
+    # VIDEO_LOCK strip_punctuation：无句号时不能把整段当一句 meta 清掉
+    if not re.search(r"[。！？!?]", raw):
+        return strip_vague_vision_spans(raw)
     kept: list[str] = []
     for part in re.split(r"(?<=[。！？!?])\s*", raw):
         p = part.strip()
@@ -668,7 +1021,88 @@ def scrub_video_meta_sentences(script: str) -> str:
                 kept.append(rescue[0])
             continue
         kept.append(p if p.endswith(("。", "！", "？", "!", "?")) else p + "。")
-    return "".join(kept)
+    out = "".join(kept)
+    out = strip_vague_vision_spans(out)
+    return out
+
+def strip_vague_vision_spans(script: str) -> str:
+    """Remove unidentified-object CV inventory even when punctuation was stripped.
+
+    User rule: if we cannot name the SKU, do not force-describe '黑色物体/能看到…'
+    in VO or burned subtitles.
+    """
+    raw = str(script or "")
+    if not raw:
+        return ""
+    out = raw
+    # Prefer cutting the whole CV dump before the next commercial CTA.
+    if re.search(rf"(?:{_COMMERCIAL_RESUME})", out):
+        out = _INVENTORY_BLOCK_BEFORE_CTA_RE.sub("", out)
+    out = _VAGUE_VISION_SPAN_RE.sub("", out)
+    # Orphan connective crumbs left between service lines (e.g. 帮着配是跟我们配)
+    out = re.sub(r"(配|齐)[是的着在且而]+(?=缺|跟|到店)", r"\1", out)
+    out = re.sub(r"[是的着在且而]+(?=缺哪样|跟我们配|到店)", "", out)
+    # Trailing half-cut spatial crumbs (e.g. 左侧背景处 / 侧面有)
+    out = re.sub(
+        r"(?:左侧|右侧|上方|下方|中间|前景|后景|侧面)?(?:背景处|背景)$",
+        "",
+        out,
+    )
+    out = re.sub(
+        r"(?:左侧|右侧|上方|下方|中间|前景|后景|侧面)(?:有|是|处)?$",
+        "",
+        out,
+    )
+    # Orphan clothing crumbs left when pose span cut mid-phrase
+    out = re.sub(r"穿[黑白灰蓝红]衣(?:的)?(?=缺|跟|到店|当面|$)", "", out)
+    out = re.sub(r"(?:上方|下方|左侧|右侧|中间|前景|后景|侧面|顶部|底部)(?=缺|跟|到店|需要|当面|劳防|$)", "", out)
+    out = re.sub(r"[黑白黄红蓝绿灰银橙]色?(?=缺|跟|到店|需要|当面|$)", "", out)
+    out = re.sub(r"一块巨大的[黑白黄红蓝绿灰银橙]?色?(?=缺|跟|到店|货以|先到|当面|$)", "", out)
+    out = re.sub(r"(?:巨大的)?[黑白黄红蓝绿灰银橙]色(?=缺|跟|到店|货以|先到|当面|$)", "", out)
+    out = re.sub(r"(?:男子|女子)(?=缺|跟|到店|当面|$)", "", out)
+    out = re.sub(r"[，,]{2,}", "，", out)
+    out = re.sub(r"[。．]{2,}", "。", out)
+    out = re.sub(r"，([。！？])", r"\1", out)
+    return out.strip(" ，,。．")
+
+
+def script_has_vague_vision_speak(text: str) -> bool:
+    """True when VO invents unidentified objects / pure CV inventory lines."""
+    compact = re.sub(r"\s+", "", str(text or ""))
+    if not compact:
+        return False
+    if _VAGUE_VISION_SPAN_RE.search(compact):
+        return True
+    if _INVENTORY_BLOCK_BEFORE_CTA_RE.search(compact):
+        return True
+    return bool(
+        re.search(
+            r"(能看到|可以看到|看得见|可见[蓝黄绿部分立]|"
+            r"人物?手持|人物正|"
+            r"[黑白黄红蓝绿灰银橙]色?(物体|物品|东西|包装物)|"
+            r"前景有|后景有|左侧地面|右侧依然|"
+            r"背景货架|结构清晰|蓝色立柱|金属立柱|橙色横梁|"
+            r"印有(黑色)?汉字|箱体(正面)?印有|左侧箱体|"
+            r"上方货架|货架上有|袋装物品|堆叠整齐|侧面有|"
+            r"金属框架|整齐码放|码放着多摞|黑色图案|"
+            r"左侧背景|右侧背景|背景处|背景有|"
+            r"袋子上(有|印有)|堆叠在一起|包装膜|有反光|"
+            r"条纹和文字|金属结构|塑料包装|印有|"
+            r"物体表面|物体堆叠|特写|圆柱体|反光带|塑料质感|"
+            r"缠绕有|表面呈现|方格反光|堆叠紧密|"
+            r"站在画面|画面左侧|画面右侧|手扶着|手放在|"
+            r"伸出[左右]臂|长条状|货物堆|一名穿|一位穿|"
+            r"穿.{0,8}(?:短袖|衣)|穿[黑白灰蓝红]衣|(男子|女子|的人)站在|"
+            r"覆盖在物体|物体上|防水布|工作人员正|忙碌地装载|"
+            r"屋顶结构|波纹金属|材质的屋顶|之间有空隙|木箱之间|"
+            r"光线较暗|排列着|占据画面|画面[左右]半|浅色木箱|画面|"
+            r"人物|佩戴|双眼闭合|手腕|包装纸上|"
+            r"障碍物|圆形孔洞|并排竖立|米色纸箱|"
+            r"桶状物体|木质托盘|打包带|"
+            r"堆叠着|表面包裹|透明塑料膜|边缘整齐|带有孔洞)",
+            compact,
+        )
+    )
 
 
 def to_spoken_line(text: str) -> str | None:
@@ -1979,6 +2413,8 @@ def _clause_from_hint(text: str) -> str:
     """Turn a vision caption into a mid-sentence action clause (no trailing period).
 
     Rejects composition/meta captions so loading VO does not recite CV prose.
+    Also rejects unidentified-object inventory (能看到/手持黑色物体/…): if we
+    cannot name the SKU, stay silent — picture already shows it.
     """
     raw = str(text or "").strip()
     if not raw:
@@ -1986,7 +2422,11 @@ def _clause_from_hint(text: str) -> str:
     # Semantic label codes (warehouse/loading/truck) are not speakable Chinese.
     if re.fullmatch(r"[A-Za-z0-9_./\-+\s]+", raw):
         return ""
-    if script_has_video_meta_speak(raw) or script_has_camera_direction(raw):
+    if (
+        script_has_video_meta_speak(raw)
+        or script_has_camera_direction(raw)
+        or script_has_vague_vision_speak(raw)
+    ):
         commercial = commercial_product_lines_from_hints([raw], limit=1)
         if commercial:
             return re.sub(r"[。！？!?]+$", "", commercial[0])
@@ -2004,8 +2444,12 @@ def _clause_from_hint(text: str) -> str:
     s = re.sub(r"[，,]{2,}", "，", s).strip("，,")
     if not s or not re.search(r"[\u4e00-\u9fff]", s):
         return ""
-    # Still meta after strip?
-    if script_has_video_meta_speak(s) or len(s) > 40:
+    # Still meta / vague after strip?
+    if (
+        script_has_video_meta_speak(s)
+        or script_has_vague_vision_speak(s)
+        or len(s) > 40
+    ):
         commercial = commercial_product_lines_from_hints([raw], limit=1)
         if commercial:
             return re.sub(r"[。！？!?]+$", "", commercial[0])
