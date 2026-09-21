@@ -1097,6 +1097,16 @@
         "竖屏 cue PNG Twemoji chroma 回归",
         "breath 语速对齐冻结规则 narration_rate"
       ]
+    },
+    "0.8.52": {
+      "title": "生产规则轮换池收窄（日常3/精品1/跟镜1）",
+      "summary": "始峰伟业轮换池收窄为日常3（#115 产品介绍·可产 / #89 稳镜日更 / #101 配送）+ 精品1（#121）+ 跟镜1（#83）；short4 模板退出默认同步。规则档案未删，仅关闭多余 rotation。不降 READY_GATE/L17/词包；封面默认仍确认才传。",
+      "highlights": [
+        "始峰 default 轮换池 ~22→3（可产 / 稳镜日更 / 配送）",
+        "premium 轮换池 4→1 · scene_tour 5→1",
+        "stable-product-short4 templates.active=0（非正式第四模板）",
+        "配置层热更新已验证；本包登记并覆盖安装"
+      ]
     }
   }
 }
