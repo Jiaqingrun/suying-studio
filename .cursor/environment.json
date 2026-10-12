@@ -1,0 +1,9 @@
+{
+  "name": "速影 Suying",
+  "install": "bash scripts/cloud-agent-install.sh",
+  "start": "bash scripts/cloud-agent-start.sh",
+  "ports": [
+    { "name": "engine", "port": 8766 },
+    { "name": "desktop", "port": 1420 }
+  ]
+}
