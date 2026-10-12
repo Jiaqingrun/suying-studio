@@ -19,6 +19,7 @@ MontageStudio/
 *.log
 # Keep project rules/skills versionable; ignore other local Cursor state.
 .cursor/*
+!.cursor/environment.json
 !.cursor/rules/
 !.cursor/rules/*.mdc
 !.cursor/skills/
